@@ -102,3 +102,22 @@ Test fixtures should not require `REVET_COOKIE_KEY` — when unset, the framewor
 ## `revet new myapp` then `revet dev` produces a wall of warnings
 
 Default user code compiles without `-Werror`. If warnings actually break your build, something else is wrong — read the warnings. Production builds turn on `-Werror` with `cmake -DREVET_STRICT=ON`.
+
+## `install.sh` fails with "could not create work tree dir"
+
+Symptom:
+
+```
+fatal: could not create work tree dir '/Users/you/.revet/src': Permission denied
+```
+
+Cause: `~/.revet/` is owned by root from a prior `sudo revet-fw install`. The user-facing `install.sh` runs as your user and cannot write into it. `sudo curl ... | sh` does not help — only `curl` runs as root; the `sh` after the pipe runs as you.
+
+Fix:
+
+```bash
+sudo chown -R $(whoami) ~/.revet
+curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | sh
+```
+
+Newer `install.sh` versions detect this and offer to chown automatically.

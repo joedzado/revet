@@ -19,6 +19,14 @@ command -v python3 >/dev/null 2>&1 || err "python3 is required. Install it and r
 OS=$(uname -s)
 case "$OS" in Darwin|Linux) ;; *) err "Unsupported OS: $OS" ;; esac
 
+# ── ensure ~/.revet is user-writable ──────────────────────────────────────────
+REVET_HOME="$HOME/.revet"
+if [ -e "$REVET_HOME" ] && [ ! -w "$REVET_HOME" ]; then
+    warn "$REVET_HOME exists but is not writable by $(whoami) (likely root-owned from a prior dev install)."
+    warn "Fixing ownership..."
+    sudo chown -R "$(whoami)" "$REVET_HOME" || err "Could not chown $REVET_HOME. Run: sudo chown -R \$(whoami) $REVET_HOME"
+fi
+
 # ── clone / update framework source ───────────────────────────────────────────
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing revet source..."
