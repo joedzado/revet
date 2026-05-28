@@ -1,0 +1,3 @@
+inline $t get_${t}_from_cookies(const web::ParamMap& cookies) {
+    return cookies.data.count("_cw_$t") ? unpack<$t>(cookies.data.at("_cw_$t")) : ${t}{};
+}

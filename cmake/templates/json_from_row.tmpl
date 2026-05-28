@@ -1,0 +1,5 @@
+template<> inline $name from_row<$name>([[maybe_unused]] const std::vector<std::string>& r) {
+    $name out{};
+$body
+    return out;
+}

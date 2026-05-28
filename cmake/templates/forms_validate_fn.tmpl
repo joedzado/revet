@@ -1,0 +1,6 @@
+inline validate::Result validate($struct_name& f) {
+    std::vector<validate::Error> errs;
+$body
+    if (!errs.empty()) return std::unexpected(std::move(errs));
+    return {};
+}

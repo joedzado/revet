@@ -1,0 +1,7 @@
+/* ── Sidebar state (pure CSS checkbox — no JS, no server round-trip) ─── */
+#sb-cb { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+body:has(#sb-cb:checked) #sidebar { transform: translateX(0); }
+@media (min-width: 769px) {
+  body:has(#sb-cb:checked) #wrap { margin-left: var(--sw); }
+}
+

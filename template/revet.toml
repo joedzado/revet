@@ -1,0 +1,17 @@
+name = "{{name}}"
+port = 8080
+
+# ── File Uploads ──────────────────────────────────────────────────────────────
+[uploads.files]
+# incoming and validated dirs are created automatically by cmake
+
+# ── Logging Configuration ─────────────────────────────────────────────────────
+[logging]
+enabled = true
+level = "info"  # Options: debug, info, warn, error
+
+# ── Database ──────────────────────────────────────────────────────────────────
+[resources.users_db]
+type = "sqlite"
+path = "build/data/users.db"
+pool_size = 4

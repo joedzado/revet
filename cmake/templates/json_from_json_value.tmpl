@@ -1,0 +1,6 @@
+// $name — from $src_file
+template<> inline $name from_json_value<$name>([[maybe_unused]] Value& v) {
+    $name out{};
+$body
+    return out;
+}

@@ -1,0 +1,15 @@
+    {
+        web::Route r; r.path = "$path";
+        r.post = [](const web::Request& req) -> web::Response {
+            bool cur = web::toggles::$name(req.cookies);
+            web::Response resp;
+            if (req.headers.is("hx-request")) {
+                resp.status = web::status::no_content;
+            } else {
+                resp = web::back(req);
+            }
+            resp.cookies.data["_cw_$name"] = cur ? "0" : "1";
+            return resp;
+        };
+        out.push_back(r);
+    }

@@ -1,0 +1,43 @@
+# Build output
+build/
+data/
+
+# CMake in-source artifacts (prefer out-of-source builds, but ignore either way)
+CMakeCache.txt
+CMakeFiles/
+CMakePresets.json
+CMakeUserPresets.json
+Testing/
+
+# Conan
+conanbuild.sh
+deactivate_conanbuild.sh
+conanbuildenv-*.sh
+deactivate_conanbuildenv-*.sh
+conanrun.sh
+deactivate_conanrun.sh
+conanrunenv-*.sh
+
+# Generated source (always regenerated from cmake/)
+src/generated/
+demo/CMakeLists.txt
+static/optimistic.js
+
+# Python test scaffolding artifacts
+tests.test_gen_*/
+__pycache__/
+
+# macOS
+.DS_Store
+
+# SQLite databases
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Editor / LSP
+.cache/
+profiles/
+
+# Playwright
+.playwright*

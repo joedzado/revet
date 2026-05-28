@@ -1,0 +1,10 @@
+namespace $name {
+    struct IncomingPath  { std::filesystem::path value; };
+    struct ValidatedPath { std::filesystem::path value; };
+
+    inline constexpr std::string_view incoming_dir  = "$incoming";
+    inline constexpr std::string_view validated_dir = "$validated";
+
+    inline IncomingPath  incoming (std::string_view filename) { return { std::filesystem::path("$incoming")  / filename }; }
+    inline ValidatedPath validated(std::string_view filename) { return { std::filesystem::path("$validated") / filename }; }
+} // namespace $name

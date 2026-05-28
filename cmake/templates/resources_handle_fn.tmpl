@@ -1,0 +1,2 @@
+template<typename Intent = db::Read>
+inline $ns::Handle<Intent> $name() { return $ns::Handle<Intent>{_pools::_pool_$name()}; }

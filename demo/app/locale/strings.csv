@@ -1,0 +1,253 @@
+key,en,es,fr
+nav_section_pages,Pages,Páginas,Pages
+nav_home,Home,Inicio,Accueil
+nav_users,Users,Usuarios,Utilisateurs
+nav_contact,Contact,Contacto,Contact
+nav_about,About,Acerca,À propos
+nav_components,Components,Componentes,Composants
+nav_nested,Nested,Anidado,Imbriqué
+nav_params,params,paráms,params
+nav_forms,forms,formularios,formulaires
+nav_ui,ui::,ui::,ui::
+hdr_badge,C++23,C++23,C++23
+page_home_eyebrow,Open-source · C++23 · zero runtime deps,Código abierto · C++23 · sin deps en tiempo de ejecución,Open-source · C++23 · zéro dépendance runtime
+page_home_h1,"C++ web, the modern way.","C++ web, a la manera moderna.","C++ web, à la manière moderne."
+page_home_body,"Server-rendered HTML with a type-safe DSL, struct-driven forms, HTMX support, and file-based routing — all in","HTML renderizado en servidor con un DSL tipado, formularios basados en structs, soporte HTMX y enrutamiento basado en archivos — todo en","HTML rendu côté serveur avec un DSL typé, des formulaires pilotés par structs, le support HTMX, et un routage par fichiers — le tout en"
+page_home_body_suffix,No runtime template parsing. No injection risk.,Sin análisis de plantillas en tiempo de ejecución. Sin riesgo de inyección.,Pas d'analyse de templates à l'exécution. Aucun risque d'injection.
+btn_try_form,Try the form →,Probar el formulario →,Essayer le formulaire →
+btn_browse_users,Browse users,Ver usuarios,Voir les utilisateurs
+btn_ui_components,ui:: components,Componentes ui::,Composants ui::
+stat_lines_js,lines of JS,líneas de JS,lignes de JS
+stat_lines_core,lines of core,líneas de core,lignes de core
+stat_standard,standard,estándar,standard
+stat_checks,compile-time checks,comprobaciones en compilación,vérifications à la compilation
+section_features,Features,Características,Fonctionnalités
+section_quick_look,Quick look,Vistazo rápido,Aperçu rapide
+section_quick_look_body,"Every page in this demo is server-rendered C++. No build step, no JS framework — just","Cada página de esta demo es C++ renderizado en servidor. Sin paso de construcción, sin framework JS — solo","Chaque page de cette démo est du C++ rendu côté serveur. Pas d'étape de build, pas de framework JS — juste"
+tab_routing,Routing,Enrutamiento,Routage
+tab_forms,Forms,Formularios,Formulaires
+tab_guards,Guards,Guardias,Guards
+tab_middleware,Middleware,Middleware,Middleware
+tab_routing_intro,"Drop a .cpp in site/ and it becomes a route. Parameterized paths like [id].cpp are zero-config.","Añade un .cpp en site/ y se convierte en una ruta. Las rutas parametrizadas como [id].cpp son zero-config.","Déposez un .cpp dans site/ et il devient une route. Les chemins paramétrés comme [id].cpp sont zero-config."
+tab_forms_intro,"Annotate a struct with [[revet::form]] to get automatic populate, validate, and render — with typed fields and error messages.","Anota un struct con [[revet::form]] para obtener populate, validate y render automáticos — con campos tipados y mensajes de error.","Annotez un struct avec [[revet::form]] pour obtenir populate, validate et render automatiques — avec des champs typés et des messages d'erreur."
+tab_guards_intro,"Add a route_guards() function returning a middleware vector. Guards run before render_get and can redirect or reject.","Añade una función route_guards() que devuelve un vector de middleware. Los guards se ejecutan antes de render_get y pueden redirigir o rechazar.","Ajoutez une fonction route_guards() retournant un vecteur de middleware. Les guards s'exécutent avant render_get et peuvent rediriger ou rejeter."
+tab_middleware_intro,"Register global middleware with web::use(). Each handler in the chain calls next() to continue.","Registra middleware global con web::use(). Cada handler en la cadena llama a next() para continuar.","Enregistrez un middleware global avec web::use(). Chaque handler dans la chaîne appelle next() pour continuer."
+feat_routing_title,File-based routing,Enrutamiento basado en archivos,Routage par fichiers
+feat_routing_body,"Drop a .cpp in site/ and it becomes a route. Nested folders, parameterized paths like [id].cpp, all zero-config.","Añade un .cpp en site/ y se convierte en una ruta. Carpetas anidadas, rutas parametrizadas como [id].cpp, todo zero-config.","Déposez un .cpp dans site/ et il devient une route. Dossiers imbriqués, chemins paramétrés comme [id].cpp, tout est zero-config."
+feat_forms_title,Struct-driven forms,Formularios basados en structs,Formulaires pilotés par structs
+feat_forms_body,"Annotate a struct with [[revet::form]] to get automatic populate, validate, and render — with typed fields and validation rules.","Anota un struct con [[revet::form]] para obtener populate, validate y render automáticos — con campos tipados y reglas de validación.","Annotez un struct avec [[revet::form]] pour obtenir populate, validate et render automatiques — avec des champs typés et des règles de validation."
+feat_htmx_title,HTMX native,HTMX nativo,HTMX natif
+feat_htmx_body,"First-class htmx:: attribute helpers, request detection, and response header helpers. Build dynamic UIs without writing JavaScript.","Helpers de atributos htmx:: de primera clase, detección de peticiones y helpers de cabeceras de respuesta. Crea UIs dinámicas sin escribir JavaScript.","Helpers d'attributs htmx:: de première classe, détection de requêtes et helpers d'en-têtes de réponse. Créez des UIs dynamiques sans écrire de JavaScript."
+feat_security_title,Safe by default,Seguro por defecto,Sécurisé par défaut
+feat_security_body,"All text content is XSS-escaped automatically. Cookies are encrypted with libsodium. Only html::raw() bypasses escaping.","Todo el contenido de texto se escapa de XSS automáticamente. Las cookies se cifran con libsodium. Solo html::raw() evita el escapado.","Tout le contenu textuel est échappé XSS automatiquement. Les cookies sont chiffrés avec libsodium. Seul html::raw() contourne l'échappement."
+feat_guards_title,Guards & middleware,Guards y middleware,Guards et middleware
+feat_guards_body,"Global middleware pipeline with web::use(). Per-route guards for auth. Runs guards first, then global middleware.","Pipeline de middleware global con web::use(). Guards por ruta para auth. Ejecuta los guards primero, luego el middleware global.","Pipeline de middleware global avec web::use(). Guards par route pour l'auth. Exécute les guards d'abord, puis le middleware global."
+feat_logging_title,Tag-based logging,Logging basado en etiquetas,Logging par tags
+feat_logging_body,"Compile-time log tags per translation unit. log::info(), log::warn(), log::error() with std::format support.","Tags de log en tiempo de compilación por unidad de traducción. log::info(), log::warn(), log::error() con soporte de std::format.","Tags de log au moment de la compilation par unité de traduction. log::info(), log::warn(), log::error() avec support de std::format."
+page_about_eyebrow,About revet,Acerca de revet,À propos de revet
+page_about_h1,A C++ web framework.,Un framework web en C++.,Un framework web en C++.
+page_about_body,"Inspired by the ergonomics of modern JS frameworks like Next.js or Remix, but written in pure C++23. It aims to provide the same productivity without the runtime cost or complexity of a heavy JS stack.","Inspirado en la ergonomía de los frameworks JS modernos como Next.js o Remix, pero escrito en C++23 puro. Su objetivo es ofrecer la misma productividad sin el coste de tiempo de ejecución ni la complejidad de un stack JS pesado.","Inspiré par l'ergonomie des frameworks JS modernes comme Next.js ou Remix, mais écrit en C++23 pur. Il vise à offrir la même productivité sans le coût d'exécution ni la complexité d'un stack JS lourd."
+section_vision,The Vision,La Visión,La Vision
+vision_body,"C++ has all the tools for modern web development: strong types, standard formatting, excellent performance, and modern syntax. revet brings these together with a focus on","C++ tiene todas las herramientas para el desarrollo web moderno: tipos fuertes, formateo estándar, excelente rendimiento y sintaxis moderna. revet las une con foco en","C++ possède tous les outils pour le développement web moderne : types forts, formatage standard, excellentes performances et syntaxe moderne. revet les réunit avec un accent sur"
+vision_dx,Developer Experience,Experiencia del Desarrollador,Expérience Développeur
+card_no_build_step,No Build Step,Sin Paso de Compilación,Sans Étape de Build
+card_no_build_step_body,"Write C++, run the dev server. Recompilation is fast and automatic.","Escribe C++, ejecuta el servidor de desarrollo. La recompilación es rápida y automática.","Écrivez du C++, lancez le serveur de développement. La recompilation est rapide et automatique."
+card_type_safe_dsl,Type-safe DSL,DSL con Tipos Seguros,DSL avec Types Sûrs
+card_type_safe_dsl_body,No more string concatenations or template injection risks.,Sin más concatenaciones de cadenas ni riesgos de inyección de plantillas.,Plus de concaténations de chaînes ni de risques d'injection de templates.
+card_zero_deps,Zero Runtime Deps,Sin Dependencias en Runtime,Zéro Dépendance Runtime
+card_zero_deps_body,The compiled binary is all you need to deploy.,El binario compilado es todo lo que necesitas para desplegar.,Le binaire compilé est tout ce dont vous avez besoin pour déployer.
+tab_code_style,Code Style,Estilo de Código,Style de Code
+tab_state_mgmt,State Management,Gestión de Estado,Gestion d'État
+tab_code_style_intro,"Routes are plain C++ functions. The html:: DSL composes into valid HTML at compile time — no strings, no injection risk.","Las rutas son funciones C++ simples. El DSL html:: compone HTML válido en tiempo de compilación — sin cadenas, sin riesgo de inyección.","Les routes sont de simples fonctions C++. Le DSL html:: compose du HTML valide à la compilation — sans chaînes, sans risque d'injection."
+tab_state_intro,"State lives in encrypted, signed cookies. No session database needed. The framework serializes and deserializes your structs automatically.","El estado vive en cookies cifradas y firmadas. No se necesita base de datos de sesión. El framework serializa y deserializa tus structs automáticamente.","L'état vit dans des cookies chiffrés et signés. Pas de base de données de session nécessaire. Le framework sérialise et désérialise vos structs automatiquement."
+page_contact_eyebrow,Interactive Demo,Demo Interactiva,Démo Interactive
+page_contact_h1,Contact sales,Contactar ventas,Contacter les ventes
+page_contact_body,"Fill out the form below to test the server-side validation and HTMX partial updates.","Rellena el formulario de abajo para probar la validación del lado del servidor y las actualizaciones parciales de HTMX.","Remplissez le formulaire ci-dessous pour tester la validation côté serveur et les mises à jour partielles HTMX."
+section_rendered_form,Rendered form,Formulario renderizado,Formulaire rendu
+field_full_name,Full name,Nombre completo,Nom complet
+field_email_addr,Email address,Dirección de correo,Adresse e-mail
+field_message,Message,Mensaje,Message
+field_phone,Phone (optional),Teléfono (opcional),Téléphone (optionnel)
+btn_send_message,Send message,Enviar mensaje,Envoyer le message
+page_sent_h1,Sent!,¡Enviado!,Envoyé !
+page_sent_body,Thanks,Gracias,Merci
+page_sent_received,Your message was received.,Tu mensaje fue recibido.,Votre message a été reçu.
+alert_form_ok,Form validated successfully,Formulario validado correctamente,Formulaire validé avec succès
+label_email,Email:,Correo:,E-mail :
+btn_send_another,Send another,Enviar otro,Envoyer un autre
+error_validation_failed,Validation failed,Validación fallida,Échec de la validation
+error_correct_below,Please correct the errors below.,Por favor corrige los errores a continuación.,Veuillez corriger les erreurs ci-dessous.
+page_components_eyebrow,CSS-only · zero JS · composable,Solo CSS · sin JS · composable,CSS uniquement · zéro JS · composable
+page_components_h1,ui:: components,Componentes ui::,Composants ui::
+page_components_body,"Interactive components built entirely from CSS — no JavaScript. Each ui:: call enqueues its CSS once per request and returns composable html::Node values.","Componentes interactivos construidos íntegramente con CSS — sin JavaScript. Cada llamada ui:: encola su CSS una vez por solicitud y devuelve valores html::Node componibles.","Composants interactifs construits entièrement en CSS — sans JavaScript. Chaque appel ui:: met en file son CSS une fois par requête et retourne des valeurs html::Node composables."
+section_toggle,Toggle,Toggle,Toggle
+toggle_desc,"A hidden checkbox + :has(:checked) shows and hides content. No JS required.","Una casilla oculta + :has(:checked) muestra y oculta contenido. No se requiere JS.","Une case cachée + :has(:checked) affiche et masque le contenu. Pas de JS requis."
+toggle_what_label,What is revet?,¿Qué es revet?,Qu'est-ce que revet ?
+toggle_what_body,"revet is a C++23 server-rendered web framework with type-safe HTML, struct-driven forms, and file-based routing. Every page in this demo is generated in C++ at request time — no template parsing, no injection risk.","revet es un framework web C++23 renderizado en servidor con HTML tipado, formularios basados en structs y enrutamiento basado en archivos. Cada página de esta demo se genera en C++ en tiempo de solicitud — sin análisis de plantillas, sin riesgo de inyección.","revet est un framework web C++23 rendu côté serveur avec HTML typé, formulaires pilotés par structs et routage par fichiers. Chaque page de cette démo est générée en C++ au moment de la requête — pas d'analyse de templates, pas de risque d'injection."
+toggle_why_label,Why CSS-only components?,¿Por qué componentes solo CSS?,Pourquoi des composants CSS uniquement ?
+toggle_why_body,"When interactions can be expressed as state transitions on a checkbox or radio group, CSS :has() and :checked let the browser handle the logic natively — faster, more accessible, and entirely server-renderable.","Cuando las interacciones pueden expresarse como transiciones de estado en una casilla o grupo de radio, CSS :has() y :checked permiten al navegador manejar la lógica de forma nativa — más rápido, más accesible y completamente renderizable en servidor.","Quand les interactions peuvent s'exprimer comme des transitions d'état sur une case ou un groupe radio, CSS :has() et :checked laissent le navigateur gérer la logique nativement — plus rapide, plus accessible, et entièrement rendu côté serveur."
+section_accordion,Accordion,Acordeón,Accordéon
+section_accordion_body,"Uses <details>/<summary> with @starting-style entry animation.","Usa <details>/<summary> con animación de entrada @starting-style.","Utilise <details>/<summary> avec animation d'entrée @starting-style."
+acc_q1,What languages does revet support?,¿Qué lenguajes soporta revet?,Quels langages revet supporte-t-il ?
+acc_a1,"revet is written in C++23 and targets the same. Routes, forms, components — all C++. HTML is produced by the html:: DSL at compile time.","revet está escrito en C++23 y apunta al mismo. Rutas, formularios, componentes — todo C++. El HTML es producido por el DSL html:: en tiempo de compilación.","revet est écrit en C++23 et cible le même standard. Routes, formulaires, composants — tout en C++. Le HTML est produit par le DSL html:: à la compilation."
+acc_q2,Does it need a database?,¿Necesita una base de datos?,Nécessite-t-il une base de données ?
+acc_a2,"No. SQLite is built-in and optional. You can also connect PostgreSQL, or skip the database entirely for purely server-rendered pages.","No. SQLite está integrado y es opcional. También puedes conectar PostgreSQL, o prescindir de la base de datos para páginas puramente renderizadas en servidor.","Non. SQLite est intégré et optionnel. Vous pouvez aussi connecter PostgreSQL, ou ne pas utiliser de base de données pour des pages purement rendues côté serveur."
+acc_q3,How does routing work?,¿Cómo funciona el enrutamiento?,Comment fonctionne le routage ?
+acc_a3,"Drop a .cpp file in site/ and it becomes a route. Nested folders become path segments. [id].cpp becomes a parameterized route like /users/:id.","Añade un archivo .cpp en site/ y se convierte en una ruta. Las carpetas anidadas se convierten en segmentos de ruta. [id].cpp se convierte en una ruta parametrizada como /users/:id.","Déposez un fichier .cpp dans site/ et il devient une route. Les dossiers imbriqués deviennent des segments de chemin. [id].cpp devient une route paramétrée comme /users/:id."
+section_modal,Modal,Modal,Modal
+modal_desc,"Native popover API — browser-managed backdrop, focus trap, and Escape key. No JS.","API popover nativa — fondo gestionado por el navegador, trampa de foco y tecla Escape. Sin JS.","API popover native — fond géré par le navigateur, piège de focus et touche Escape. Pas de JS."
+modal_open,Open modal,Abrir modal,Ouvrir la modale
+modal_title,Modal title,Título del modal,Titre de la modale
+modal_body,"This modal uses the browser-native popover attribute. Press Escape or click the backdrop to dismiss it. No JavaScript involved.","Este modal usa el atributo popover nativo del navegador. Pulsa Escape o haz clic en el fondo para cerrarlo. Sin JavaScript.","Cette modale utilise l'attribut popover natif du navigateur. Appuyez sur Escape ou cliquez sur le fond pour la fermer. Pas de JavaScript."
+section_dropdown,Dropdown,Desplegable,Menu déroulant
+dropdown_desc,"Checkbox toggle — click to open, click again or click outside to close. No JS.","Toggle de casilla — clic para abrir, clic de nuevo o clic fuera para cerrar. Sin JS.","Toggle de case — clic pour ouvrir, clic à nouveau ou clic à l'extérieur pour fermer. Pas de JS."
+dd_item_docs,Documentation,Documentación,Documentation
+dd_item_source,Source code,Código fuente,Code source
+section_tabs,Tabs,Pestañas,Onglets
+tabs_desc,"Radio inputs + :has(:checked) instance CSS controls panel visibility.","Inputs de radio + :has(:checked) CSS de instancia controla la visibilidad del panel.","Inputs radio + :has(:checked) CSS d'instance contrôle la visibilité du panneau."
+tab_setup,Setup,Configuración,Configuration
+tab_setup_intro,"Install via Conan or copy the include/ directory into your project.","Instala via Conan o copia el directorio include/ en tu proyecto.","Installez via Conan ou copiez le répertoire include/ dans votre projet."
+tab_comp_routing_intro,"Create a file in site/ to register a route:","Crea un archivo en site/ para registrar una ruta:","Créez un fichier dans site/ pour enregistrer une route :"
+tab_comp_forms_intro,"Annotate a struct with [[revet::form]] for automatic populate, validate, and render:","Anota un struct con [[revet::form]] para populate, validate y render automáticos:","Annotez un struct avec [[revet::form]] pour populate, validate et render automatiques :"
+section_tooltip,Tooltip,Tooltip,Info-bulle
+tooltip_desc,"Pure CSS hover tooltip — position:absolute + opacity transition, no JS.","Tooltip hover CSS puro — position:absolute + transición de opacidad, sin JS.","Info-bulle hover CSS pur — position:absolute + transition d'opacité, pas de JS."
+tooltip_hover,Hover me,Pásame el cursor,Survolez-moi
+tooltip_text,This is a pure-CSS tooltip,Este es un tooltip CSS puro,C'est une info-bulle CSS pur
+tooltip_also,Also me,También yo,Moi aussi
+tooltip_also_text,Tooltip on a colored element,Tooltip en un elemento de color,Info-bulle sur un élément coloré
+section_carousel,Carousel,Carrusel,Carrousel
+section_carousel_body,"native scroll with snap points, no JS slider.","scroll nativo con puntos de ajuste, sin slider JS.","défilement natif avec points d'ancrage, sans slider JS."
+dropdown_options,Options ▾,Opciones ▾,Options ▾
+car_routing_title,File routing,Enrutamiento por archivos,Routage par fichiers
+car_routing_desc,Drop a .cpp and get a route.,Añade un .cpp y obtén una ruta.,Déposez un .cpp et obtenez une route.
+car_html_title,Type-safe HTML,HTML con tipos seguros,HTML typé
+car_html_desc,html:: DSL escaped by default.,DSL html:: escapado por defecto.,DSL html:: échappé par défaut.
+car_forms_title,Struct forms,Formularios struct,Formulaires struct
+car_forms_desc,Validate from a C++ struct.,Valida desde un struct de C++.,Validez depuis un struct C++.
+car_js_title,Zero JS,Sin JS,Zéro JS
+car_js_desc,HTMX opt-in for dynamic UIs.,HTMX opcional para UIs dinámicas.,HTMX optionnel pour les UIs dynamiques.
+car_db_title,Built-in DB,BD integrada,BD intégrée
+car_db_desc,SQLite & PostgreSQL pools.,Pools de SQLite y PostgreSQL.,Pools SQLite et PostgreSQL.
+section_scroll_reveal,Scroll Reveal,Revelación por Scroll,Révélation au Défilement
+section_scroll_body,"— each card is sticky-pinned inside a tall scroll driver.","— cada tarjeta está anclada dentro de un driver de scroll alto.","— chaque carte est épinglée dans un driver de défilement."
+section_scroll_body2,"animates the background through monochrome theme vars as you scroll.","anima el fondo a través de variables de tema monocromáticas al desplazarse.","anime l'arrière-plan à travers des variables de thème monochromes en défilant."
+pin_routing_desc,"Drop a .cpp in site/ and it becomes a route. Nested folders become path segments.","Añade un .cpp en site/ y se convierte en una ruta. Las carpetas anidadas se convierten en segmentos de ruta.","Déposez un .cpp dans site/ et il devient une route. Les dossiers imbriqués deviennent des segments de chemin."
+pin_html_desc,"The html:: DSL composes nodes at compile time. All text is escaped by default — no injection risk.","El DSL html:: compone nodos en tiempo de compilación. Todo el texto se escapa por defecto — sin riesgo de inyección.","Le DSL html:: compose des nœuds à la compilation. Tout le texte est échappé par défaut — pas de risque d'injection."
+pin_css_title,CSS-only components,Componentes solo CSS,Composants CSS uniquement
+pin_css_desc,"Every ui:: component — toggle, accordion, modal, tabs — runs on pure CSS. Zero JavaScript.","Cada componente ui:: — toggle, acordeón, modal, pestañas — funciona con CSS puro. Cero JavaScript.","Chaque composant ui:: — toggle, accordéon, modale, onglets — fonctionne en CSS pur. Zéro JavaScript."
+section_sidebar_theme,Sidebar + Theme Toggle,Barra lateral + Cambio de tema,Barre latérale + Bascule de thème
+sidebar_theme_desc,":has(:checked) collapses the sidebar. The theme toggle inside is scoped to this widget — doesn't affect the rest of the page.",":has(:checked) colapsa la barra lateral. El toggle de tema dentro está limitado a este widget — no afecta al resto de la página.",":has(:checked) réduit la barre latérale. Le toggle de thème à l'intérieur est limité à ce widget — n'affecte pas le reste de la page."
+sb_demo_nav,Navigation,Navegación,Navigation
+sb_demo_main,This is the main content area. Collapse the sidebar or flip the theme — both scoped to this widget.,Este es el área de contenido principal. Colapsa la barra lateral o cambia el tema — ambos limitados a este widget.,C'est la zone de contenu principal. Réduisez la barre latérale ou changez le thème — les deux limités à ce widget.
+demo_theme_label,Theme,Tema,Thème
+page_team_h1,Credits,Créditos,Crédits
+page_team_body,"A cast of fictional characters. No actual engineers were harmed in the making of this framework.","Un elenco de personajes ficticios. Ningún ingeniero real fue dañado en la creación de este framework.","Une distribution de personnages fictifs. Aucun ingénieur n'a été blessé lors de la création de ce framework."
+stat_runtime_deps,runtime deps,dependencias runtime,dépendances runtime
+section_contributors,Contributors,Colaboradores,Contributeurs
+h2_getting_involved,Getting involved,Cómo participar,Participer
+getting_involved_body,"revet is currently in its experimental phase. We welcome feedback, bug reports, and PRs.","revet está actualmente en fase experimental. Agradecemos comentarios, informes de errores y PRs.","revet est actuellement en phase expérimentale. Nous accueillons les retours, les rapports de bugs et les PRs."
+toggle_dev_commands,Show dev commands,Mostrar comandos de desarrollo,Afficher les commandes de développement
+page_users_eyebrow,Resource Management,Gestión de Recursos,Gestion des Ressources
+page_users_h1,User database,Base de datos de usuarios,Base de données utilisateurs
+page_users_body,Testing parameterized routes and shared data structures.,Probando rutas parametrizadas y estructuras de datos compartidas.,Test des routes paramétrées et des structures de données partagées.
+section_staff_directory,Staff Directory,Directorio de Personal,Répertoire du Personnel
+col_name,Name,Nombre,Nom
+col_email,Email,Correo,E-mail
+col_id,ID,ID,ID
+user_staff_badge,Staff,Personal,Personnel
+user_staff_tooltip,Internal staff member with full platform access,Miembro del personal interno con acceso completo a la plataforma,Membre du personnel interne avec accès complet à la plateforme
+page_user_not_found,User not found,Usuario no encontrado,Utilisateur introuvable
+user_not_found_body,"The user ID does not exist in our database.","El ID de usuario no existe en nuestra base de datos.","L'ID utilisateur n'existe pas dans notre base de données."
+btn_back_to_list,Back to list,Volver a la lista,Retour à la liste
+section_account_activity,Account Activity,Actividad de la Cuenta,Activité du Compte
+card_last_login,Last login,Último inicio de sesión,Dernière connexion
+card_last_login_val,2 hours ago,hace 2 horas,il y a 2 heures
+card_last_login_detail,From 192.168.1.1,Desde 192.168.1.1,Depuis 192.168.1.1
+card_status,Status,Estado,Statut
+card_status_val,Active,Activo,Actif
+card_status_detail,Verified staff member,Miembro del personal verificado,Membre du personnel vérifié
+label_id,"ID:","ID:","ID :"
+nav_live,Live,En vivo,En direct
+page_not_found_h1,404: Page Not Found,404: Página no encontrada,404 : Page introuvable
+page_not_found_body,The page you are looking for does not exist.,La página que buscas no existe.,La page que vous recherchez n'existe pas.
+page_live_eyebrow,SSE · Real-time streaming,SSE · Streaming en tiempo real,SSE · Streaming en temps réel
+page_live_h1,Live Color Stream,Flujo de colores en vivo,Flux de couleurs en direct
+page_live_body,"Server pushes random hex colors via Server-Sent Events. HTMX appends each swatch — no polling, no WebSocket, no JS.","El servidor envía colores aleatorios por SSE. HTMX inserta cada muestra — sin polling, sin WebSocket, sin JS.","Le serveur envoie des couleurs aléatoires via SSE. HTMX insère chaque échantillon — sans polling, sans WebSocket, sans JS."
+nav_interactive,Interactive,Interactivo,Interactif
+page_interactive_eyebrow,Browser APIs · minimal JS · progressively enhanced,APIs del navegador · JS mínimo · mejora progresiva,APIs navigateur · JS minimal · amélioration progressive
+page_interactive_h1,ui::js:: utilities,Utilidades ui::js::,Utilitaires ui::js::
+page_interactive_body,"Small event-delegation handlers — each registered once, activated by data attributes. Works with HTMX-swapped content.","Pequeños manejadores de delegación de eventos — cada uno registrado una vez, activado por atributos de datos. Funciona con contenido intercambiado por HTMX.","Petits gestionnaires de délégation d'événements — chacun enregistré une fois, activé par des attributs de données. Fonctionne avec le contenu échangé par HTMX."
+section_clipboard,Clipboard,Portapapeles,Presse-papiers
+section_auto_resize,Auto-resize Textarea,Textarea de tamaño automático,Textarea à redimensionnement automatique
+section_char_counter,Character Counter,Contador de caracteres,Compteur de caractères
+section_debounce,Debounced Input,Entrada con rebote,Saisie avec délai
+section_kbd,Keyboard Shortcut,Atajo de teclado,Raccourci clavier
+section_scroll_to_top,Scroll To Top,Volver arriba,Retour en haut
+section_other_js,More Utilities,Más utilidades,Plus d'utilitaires
+nav_chat,Chat,Chat,Tchat
+nav_upload,Upload,Subir,Télécharger
+page_upload_eyebrow,Multipart · magic-byte validation · path jail,Multipart · validación por bytes mágicos · jaula de rutas,Multipart · validation magic bytes · jail de chemin
+page_upload_h1,File Uploads,Subida de archivos,Téléchargement de fichiers
+"page_upload_body","Multipart form-data parsing with magic-byte type detection, size guards, and composable validators. Files land in a tmp dir, pass validation, then move atomically to a jailed destination.","Análisis multipart con detección por bytes mágicos, guardianes de tamaño y validadores. Los archivos llegan a un tmp, pasan validación y se mueven atómicamente a un destino restringido.","Analyse multipart avec détection par magic bytes, gardes de taille et validateurs. Les fichiers arrivent dans tmp, passent la validation, puis sont déplacés atomiquement vers une destination restreinte."
+section_upload_form,Upload form,Formulario de subida,Formulaire d'envoi
+section_route_handler,Route handler,Manejador de ruta,Handler de route
+section_size_guard,Size guard,Límite de tamaño,Limite de taille
+section_custom_validators,Custom validators,Validadores personalizados,Validateurs personnalisés
+section_upload_result,Result,Resultado,Résultat
+upload_file_label,"Image file (jpeg, png, gif, webp)","Imagen (jpeg, png, gif, webp)","Image (jpeg, png, gif, webp)"
+btn_upload,Upload,Subir,Envoyer
+upload_form_desc_a,"Form uses ","El formulario usa ","Le formulaire utilise "
+upload_form_desc_b,". The ",". El ",". Le "
+upload_form_desc_c," function intercepts the POST, validates each file via magic-byte detection, then atomically moves it from the tmp incoming dir to "," intercepta el POST, valida cada archivo por bytes mágicos y lo mueve atómicamente del directorio temporal a "," intercepte le POST, valide chaque fichier par magic bytes et le déplace atomiquement du répertoire tmp vers "
+upload_form_desc_d," before your handler runs."," antes de que tu handler se ejecute."," avant l'exécution de votre handler."
+upload_toml_desc,"Declare an uploads bucket. The framework creates both directories at configure time with restrictive permissions — incoming at 0700 (not web-accessible), validated at 0750.","Declara un bucket de subidas. El framework crea ambos directorios al configurar con permisos restrictivos — incoming en 0700 (no accesible desde la web), validated en 0750.","Déclarez un bucket d'envoi. Le framework crée les deux répertoires à la configuration avec des permissions restrictives — incoming à 0700 (inaccessible depuis le web), validated à 0750."
+upload_handler_desc_a," is a middleware factory. Files that fail type or validator checks are deleted from disk immediately — your handler never sees them. Detected type comes from magic bytes, not the "," es una fábrica de middleware. Los archivos que fallan los controles se eliminan del disco inmediatamente — tu handler nunca los ve. El tipo detectado proviene de bytes mágicos, no de la "," est une factory de middleware. Les fichiers qui échouent les contrôles sont supprimés du disque immédiatement — votre handler ne les voit jamais. Le type détecté vient des magic bytes, pas de l'en-tête "
+upload_handler_desc_b," header, so spoofed extensions are caught."," por lo que las extensiones falsas son detectadas."," donc les extensions falsifiées sont détectées."
+upload_size_guard_desc," is a built-in validator. Compose it alongside the type allowlist via "," es un validador integrado. Combínalo junto con la lista de tipos permitidos mediante "," est un validateur intégré. Combinez-le avec la liste de types autorisés via "
+upload_custom_val_desc_pre,"Any ","Cualquier ","Tout "
+upload_custom_val_desc_suf," works as a validator. The file is already on disk when your validator runs — open it, inspect headers, check dimensions, whatever you need."," funciona como validador. El archivo ya está en disco cuando tu validador se ejecuta — ábrelo, inspecciona las cabeceras, comprueba las dimensiones, lo que necesites."," fonctionne comme validateur. Le fichier est déjà sur le disque quand votre validateur s'exécute — ouvrez-le, inspectez les en-têtes, vérifiez les dimensions, selon vos besoins."
+upload_file_accepted,File accepted,Archivo aceptado,Fichier accepté
+upload_label_name,"Name: ","Nombre: ","Nom : "
+upload_label_detected_type,"Detected type: ","Tipo detectado: ","Type détecté : "
+upload_label_declared_type,"Declared type: ","Tipo declarado: ","Type déclaré : "
+upload_label_size,"Size: ","Tamaño: ","Taille : "
+upload_label_stored_at,"Stored at: ","Almacenado en: ","Stocké à : "
+upload_accepted_h1,Upload accepted,Subida aceptada,Envoi accepté
+btn_upload_another,← Upload another,← Subir otro,← Envoyer un autre
+snippet_usage,Usage,Uso,Utilisation
+snippet_usage_htmx,Usage with HTMX,Uso con HTMX,Utilisation avec HTMX
+interactive_clipboard_desc_pre,"Click to copy. The value lives in a ","Haz clic para copiar. El valor vive en un atributo ","Cliquez pour copier. La valeur est stockée dans un attribut "
+interactive_clipboard_desc_suf," attribute — no injection risk regardless of content. A green outline confirms the copy."," — sin riesgo de inyección independientemente del contenido. Un contorno verde confirma la copia."," — aucun risque d'injection quel que soit le contenu. Un contour vert confirme la copie."
+interactive_auto_resize_desc_pre,"Textarea grows to fit content as the user types. Drop ","La textarea crece para ajustarse al contenido al escribir. Añade ","La textarea s'agrandit pour s'adapter au contenu. Déposez "
+interactive_auto_resize_desc_mid," into any "," en cualquier "," dans tout "
+interactive_auto_resize_placeholder,Type here — watch me grow…,Escribe aquí — mira cómo crezco…,Écrivez ici — regardez-moi grandir…
+interactive_char_counter_desc,"Live character count with optional max. Counter element can be anywhere in the DOM — referenced by id.","Contador de caracteres en vivo con máximo opcional. El elemento contador puede estar en cualquier lugar del DOM — referenciado por id.","Compteur de caractères en direct avec maximum optionnel. L'élément compteur peut être n'importe où dans le DOM — référencé par id."
+interactive_tweet_placeholder,"What's happening? (280 chars max)","¿Qué está pasando? (máx. 280 caracteres)","Que se passe-t-il ? (280 caractères max)"
+interactive_debounce_desc_pre,"Fires a ","Lanza un evento ","Déclenche un événement "
+interactive_debounce_desc_mid," event after the user stops typing. Pair with "," después de que el usuario deja de escribir. Combina con "," après que l'utilisateur arrête de taper. Combinez avec "
+interactive_debounce_desc_suf," to avoid spamming requests on every keystroke."," para evitar enviar solicitudes en cada tecla."," pour éviter d'envoyer des requêtes à chaque frappe."
+interactive_search_placeholder,"Search countries (400 ms debounce)…","Buscar países (rebote de 400 ms)…","Rechercher des pays (délai 400 ms)…"
+interactive_kbd_desc,"Attach a keyboard shortcut to any element — it receives a simulated click when the combo fires. Ignored while focus is in an input field.","Adjunta un atajo de teclado a cualquier elemento — recibe un clic simulado cuando se activa la combinación. Ignorado mientras el foco está en un campo de entrada.","Attachez un raccourci clavier à n'importe quel élément — il reçoit un clic simulé quand la combinaison est déclenchée. Ignoré quand le focus est dans un champ de saisie."
+interactive_kbd_search,"Search  ","Buscar  ","Rechercher  "
+interactive_kbd_help,"Help  ","Ayuda  ","Aide  "
+interactive_scroll_top_desc_pre,"A back-to-top button hidden until the user scrolls down. Uses an IntersectionObserver on a sentinel div at the top of the page — no scroll listeners, no polling. Drop ","Un botón para volver arriba oculto hasta que el usuario se desplace. Usa un IntersectionObserver en un div centinela — sin listeners de scroll, sin polling. Añade ","Un bouton retour en haut caché jusqu'à ce que l'utilisateur défile. Utilise un IntersectionObserver sur une div sentinelle — pas de listeners, pas de polling. Déposez "
+interactive_scroll_top_desc_suf," on any element."," en cualquier elemento."," sur n'importe quel élément."
+interactive_more_utilities_pre,"Additional utilities available in ","Utilidades adicionales disponibles en ","Utilitaires supplémentaires disponibles dans "
+js_click_outside_title,Click-outside-to-close,Cerrar al hacer clic fuera,Fermer au clic extérieur
+js_click_outside_body,"Hides element when user clicks anywhere outside. Best for dropdowns and popovers.","Oculta el elemento cuando el usuario hace clic en cualquier lugar fuera. Ideal para desplegables y popovers.","Masque l'élément quand l'utilisateur clique en dehors. Idéal pour les menus déroulants et popovers."
+js_focus_trap_title,Focus trap,Trampa de foco,Piège de focus
+js_focus_trap_body,"Traps Tab/Shift+Tab within a container. Add focus_trap_escape to close on Esc. Essential for modals.","Atrapa Tab/Shift+Tab dentro de un contenedor. Añade focus_trap_escape para cerrar con Esc. Esencial para modales.","Piège Tab/Shift+Tab dans un conteneur. Ajoutez focus_trap_escape pour fermer avec Esc. Essentiel pour les modales."
+js_geolocate_title,Geolocation,Geolocalización,Géolocalisation
+js_geolocate_body,"Requests browser location and fills an input with lat,lng. Good for address/map forms.","Solicita la ubicación del navegador y rellena un input con lat,lng. Ideal para formularios de dirección/mapa.","Demande la localisation du navigateur et remplit un input avec lat,lng. Idéal pour les formulaires d'adresse/carte."
+js_fullscreen_title,Fullscreen toggle,Pantalla completa,Plein écran
+js_fullscreen_body,"Toggles fullscreen on a target element (or whole page). Useful for video and image viewers.","Activa/desactiva pantalla completa en un elemento (o toda la página). Útil para reproductores de vídeo e imagen.","Bascule le plein écran sur un élément (ou toute la page). Utile pour les lecteurs vidéo et image."
+js_paste_zone_title,Image paste,Pegar imagen,Coller une image
+js_paste_zone_body,"Catches Ctrl+V image paste within a zone and populates a file input. No upload widget needed.","Captura el pegado de imagen con Ctrl+V en una zona y rellena un input de archivo. No se necesita widget de subida.","Capture le collage d'image Ctrl+V dans une zone et remplit un input fichier. Pas de widget d'upload nécessaire."
+js_share_title,Web Share (mobile),Compartir web (móvil),Partage Web (mobile)
+js_share_body,"Triggers the native OS share sheet. Requires HTTPS. No-op on browsers without navigator.share.","Activa la hoja de compartir nativa del SO. Requiere HTTPS. Sin efecto en navegadores sin navigator.share.","Déclenche la feuille de partage native de l'OS. Nécessite HTTPS. Sans effet sur les navigateurs sans navigator.share."
+page_chat_eyebrow,Optimistic Updates · htmx::optimistic_append,Actualizaciones optimistas · htmx::optimistic_append,Mises à jour optimistes · htmx::optimistic_append
+page_chat_h1,Optimistic Chat,Chat Optimista,Chat Optimiste
+"page_chat_body","Type a message and hit send. It appears instantly (optimistic), then the server confirms it after a short delay. Meanwhile Alice's messages stream in via SSE — notice how ordering adjusts when the server responds.","Escribe un mensaje y envíalo. Aparece al instante (optimista), luego el servidor lo confirma tras un breve retraso. Los mensajes de Alice llegan por SSE — observa cómo el orden se ajusta cuando el servidor responde.","Tapez un message et envoyez. Il apparaît instantanément (optimiste), puis le serveur le confirme après un court délai. Les messages d'Alice arrivent via SSE — observez comment l'ordre s'ajuste quand le serveur répond."
+chat_placeholder,"Message Alice…","Mensaje a Alice…","Message à Alice…"
+chat_send,Send,Enviar,Envoyer
+chat_alice_intro,"Hello! I'll send random messages every few seconds. Try typing one yourself — watch it appear instantly.","¡Hola! Enviaré mensajes aleatorios cada pocos segundos. Intenta escribir uno tú mismo — míralo aparecer al instante.","Bonjour ! Je vais envoyer des messages aléatoires toutes les quelques secondes. Essayez d'en taper un vous-même — regardez-le apparaître instantanément."

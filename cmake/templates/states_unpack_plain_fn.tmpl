@@ -1,0 +1,9 @@
+inline $t unpack_plain_$t(std::string_view base64) {
+    std::string raw = sanitize::base64_decode(base64);
+    $t out{};
+    if (raw.empty()) return out;
+    const char* p = raw.data();
+    const char* end = p + raw.size();
+$body
+    return out;
+}

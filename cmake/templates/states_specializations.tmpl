@@ -1,0 +1,11 @@
+template<> inline $t unpack<$t>(std::string_view encrypted) {
+    return unpack_${t}(encrypted);
+}
+
+template<> inline std::string pack_plain<$t>(const $t& s) {
+    return pack_plain_${t}(s);
+}
+
+template<> inline $t unpack_plain<$t>(std::string_view base64) {
+    return unpack_plain_${t}(base64);
+}

@@ -1,0 +1,5 @@
+inline std::string pack_plain_$t(const $t& s) {
+    std::string out;
+$body
+    return sanitize::base64_encode(out);
+}

@@ -1,0 +1,21 @@
+# framework-managed (upgrade via: ./run upgrade)
+cmake/
+CMakeLists.txt
+run
+.cppweb_version
+src/main.cpp
+src/logging_config.hpp
+
+# generated
+build/
+profiles/
+__pycache__/
+*.pyc
+
+# runtime data
+data/
+*.sqlite-shm
+*.sqlite-wal
+
+# vscode
+.vscode/

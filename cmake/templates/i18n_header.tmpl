@@ -1,0 +1,33 @@
+// Auto-generated — do not edit
+#pragma once
+#include <revet/i18n.hpp>
+#include <revet/html.hpp>
+#include "styles.hpp"
+
+namespace i18n {
+
+enum class Locale { $locale_enum };
+inline constexpr std::string_view locale_names[] = { $locale_names_arr };
+inline constexpr int locale_count = $n;
+
+inline void set_locale(std::string_view name) {
+    for (int i = 0; i < locale_count; ++i)
+        if (locale_names[i] == name) { detail::locale_idx = i; return; }
+    detail::locale_idx = 0;
+}
+
+inline auto current_locale() -> Locale {
+    return static_cast<Locale>(detail::locale_idx);
+}
+
+// locale_picker() — renders a POST form with one button per locale.
+// Active locale gets btn_solid styling; others get btn_ghost.
+inline auto locale_picker() -> html::Node {
+    return html::form{html::attr.method("get"), html::attr.action("/set_locale"),
+        $picker_buttons
+    };
+}
+
+$str_consts
+
+} // namespace i18n

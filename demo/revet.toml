@@ -1,0 +1,24 @@
+name = "demo"
+port = 8082
+
+# ── Logging Configuration ─────────────────────────────────────────────────────
+[logging]
+enabled = true
+level = "info"
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# The demo currently uses hardcoded mock data (USERS) in site/users_data.hpp
+# but we define a default resource here for consistency with user projects.
+[resources.demo_db]
+type = "sqlite"
+path = "app/data/demo.db"
+pool_size = 4
+
+# ── File Uploads ──────────────────────────────────────────────────────────────
+# Declares the "files" uploads bucket.
+# gen_uploads.py creates both dirs at configure time:
+#   incoming  — mode 0700 (tmp landing zone, not web-accessible)
+#   validated — mode 0750 (final home after guard passes)
+[uploads.files]
+
+[build.dependencies]

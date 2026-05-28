@@ -1,0 +1,205 @@
+revet — Third-Party Notices
+===========================
+
+revet links against, vendors, or otherwise relies on the third-party
+projects listed below. Their license terms are reproduced or referenced
+here. If you distribute a binary built with revet, you must include
+this notice (or an equivalent aggregation of the same texts) with that
+distribution.
+
+The framework itself is MIT-licensed; see LICENSE.
+
+
+----------------------------------------------------------------------
+libsodium  —  https://doc.libsodium.org/
+License: ISC
+----------------------------------------------------------------------
+
+Copyright (c) 2013-2025 Frank Denis <j at pureftpd dot org>
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted, provided that the
+above copyright notice and this permission notice appear in all
+copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+
+----------------------------------------------------------------------
+libcurl  —  https://curl.se/libcurl/
+License: curl (MIT/X derivate)
+----------------------------------------------------------------------
+
+Copyright (c) 1996 - 2025, Daniel Stenberg, <daniel@haxx.se>, and many
+contributors, see the THANKS file in the curl distribution.
+
+All rights reserved.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF THIRD PARTY RIGHTS. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder
+shall not be used in advertising or otherwise to promote the sale, use
+or other dealings in this Software without prior written authorization
+of the copyright holder.
+
+
+----------------------------------------------------------------------
+simdjson  —  https://simdjson.org/
+License: Apache License 2.0
+----------------------------------------------------------------------
+
+Copyright 2018-2025 The simdjson authors.
+
+Licensed under the Apache License, Version 2.0 (the "License"). You
+may not use this file except in compliance with the License.
+A copy of the License is reproduced in the "Apache License 2.0"
+section at the bottom of this file, or at
+https://www.apache.org/licenses/LICENSE-2.0
+
+
+----------------------------------------------------------------------
+CTRE (Compile-Time Regular Expressions)  —  https://github.com/hanickadot/compile-time-regular-expressions
+License: Apache License 2.0 with LLVM Exception
+----------------------------------------------------------------------
+
+Copyright 2018-2025 Hana Dusíková.
+
+Licensed under the Apache License, Version 2.0 with LLVM Exceptions.
+A copy of the License is reproduced in the "Apache License 2.0"
+section at the bottom of this file. The LLVM exception text is
+available at https://llvm.org/LICENSE.txt
+
+
+----------------------------------------------------------------------
+SQLite  —  https://www.sqlite.org/
+License: Public Domain (blessing)
+----------------------------------------------------------------------
+
+The author disclaims copyright to the SQLite source code. In place of
+a legal notice, here is a blessing:
+
+    May you do good and not evil.
+    May you find forgiveness for yourself and forgive others.
+    May you share freely, never taking more than you give.
+
+
+----------------------------------------------------------------------
+PostgreSQL (libpq)  —  https://www.postgresql.org/
+License: PostgreSQL License (MIT-style)
+----------------------------------------------------------------------
+
+PostgreSQL Database Management System
+(formerly known as Postgres, then as Postgres95)
+
+Portions Copyright (c) 1996-2025, The PostgreSQL Global Development
+Group
+
+Portions Copyright (c) 1994, The Regents of the University of
+California
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose, without fee, and without a written
+agreement is hereby granted, provided that the above copyright notice
+and this paragraph and the following two paragraphs appear in all
+copies.
+
+IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND
+ITS DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE SOFTWARE
+PROVIDED HEREUNDER IS ON AN "AS IS" BASIS, AND THE UNIVERSITY OF
+CALIFORNIA HAS NO OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT,
+UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+
+
+----------------------------------------------------------------------
+htmx  —  https://htmx.org/
+License: 0BSD (Zero-Clause BSD)
+----------------------------------------------------------------------
+
+Copyright (c) 2020-2025 Carson Gross and contributors.
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+
+======================================================================
+Apache License, Version 2.0  (reference text for the Apache-2.0
+projects listed above: simdjson, CTRE)
+Full text: https://www.apache.org/licenses/LICENSE-2.0
+======================================================================
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   Licensed under the Apache License, Version 2.0 (the "License"); you
+   may not use this file except in compliance with the License. You
+   may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied. See the License for the specific language governing
+   permissions and limitations under the License.
+
+The full Apache License 2.0 text — including Sections 1-9 covering
+definitions, grant of copyright license, grant of patent license,
+redistribution requirements, contributions, trademarks, disclaimer of
+warranty, limitation of liability, and acceptance — is available at
+the URL above. By distributing a binary that links these libraries,
+you agree to its terms.
+
+
+======================================================================
+Build-time tooling (not redistributed in the application binary)
+======================================================================
+
+The projects below are used to build revet but are not linked into the
+final binary. Their licenses do not extend to your application binary,
+but are listed here for completeness.
+
+- CMake             — https://cmake.org/                       — BSD-3-Clause
+- Ninja             — https://ninja-build.org/                 — Apache-2.0
+- Conan             — https://conan.io/                        — MIT
+- Catch2            — https://github.com/catchorg/Catch2       — BSL-1.0
+- LLVM / Clang      — https://llvm.org/                        — Apache-2.0 with LLVM exception
+- Bun               — https://bun.sh/                          — MIT
+
+If you bundle any of these into your own distribution (e.g. inside a
+Docker image that ships to a third party), include their licenses
+alongside this notice.

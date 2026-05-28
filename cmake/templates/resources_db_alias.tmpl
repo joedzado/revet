@@ -1,0 +1,2 @@
+template<typename Intent = db::Read>
+inline $ns::Handle<Intent> db() { return $default<Intent>(); }

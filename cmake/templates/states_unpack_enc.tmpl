@@ -1,0 +1,4 @@
+inline $t unpack_${t}(std::string_view encrypted) {
+    std::string decrypted = crypto::decrypt(encrypted);
+    return decrypted.empty() ? ${t}{} : unpack_plain_${t}(decrypted);
+}

@@ -1,0 +1,3 @@
+template<> inline std::string pack<$t>(const $t& s) {
+    return crypto::encrypt(pack_plain_${t}(s));
+}

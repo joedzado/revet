@@ -1,0 +1,1414 @@
+#!/usr/bin/env python3
+import sys
+
+"""revet — user-facing CLI for revet projects.
+
+Deployed to ~/.revet/current/revet via: sudo ./scripts/revet-fw install
+Symlinked to /usr/local/bin/revet for global access.
+
+Usage from project directory:
+  revet dev [--port N] [--asan] [--lldb] [--profile] [--debug]
+  revet build
+  revet new <name> [--empty|--blank|--clean]
+  revet upgrade
+  revet tidy
+  revet format
+  revet clean
+"""
+import os, subprocess, threading, select, glob, queue, re, tty, termios, atexit, shutil, argparse
+from pathlib import Path
+from typing import List, Optional, Dict, Union
+
+# ── locate framework ──────────────────────────────────────────────────────────
+FRAMEWORK_DIR   = Path(__file__).resolve().parent
+if FRAMEWORK_DIR.name == "bin":
+    FRAMEWORK_DIR = FRAMEWORK_DIR.parent
+FRAMEWORK_FILES = ["CMakeLists.txt", "cmake", "src", "template", "include", ".clang-format", ".clang-tidy"]
+def _read_version() -> str:
+    # VERSION at framework root is the single source of truth. Search the
+    # parent chain so this works both in-tree (~/revet/bin/revet) and
+    # post-install (~/.revet/current/bin/revet).
+    for d in (FRAMEWORK_DIR, *FRAMEWORK_DIR.parents):
+        v = d / "VERSION"
+        if v.exists():
+            return v.read_text().strip()
+    return "unknown"
+
+REVET_VERSION = _read_version()
+
+# ── config ────────────────────────────────────────────────────────────────────
+def load_toml_port(project_dir: Path) -> Optional[int]:
+    """Minimal TOML reader — only cares about port = N."""
+    toml = project_dir / "revet.toml"
+    if not toml.exists(): return None
+    for line in toml.read_text().splitlines():
+        m = re.match(r'^\s*port\s*=\s*(\d+)', line)
+        if m: return int(m.group(1))
+    return None
+
+def resolve_port(args_port: Optional[int]) -> int:
+    if args_port: return args_port
+    toml_port = load_toml_port(Path.cwd())
+    return toml_port if toml_port else 8080
+
+# ── ansi color codes (no external deps) ──────────────────────────────────────
+RESET = "\033[0m"
+BOLD_CYAN = "\033[1;36m"
+DIM = "\033[2m"
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+CYAN = "\033[36m"
+
+def strip_markup(s):
+    """Remove Rich markup tags for plain text."""
+    return re.sub(r'\[/?[^\]]*\]', '', s)
+
+def rule(s):
+    s_clean = strip_markup(s)
+    print(f"{BOLD_CYAN}── {s_clean} ──{RESET}")
+
+def info(s):
+    print(strip_markup(s))
+
+def err(s):
+    print(f"{RED}ERROR: {s}{RESET}", file=sys.stderr)
+
+def dim(s):
+    print(f"{DIM}{strip_markup(s)}{RESET}")
+
+def ok(s):
+    print(f"{GREEN}✔ {strip_markup(s)}{RESET}")
+
+def normalize_display(text: str) -> str:
+    """Convert tabs to spaces for terminal display."""
+    return text.expandtabs(4)
+
+def _routes_table(routes, port):
+    COLOR = {"GET": GREEN, "POST": YELLOW, "PUT": YELLOW, "DEL": RED}
+    for path, methods in routes:
+        colored = " ".join(f"{COLOR.get(m, CYAN)}{m}{RESET}" for m in methods)
+        print(f"  {CYAN}{path}{RESET}  {colored}")
+
+# ── terminal state ────────────────────────────────────────────────────────────
+_saved_tty = None
+
+def save_tty():
+    global _saved_tty
+    if sys.stdin.isatty():
+        _saved_tty = termios.tcgetattr(sys.stdin.fileno())
+
+def restore_tty():
+    if _saved_tty:
+        try: termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_tty)
+        except Exception: pass
+
+# ── dependencies ─────────────────────────────────────────────────────────────
+def check_deps_in_project():
+    """Check if critical dependencies are met. Return tuple (ok, missing_list)."""
+    framework = FRAMEWORK_DIR
+    check_script = framework / "check_deps.py"
+
+    if not check_script.exists():
+        # Fallback to minimal checks if check_deps.py not available
+        checks = {
+            "cmake": ["cmake", "--version"],
+            "c++": ["clang++", "--version"],
+            "python3": ["python3", "--version"],
+        }
+        missing = []
+        for name, cmd in checks.items():
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=True)
+            except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                missing.append(name)
+        return len(missing) == 0, missing
+
+    # Use framework's comprehensive check_deps.py
+    result = subprocess.run(
+        [sys.executable, str(check_script), "missing_only"],
+        capture_output=True, text=True, timeout=10
+    )
+
+    # Extract CRITICAL missing dependencies from output
+    # Only fail on critical deps; optional are fine
+    output = result.stdout + result.stderr
+    missing_critical = []
+    in_critical = False
+
+    for line in output.split('\n'):
+        if 'CRITICAL missing' in line:
+            in_critical = True
+            continue
+        if 'OPTIONAL missing' in line:
+            in_critical = False
+            continue
+        if in_critical and ':' in line:
+            dep = line.strip().split(':')[0].strip()
+            if dep:
+                missing_critical.append(dep)
+
+    return len(missing_critical) == 0, missing_critical
+
+# ── package management ────────────────────────────────────────────────────────
+
+def _read_toml_raw() -> str:
+    return Path("revet.toml").read_text()
+
+def _write_toml_raw(content: str):
+    Path("revet.toml").write_text(content)
+
+def _get_deps_from_toml(content: str) -> dict:
+    """Parse [build.dependencies] section. Returns {key: conan_ref}."""
+    deps = {}
+    in_deps = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if re.match(r"\[build\.dependencies\]", stripped):
+            in_deps = True
+            continue
+        if in_deps:
+            if stripped.startswith("["):
+                break
+            if m := re.match(r'["\']?([A-Za-z0-9_\-]+)["\']?\s*=\s*"([^"]+)"', stripped):
+                deps[m.group(1)] = m.group(2)
+            elif m := re.match(r'["\']?([A-Za-z0-9_\-]+)["\']?\s*=', stripped):
+                deps[m.group(1)] = m.group(1)
+    return deps
+
+def _upsert_dep_in_toml(content: str, name: str, conan_ref: str) -> str:
+    """Add or update dep in [build.dependencies]. Creates section if missing."""
+    lines = content.splitlines(keepends=True)
+    section_start = None
+    section_end = None
+    existing_line = None
+
+    for i, line in enumerate(lines):
+        if re.match(r"\s*\[build\.dependencies\]\s*", line):
+            section_start = i
+            continue
+        if section_start is not None and section_end is None:
+            if line.strip().startswith("[") and not line.strip().startswith("[build."):
+                section_end = i
+                break
+            if re.match(rf'\s*["\']?{re.escape(name)}["\']?\s*=', line):
+                existing_line = i
+
+    new_entry = f'{name} = "{conan_ref}"\n'
+
+    if section_start is None:
+        if not content.endswith("\n"):
+            content += "\n"
+        return content + f"\n[build.dependencies]\n{new_entry}"
+    elif existing_line is not None:
+        lines[existing_line] = new_entry
+        return "".join(lines)
+    else:
+        insert_at = section_end if section_end is not None else len(lines)
+        lines.insert(insert_at, new_entry)
+        return "".join(lines)
+
+def _remove_dep_from_toml(content: str, name: str) -> tuple:
+    """Remove dep from [build.dependencies]. Returns (new_content, found)."""
+    lines = content.splitlines(keepends=True)
+    in_deps = False
+    found = False
+    new_lines = []
+    for line in lines:
+        if re.match(r"\s*\[build\.dependencies\]\s*", line):
+            in_deps = True
+            new_lines.append(line)
+            continue
+        if in_deps and line.strip().startswith("["):
+            in_deps = False
+        if in_deps and re.match(rf'\s*["\']?{re.escape(name)}["\']?\s*=', line):
+            found = True
+            continue
+        new_lines.append(line)
+    return "".join(new_lines), found
+
+def _conan_resolve_latest(pkg_name: str) -> Optional[str]:
+    """Query Conan Center for latest version. Returns 'name/version' or None."""
+    try:
+        result = subprocess.run(
+            ["conan", "list", f"{pkg_name}/*", "-r", "conancenter"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            return None
+        versions = []
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if re.match(rf'^{re.escape(pkg_name)}/[\d]', stripped):
+                versions.append(stripped)
+        if not versions:
+            return None
+        def ver_key(ref):
+            v = ref.split("/", 1)[1] if "/" in ref else "0"
+            try:
+                return tuple(int(x) for x in re.split(r'[.\-]', v) if x.isdigit())
+            except Exception:
+                return (0,)
+        return sorted(versions, key=ver_key, reverse=True)[0]
+    except (subprocess.TimeoutExpired, Exception):
+        return None
+
+def _get_framework_requirements() -> list:
+    """Extract requirement strings from framework's conanfile.py."""
+    conanfile = FRAMEWORK_DIR / "conanfile.py"
+    if not conanfile.exists():
+        return []
+    return re.findall(r'self\.requires\("([^"]+)"\)', conanfile.read_text())
+
+def _generate_project_conanfile(user_deps: dict) -> Path:
+    """Generate merged conanfile.py (framework + user deps). Returns path to use."""
+    if not user_deps:
+        return FRAMEWORK_DIR / "conanfile.py"
+
+    fw_reqs = _get_framework_requirements()
+    user_refs = [ref for ref in user_deps.values()]
+    # Avoid duplicates
+    fw_refs_names = {r.split("/")[0] for r in fw_reqs}
+    extra_refs = [r for r in user_refs if r.split("/")[0] not in fw_refs_names]
+    all_requires = "\n".join(f'        self.requires("{r}")' for r in fw_reqs + extra_refs)
+
+    content = f'''from conan import ConanFile
+from conan.tools.cmake import CMakeDeps
+
+class CppWebProjectConan(ConanFile):
+    settings = "os", "compiler", "build_type", "arch"
+
+    def requirements(self):
+{all_requires}
+
+    def generate(self):
+        deps = CMakeDeps(self)
+        deps.generate()
+'''
+    out = Path("build") / "project_conanfile.py"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content)
+    return out
+
+def _deps_hash(user_deps: dict) -> str:
+    import hashlib
+    return hashlib.md5(str(sorted(user_deps.items())).encode()).hexdigest()[:8]
+
+def _conan_needs_update(user_deps: dict, conan_dir: Path) -> bool:
+    marker = conan_dir / ".revet_deps_hash"
+    if not (conan_dir / "ctre-config.cmake").exists():
+        return True
+    if not marker.exists():
+        return True
+    return marker.read_text().strip() != _deps_hash(user_deps)
+
+def _conan_mark_updated(user_deps: dict, conan_dir: Path):
+    (conan_dir / ".revet_deps_hash").write_text(_deps_hash(user_deps))
+
+def _conan_update_lockfile(conanfile: Path):
+    """Generate/update revet.lock from current conanfile."""
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".lock", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            ["conan", "lock", "create", str(conanfile), f"--lockfile-out={tmp_path}"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            dim("  (lockfile generation failed — continuing without it)")
+            return
+        new_content = Path(tmp_path).read_text()
+        lock_path = Path("revet.lock")
+        if not lock_path.exists() or lock_path.read_text() != new_content:
+            lock_path.write_text(new_content)
+    finally:
+        os.unlink(tmp_path)
+
+def cmd_lock():
+    """Regenerate revet.lock from current revet.toml deps."""
+    if not shutil.which("conan"):
+        err("conan not found — run: bash ~/.revet/current/install_deps.sh")
+        sys.exit(1)
+    user_deps = _get_deps_from_toml(_read_toml_raw())
+    conanfile = _generate_project_conanfile(user_deps)
+    info("Regenerating revet.lock…")
+    result = subprocess.run(
+        ["conan", "lock", "create", str(conanfile), "--lockfile-out=revet.lock"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        err("Failed to generate lockfile:")
+        err(result.stderr[-500:] if result.stderr else "unknown error")
+        sys.exit(1)
+    ok("revet.lock updated")
+    dim("  commit revet.lock to pin dependency versions for your team")
+
+def cmd_add(spec: str):
+    # Parse spec: "fmt", "fmt@10.1.1", or "fmt/10.1.1"
+    if "@" in spec:
+        pkg_name, version = spec.split("@", 1)
+        pkg_name, version = pkg_name.strip(), version.strip()
+        conan_ref = f"{pkg_name}/{version}"
+    elif "/" in spec and not spec.startswith("/"):
+        pkg_name = spec.split("/")[0].strip()
+        conan_ref = spec.strip()
+    else:
+        pkg_name = spec.strip()
+        conan_ref = None
+
+    if conan_ref is None:
+        if not shutil.which("conan"):
+            err("conan not found — run: bash ~/.revet/current/install_deps.sh")
+            sys.exit(1)
+        info(f"Searching Conan Center for {pkg_name}…")
+        conan_ref = _conan_resolve_latest(pkg_name)
+        if conan_ref is None:
+            err(f"Package '{pkg_name}' not found on Conan Center")
+            info(f"  Specify version directly: revet add {pkg_name}@<version>")
+            info(f"  Browse packages: https://conan.io/center/recipes/{pkg_name}")
+            sys.exit(1)
+
+    content = _read_toml_raw()
+    deps = _get_deps_from_toml(content)
+    if pkg_name in deps and deps[pkg_name] == conan_ref:
+        ok(f"{conan_ref} already in dependencies")
+        return
+
+    content = _upsert_dep_in_toml(content, pkg_name, conan_ref)
+    _write_toml_raw(content)
+
+    # Invalidate conan cache so next build re-runs conan
+    conan_dir = Path("build") / "conan"
+    marker = conan_dir / ".revet_deps_hash"
+    if marker.exists():
+        marker.unlink()
+
+    # Run conan immediately if build dir exists
+    if conan_dir.exists() and shutil.which("conan"):
+        info(f"Fetching {conan_ref}…")
+        user_deps = _get_deps_from_toml(content)
+        conanfile = _generate_project_conanfile(user_deps)
+        result = subprocess.run(
+            ["conan", "install", str(conanfile),
+             f"--output-folder={conan_dir}", "--build=missing"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            dim(f"  (conan fetch failed — will retry on next build)")
+        else:
+            _conan_mark_updated(user_deps, conan_dir)
+            _conan_update_lockfile(conanfile)
+
+    ok(f"added {conan_ref}")
+    dim(f"  run `revet build` to rebuild with {pkg_name}")
+
+def cmd_remove(name: str):
+    content = _read_toml_raw()
+    new_content, found = _remove_dep_from_toml(content, name)
+    if not found:
+        err(f"'{name}' not found in [build.dependencies]")
+        sys.exit(1)
+    _write_toml_raw(new_content)
+
+    # Invalidate conan cache and stale lockfile
+    conan_dir = Path("build") / "conan"
+    marker = conan_dir / ".revet_deps_hash"
+    if marker.exists():
+        marker.unlink()
+    lock = Path("revet.lock")
+    if lock.exists():
+        lock.unlink()
+
+    ok(f"removed {name}")
+    dim("  run `revet build` to rebuild without it")
+
+# ── interactive package TUI ───────────────────────────────────────────────────
+
+def cmd_packages():
+    import curses, threading, time
+    import queue as _queue
+
+    C_GREEN = 1; C_CYAN = 2; C_YELLOW = 3; C_RED = 4; C_DIM = 5
+    INST = "installed"; SRCH = "search"; VERS = "versions"
+    NAME_W = 22; VER_W = 12; LAT_W = 12
+
+    bg_q: _queue.Queue = _queue.Queue()
+
+    def _vk(ref):
+        v = ref.split("/", 1)[1] if "/" in ref else "0"
+        try: return tuple(int(x) for x in re.split(r'[.\-]', v) if x.isdigit())
+        except: return (0,)
+
+    def _bg_latest(names):
+        for name in names:
+            try:
+                r = subprocess.run(["conan", "list", f"{name}/*", "-r", "conancenter"],
+                                   capture_output=True, text=True, timeout=12)
+                if r.returncode == 0:
+                    vers = [l.strip() for l in r.stdout.splitlines()
+                            if re.match(rf'^{re.escape(name)}/[\d]', l.strip())]
+                    if vers:
+                        bg_q.put(("latest", name, sorted(vers, key=_vk, reverse=True)[0]))
+            except Exception: pass
+
+    def _bg_search(q):
+        if not q.strip():
+            bg_q.put(("search_done", q, [])); return
+        try:
+            r = subprocess.run(["conan", "list", f"{q}*", "-r", "conancenter"],
+                               capture_output=True, text=True, timeout=15)
+            by_pkg: dict = {}
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    s = line.strip()
+                    if re.match(r'^[a-zA-Z][a-zA-Z0-9_\-]*\/[\d]', s):
+                        by_pkg.setdefault(s.split("/")[0], []).append(s)
+            results = []
+            for name in sorted(by_pkg):
+                results.append((name, sorted(by_pkg[name], key=_vk, reverse=True)[0]))
+            bg_q.put(("search_done", q, results[:25]))
+        except Exception:
+            bg_q.put(("search_done", q, []))
+
+    def _bg_versions(pkg):
+        try:
+            r = subprocess.run(["conan", "list", f"{pkg}/*", "-r", "conancenter"],
+                               capture_output=True, text=True, timeout=15)
+            vers = []
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    s = line.strip()
+                    if re.match(rf'^{re.escape(pkg)}/[\d]', s):
+                        vers.append(s)
+            bg_q.put(("versions_done", pkg, sorted(vers, key=_vk, reverse=True)))
+        except Exception:
+            bg_q.put(("versions_done", pkg, []))
+
+    def _invalidate():
+        for p in [Path("build") / "conan" / ".revet_deps_hash", Path("revet.lock")]:
+            if p.exists(): p.unlink()
+
+    def run(stdscr):
+        installed = _get_deps_from_toml(_read_toml_raw())
+        latest: dict = {}
+        state = INST
+
+        inst_cur = 0
+        srch_q   = ""; srch_results: list = []; srch_cur = 0
+        srch_busy = False; srch_last = None; srch_typed = 0.0
+
+        ver_pkg = ""; ver_list: list = []; ver_cur = 0
+        ver_loading = False; ver_origin = INST
+
+        status = ""
+
+        curses.curs_set(0)
+        if curses.has_colors():
+            curses.start_color(); curses.use_default_colors()
+            curses.init_pair(C_GREEN,  curses.COLOR_GREEN,  -1)
+            curses.init_pair(C_CYAN,   curses.COLOR_CYAN,   -1)
+            curses.init_pair(C_YELLOW, curses.COLOR_YELLOW, -1)
+            curses.init_pair(C_RED,    curses.COLOR_RED,    -1)
+            curses.init_pair(C_DIM,    curses.COLOR_WHITE,  -1)
+        stdscr.timeout(80)
+
+        if installed:
+            threading.Thread(target=_bg_latest, args=(list(installed.keys()),),
+                             daemon=True).start()
+
+        def S(row, col, text, attr=0):
+            try: stdscr.addstr(row, col, text, attr)
+            except curses.error: pass
+
+        def draw_header(tab):
+            h, w = stdscr.getmaxyx()
+            S(0, 0, "─" * w, curses.color_pair(C_CYAN))
+            title = " revet packages "
+            S(0, max(0, (w - len(title)) // 2), title,
+              curses.color_pair(C_CYAN) | curses.A_BOLD)
+            # Tabs
+            inst_a = curses.A_BOLD if tab == INST else curses.color_pair(C_DIM) | curses.A_DIM
+            srch_a = curses.A_BOLD if tab == SRCH else curses.color_pair(C_DIM) | curses.A_DIM
+            S(1, 2,  " Installed ", inst_a | (curses.A_UNDERLINE if tab == INST else 0))
+            S(1, 14, " Search ",    srch_a | (curses.A_UNDERLINE if tab == SRCH else 0))
+            S(1, w - 13, "[tab] switch", curses.color_pair(C_DIM) | curses.A_DIM)
+
+        def draw_footer(hints):
+            h, w = stdscr.getmaxyx()
+            S(h - 1, 0, " " * w, curses.color_pair(C_CYAN) | curses.A_DIM)
+            S(h - 1, 1, hints[:w - 2], curses.color_pair(C_CYAN) | curses.A_DIM)
+
+        def draw_status(msg):
+            if not msg: return
+            h, w = stdscr.getmaxyx()
+            attr = curses.color_pair(C_GREEN if msg.startswith("✔") else C_YELLOW)
+            S(h - 2, 2, msg[:w - 4], attr)
+
+        def col_hdr(row, cols):
+            h, w = stdscr.getmaxyx()
+            line = "  " + "  ".join(f"{c:<{cw}}" for c, cw in cols)
+            S(row, 0, line[:w], curses.A_BOLD | curses.A_DIM)
+
+        while True:
+            h, w = stdscr.getmaxyx()
+            inst_items = list(installed.items())
+            n_inst = len(inst_items)
+
+            # Drain bg queue
+            try:
+                while True:
+                    msg = bg_q.get_nowait()
+                    tag = msg[0]
+                    if tag == "latest":
+                        latest[msg[1]] = msg[2]
+                    elif tag == "search_done" and msg[1] == srch_q:
+                        srch_results = [(n, r) for n, r in msg[2] if n not in installed]
+                        srch_cur = max(0, min(srch_cur, len(srch_results) - 1))
+                        srch_busy = False
+                    elif tag == "versions_done" and msg[1] == ver_pkg:
+                        ver_list = msg[2]; ver_loading = False
+                        cur_ref = installed.get(ver_pkg, "")
+                        ver_cur = next((i for i, r in enumerate(ver_list) if r == cur_ref), 0)
+            except _queue.Empty: pass
+
+            # Debounced search
+            if state == SRCH and srch_q != srch_last and time.time() - srch_typed > 0.45:
+                srch_last = srch_q
+                if srch_q:
+                    srch_busy = True; srch_results = []
+                    threading.Thread(target=_bg_search, args=(srch_q,), daemon=True).start()
+                else:
+                    srch_results = []; srch_busy = False
+
+            # ── draw ──────────────────────────────────────────────────────
+            stdscr.erase()
+            curses.curs_set(1 if state == SRCH else 0)
+
+            tab_for_header = ver_origin if state == VERS else state
+            draw_header(tab_for_header)
+
+            if state == INST:
+                row = 3
+                if not inst_items:
+                    S(row, 4, "No packages installed.  Press [tab] to search.",
+                      curses.color_pair(C_DIM) | curses.A_DIM)
+                else:
+                    col_hdr(row, [("Package", NAME_W), ("Installed", VER_W), ("Latest", LAT_W), ("", 2)])
+                    row += 1
+                    inst_cur = max(0, min(inst_cur, n_inst - 1)) if n_inst else 0
+                    for i, (name, ref) in enumerate(inst_items):
+                        is_sel  = (inst_cur == i)
+                        cur_ver = ref.split("/", 1)[1] if "/" in ref else ref
+                        lat_ref = latest.get(name)
+                        lat_ver = (lat_ref.split("/", 1)[1] if lat_ref and "/" in lat_ref
+                                   else ("…" if lat_ref is None else lat_ref))
+                        upgradeable = lat_ref is not None and lat_ref != ref
+                        sym  = " ↑" if upgradeable else (" ✔" if lat_ref else "  ")
+                        attr = curses.A_REVERSE if is_sel else 0
+                        c    = C_CYAN if is_sel else C_DIM
+                        c_sym = C_YELLOW if upgradeable else C_GREEN
+                        line = f"  {name:<{NAME_W}}  {cur_ver:<{VER_W}}  {lat_ver:<{LAT_W}}"
+                        S(row, 0, line[:w - 3], curses.color_pair(c) | attr)
+                        S(row, 2 + NAME_W + 2 + VER_W + 2 + LAT_W + 2, sym,
+                          curses.color_pair(c_sym) | attr)
+                        row += 1
+                draw_footer(" [↑↓] navigate  [enter/v] pick version  [u] upgrade  [r] remove  [tab] search  [q] quit ")
+                draw_status(status)
+
+            elif state == SRCH:
+                row = 3
+                lbl = "Search ▸ "
+                S(row, 2, lbl, curses.A_BOLD)
+                disp = srch_q[-(w - 2 - len(lbl) - 4):]
+                S(row, 2 + len(lbl), disp)
+                srch_row = row
+                row += 1
+                if srch_busy:
+                    S(row + 1, 4, "searching…", curses.color_pair(C_YELLOW))
+                elif srch_results:
+                    col_hdr(row, [("Package", NAME_W), ("Latest", VER_W)])
+                    row += 1
+                    srch_cur = max(0, min(srch_cur, len(srch_results) - 1))
+                    for j, (name, lat_ref) in enumerate(srch_results):
+                        if row >= h - 3: break
+                        is_sel  = (srch_cur == j)
+                        lat_ver = lat_ref.split("/", 1)[1] if "/" in lat_ref else lat_ref
+                        attr    = curses.A_REVERSE if is_sel else 0
+                        arrow   = "▶" if is_sel else " "
+                        line    = f"  {arrow} {name:<{NAME_W}}  {lat_ver:<{VER_W}}"
+                        S(row, 0, line[:w], curses.color_pair(C_CYAN if is_sel else C_DIM) | attr)
+                        row += 1
+                elif srch_q and not srch_busy:
+                    S(row + 1, 4, "no results", curses.color_pair(C_DIM) | curses.A_DIM)
+                cur_col = min(2 + len(lbl) + len(disp), w - 1)
+                try: stdscr.move(srch_row, cur_col)
+                except curses.error: pass
+                draw_footer(" [↑↓] navigate  [enter] add latest  [v] pick version  [tab] installed  [esc/q] quit ")
+                draw_status(status)
+
+            elif state == VERS:
+                ov_h = min(max(len(ver_list), 1) + 5, h - 4)
+                ov_w = min(46, w - 4)
+                ov_y = max(2, (h - ov_h) // 2)
+                ov_x = max(0, (w - ov_w) // 2)
+                border = "─" * ov_w
+                title  = f" versions: {ver_pkg} "
+                footer_ov = " [enter] select  [esc] back "
+                for r2 in range(ov_h):
+                    S(ov_y + r2, ov_x, " " * ov_w, curses.A_REVERSE)
+                S(ov_y,          ov_x, border)
+                S(ov_y,          ov_x + max(0, (ov_w - len(title)) // 2), title, curses.A_BOLD)
+                S(ov_y + ov_h - 1, ov_x, border)
+                S(ov_y + ov_h - 1, ov_x + max(0, (ov_w - len(footer_ov)) // 2),
+                  footer_ov, curses.A_DIM)
+                if ver_loading:
+                    S(ov_y + 2, ov_x + 2, "loading versions…", curses.color_pair(C_YELLOW))
+                else:
+                    cur_inst   = installed.get(ver_pkg, "")
+                    visible    = ov_h - 4
+                    v_start    = max(0, ver_cur - visible // 2)
+                    for idx, ref in enumerate(ver_list[v_start:v_start + visible]):
+                        act_idx = v_start + idx
+                        is_sel  = (ver_cur == act_idx)
+                        is_inst = (ref == cur_inst)
+                        ver_str = ref.split("/", 1)[1] if "/" in ref else ref
+                        sym     = " ✔ " if is_inst else "   "
+                        line    = f"  {sym}{ver_str}"
+                        attr    = curses.A_REVERSE if is_sel else 0
+                        c       = C_GREEN if is_inst else (C_CYAN if is_sel else C_DIM)
+                        S(ov_y + 1 + idx, ov_x, line[:ov_w].ljust(ov_w),
+                          curses.color_pair(c) | attr)
+                draw_footer(" [↑↓] navigate  [enter] select version  [esc] back  [q] quit ")
+                draw_status(status)
+
+            stdscr.refresh()
+
+            # ── input ─────────────────────────────────────────────────────
+            key = stdscr.getch()
+            if key == -1: continue
+
+            if state == INST:
+                if key in (ord('q'), 27): break
+                elif key == 9: state = SRCH; status = ""       # Tab
+                elif key == curses.KEY_UP:   inst_cur = max(0, inst_cur - 1)
+                elif key == curses.KEY_DOWN: inst_cur = min(n_inst - 1, inst_cur + 1) if n_inst else 0
+                elif key in (10, 13, ord('v')):                # Enter/v → version picker
+                    if inst_items:
+                        ver_pkg = inst_items[inst_cur][0]
+                        ver_list = []; ver_cur = 0; ver_loading = True; ver_origin = INST
+                        state = VERS
+                        threading.Thread(target=_bg_versions, args=(ver_pkg,), daemon=True).start()
+                elif key == ord('u'):                          # u → upgrade to latest
+                    if inst_items:
+                        name, _ = inst_items[inst_cur]
+                        lat = latest.get(name)
+                        if lat and lat != installed.get(name):
+                            content = _upsert_dep_in_toml(_read_toml_raw(), name, lat)
+                            _write_toml_raw(content); installed = _get_deps_from_toml(content)
+                            _invalidate()
+                            status = f"✔ upgraded {name} → {lat.split('/')[1]}  (run revet build)"
+                        elif lat:
+                            status = f"{name} is already at latest ({lat.split('/')[1]})"
+                        else:
+                            status = f"Still checking latest version for {name}…"
+                elif key == ord('r'):                          # r → remove
+                    if inst_items:
+                        name, _ = inst_items[inst_cur]
+                        content, _ = _remove_dep_from_toml(_read_toml_raw(), name)
+                        _write_toml_raw(content); installed = _get_deps_from_toml(content)
+                        _invalidate()
+                        inst_cur = max(0, min(inst_cur, len(installed) - 1))
+                        status = f"✔ removed {name}  (run revet build)"
+
+            elif state == SRCH:
+                if key == 27 and not srch_q: state = INST; status = ""   # ESC clears → back
+                elif key == 9: state = INST; status = ""                  # Tab
+                elif key in (curses.KEY_BACKSPACE, 127, 8):
+                    srch_q = srch_q[:-1]; srch_typed = time.time(); status = ""
+                elif key == curses.KEY_UP:   srch_cur = max(0, srch_cur - 1)
+                elif key == curses.KEY_DOWN:
+                    srch_cur = min(len(srch_results) - 1, srch_cur + 1) if srch_results else 0
+                elif key in (10, 13):                          # Enter → add latest
+                    if srch_results and 0 <= srch_cur < len(srch_results):
+                        name, ref = srch_results[srch_cur]
+                        content = _upsert_dep_in_toml(_read_toml_raw(), name, ref)
+                        _write_toml_raw(content); installed = _get_deps_from_toml(content)
+                        _invalidate()
+                        srch_results = [(n, r) for n, r in srch_results if n not in installed]
+                        srch_cur = max(0, min(srch_cur, len(srch_results) - 1))
+                        status = f"✔ added {ref}  (run revet build to install)"
+                        threading.Thread(target=_bg_latest, args=([name],), daemon=True).start()
+                elif key == ord('v'):                          # v → pick version
+                    if srch_results and 0 <= srch_cur < len(srch_results):
+                        ver_pkg = srch_results[srch_cur][0]
+                        ver_list = []; ver_cur = 0; ver_loading = True; ver_origin = SRCH
+                        state = VERS
+                        threading.Thread(target=_bg_versions, args=(ver_pkg,), daemon=True).start()
+                elif 32 <= key <= 126:
+                    srch_q += chr(key); srch_typed = time.time(); status = ""
+
+            elif state == VERS:
+                if key in (27, ord('q')): state = ver_origin; status = ""  # ESC/q → back
+                elif key == curses.KEY_UP:   ver_cur = max(0, ver_cur - 1)
+                elif key == curses.KEY_DOWN:
+                    ver_cur = min(len(ver_list) - 1, ver_cur + 1) if ver_list else 0
+                elif key in (10, 13):                          # Enter → select
+                    if ver_list and 0 <= ver_cur < len(ver_list):
+                        ref  = ver_list[ver_cur]; name = ver_pkg
+                        content = _upsert_dep_in_toml(_read_toml_raw(), name, ref)
+                        _write_toml_raw(content); installed = _get_deps_from_toml(content)
+                        _invalidate()
+                        if ver_origin == SRCH:
+                            srch_results = [(n, r) for n, r in srch_results if n not in installed]
+                        state = ver_origin
+                        status = f"✔ set {name} → {ref.split('/')[1]}  (run revet build)"
+
+    try:
+        curses.wrapper(run)
+    except KeyboardInterrupt:
+        pass
+
+# ── build ─────────────────────────────────────────────────────────────────────
+BUILD_DIR = "build"
+BIN       = f"{BUILD_DIR}/revet"
+
+def generate_cmakelists():
+    """Generate CMakeLists.txt from framework template at build time."""
+    framework = FRAMEWORK_DIR
+    project = Path.cwd()
+    template = framework / "template" / "CMakeLists.txt"
+
+    if not template.exists():
+        err(f"CMakeLists.txt template not found in framework")
+        sys.exit(1)
+
+    # Extract project name from revet.toml
+    toml_path = project / "revet.toml"
+    if not toml_path.exists():
+        err("revet.toml not found"); sys.exit(1)
+
+    toml_content = toml_path.read_text()
+    project_name = None
+    for line in toml_content.splitlines():
+        m = re.match(r'^\s*name\s*=\s*"([^"]+)"', line)
+        if m:
+            project_name = m.group(1)
+            break
+    if not project_name:
+        project_name = project.name
+
+    # Generate from template
+    content = template.read_text()
+    content = content.replace("{{name}}", project_name)
+    content = content.replace("{{framework_dir}}", str(framework))
+
+    # Add generated file marker at top
+    header = "# ⚠️ GENERATED FILE - Do not edit\n# This file is generated by `revet build` from the framework template.\n# To customize the build, create a subdirectory with your own CMakeLists.txt\n\n"
+    content = header + content
+
+    dest = project / "CMakeLists.txt"
+    if not dest.exists() or dest.read_text() != content:
+        dest.write_text(content)
+
+def cmake_build(release=False, asan=False, debug=False):
+    # Generate CMakeLists.txt at build time
+    generate_cmakelists()
+
+    conan_dir = Path(BUILD_DIR) / "conan"
+    conan_dir.mkdir(parents=True, exist_ok=True)
+
+    user_deps = _get_deps_from_toml(_read_toml_raw()) if Path("revet.toml").exists() else {}
+    if _conan_needs_update(user_deps, conan_dir):
+        if not shutil.which("conan"):
+            err("conan not found. Run: bash ~/.revet/current/install_deps.sh")
+            res = type('obj', (object,), {'returncode': 1, 'stderr': 'conan not found', 'stdout': ''})()
+            return res
+        info("Fetching dependencies via Conan…")
+        conanfile = _generate_project_conanfile(user_deps)
+        lock_file = Path("revet.lock")
+        hash_marker = conan_dir / ".revet_deps_hash"
+        # Always install Release packages. CMakeLists maps Debug builds to
+        # the Release imports (CMAKE_MAP_IMPORTED_CONFIG_DEBUG), so this
+        # explicit -s build_type=Release removes the implicit dependency on
+        # the user's default Conan profile.
+        conan_cmd = ["conan", "install", str(conanfile),
+                     f"--output-folder={conan_dir}", "--build=missing",
+                     "-s", "build_type=Release"]
+        # Fresh clone with committed lockfile — use it for reproducible install
+        if lock_file.exists() and not hash_marker.exists():
+            conan_cmd.append(f"--lockfile={lock_file}")
+        conan_result = subprocess.run(conan_cmd, capture_output=True, text=True)
+        if conan_result.returncode != 0:
+            err("conan install failed. Run: bash ~/.revet/current/install_deps.sh")
+            return conan_result
+        _conan_mark_updated(user_deps, conan_dir)
+        _conan_update_lockfile(conanfile)
+
+    bt = "Debug" if debug else ("Release" if release else "Debug")
+    gen = ["-G", "Ninja"] if shutil.which("ninja") else []
+
+    # Clean if generator changed
+    cache_path = Path(BUILD_DIR) / "CMakeCache.txt"
+    if cache_path.exists():
+        content = cache_path.read_text()
+        using_ninja = "CMAKE_GENERATOR:INTERNAL=Ninja" in content
+        want_ninja  = "Ninja" in str(gen)
+        if using_ninja != want_ninja:
+            info("Generator changed, cleaning build directory...")
+            shutil.rmtree(BUILD_DIR)
+
+    cmake_args = ["cmake", *gen, "-B", BUILD_DIR, "-S", ".", f"-DCMAKE_BUILD_TYPE={bt}"]
+    if asan:
+        cmake_args.append("-DREVET_ASAN=ON")
+
+    config_result = subprocess.run(cmake_args, capture_output=True, text=True)
+    if config_result.returncode != 0:
+        # Show CMake error so user knows what's wrong
+        return config_result
+
+    result = subprocess.run(
+        ["cmake", "--build", BUILD_DIR, "--", f"-j{os.cpu_count() or 1}"],
+        capture_output=True, text=True)
+
+    # If build failed, check if it's a missing dependency
+    if result.returncode != 0:
+        stderr_lower = result.stderr.lower()
+        if "not found" in stderr_lower or "could not find" in stderr_lower:
+            # Provide helpful suggestion
+            result.stderr += "\n\n✗ Build failed — missing dependency?\n"
+            result.stderr += f"Run: bash ~/.revet/current/install_deps.sh\n"
+            result.stderr += f"Then: revet clean && revet dev\n"
+
+    if not release and result.returncode == 0 and shutil.which("dsymutil"):
+        subprocess.run(["dsymutil", f"{BUILD_DIR}/revet"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result
+
+# ── routes ────────────────────────────────────────────────────────────────────
+def parse_routes():
+    try: src = open("build/generated/routes.cpp").read()
+    except FileNotFoundError: return []
+    routes = []
+    for block in re.findall(r'\{\s*web::Route r;.*?out\.push_back\(r\);.*?\}', src, re.DOTALL):
+        m = re.search(r'r\.path\s*=\s*"([^"]+)"', block)
+        if not m: continue
+        methods = []
+        for x, field in [("GET", "r.get"), ("POST", "r.post"), ("PUT", "r.put"),
+                         ("DEL", "r.del"), ("PATCH", "r.patch"), ("SSE", "r.sse")]:
+            if field in block: methods.append(x)
+        routes.append((m.group(1), methods))
+    return routes
+
+def print_routes(port):
+    routes = parse_routes()
+    if not routes: dim("no routes found"); return
+    _routes_table(routes, port)
+
+def header(): rule("[bold cyan]revet[/bold cyan]")
+
+# ── dev server ────────────────────────────────────────────────────────────────
+def do_rebuild(server, port, reason="", lldb=False, profile=False, asan=False, debug=False):
+    if server[0]:
+        try:
+            import signal
+            os.killpg(os.getpgid(server[0].pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            server[0].terminate()
+        server[0].wait()
+    os.system("clear")
+    header()
+    flags = [f for f, on in [("asan", asan), ("ubsan", asan), ("lldb", lldb), ("profile", profile)] if on]
+    if flags: dim(f"  flags: {' '.join(flags)}")
+    if reason: dim(reason)
+    dim("building…")
+    result = cmake_build(asan=asan, debug=debug)
+    for line in result.stdout.splitlines():
+        line = normalize_display(line)
+        info(f"[{'green' if 'Built target' in line else 'dim'}]{line}[/]")
+    if result.returncode != 0:
+        for line in result.stderr.splitlines():
+            err(normalize_display(line))
+        err("✖ build failed")
+        server[0] = None
+        return
+    if lldb:
+        server[0] = subprocess.Popen(
+            ["lldb", "--", BIN, "--port", str(port)],
+            stdin=None, stdout=None, stderr=None)
+        ok(f"● lldb attached  http://localhost:{port}")
+    elif profile:
+        os.makedirs("profiles", exist_ok=True)
+        profile_path = f"profiles/profile-{int(__import__('time').time())}.json.gz"
+        # Intercept samply's `open` to force Chrome instead of default browser
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        open(f"{tmpdir}/open", "w").write(
+            '#!/bin/sh\nexec /usr/bin/open -a "Google Chrome" "$@"\n')
+        os.chmod(f"{tmpdir}/open", 0o755)
+        env = {**os.environ, "PATH": f"{tmpdir}:{os.environ['PATH']}"}
+        server[0] = subprocess.Popen(
+            [shutil.which("samply") or "samply", "record",
+             "-o", profile_path, BIN, "--port", str(port)],
+            start_new_session=True, env=env)
+        open(f"{BUILD_DIR}/.pid", "w").write(str(server[0].pid))
+        ok(f"● profiling  http://localhost:{port}  → {profile_path}")
+    else:
+        if os.environ.get("LOG_LEVEL"):
+            # Capture stderr to both file and console
+            log_path = f"{BUILD_DIR}/.server.log"
+            log_file = open(log_path, "w")
+            server[0] = subprocess.Popen([BIN, "--port", str(port)],
+                                          stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.PIPE,
+                                          start_new_session=True,
+                                          text=True,
+                                          bufsize=1)
+
+            # Background thread to tee stderr to file and console
+            def log_tee():
+                try:
+                    for line in server[0].stderr:
+                        log_file.write(line)
+                        log_file.flush()
+                        # Clear line and reset cursor to column 0 before printing log
+                        sys.stdout.flush()
+                        sys.stderr.write(f"\r\033[K{line}")
+                        sys.stderr.flush()
+                except:
+                    pass
+                finally:
+                    log_file.close()
+
+            threading.Thread(target=log_tee, daemon=True).start()
+            dim(f"  logs → {log_path}")
+        else:
+            server[0] = subprocess.Popen([BIN, "--port", str(port)],
+                                          stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL,
+                                          start_new_session=True)
+        open(f"{BUILD_DIR}/.pid", "w").write(str(server[0].pid))
+        label = "● running [asan]" if asan else "● running"
+        ok(f"{label}  http://localhost:{port}")
+    dim("  r=rebuild  t=routes  d=debug  q=quit")
+
+def dev(port, lldb=False, profile=False, asan=False, debug=False, logging=None):
+    # Set logging level via environment variable if specified
+    if logging:
+        os.environ["LOG_LEVEL"] = logging
+
+    # Check critical dependencies before starting
+    ok_deps, missing = check_deps_in_project()
+    if not ok_deps:
+        err(f"✗ Missing dependencies: {', '.join(missing)}")
+        info("Installing via: bash ~/.revet/current/install_deps.sh")
+        result = subprocess.run(["bash", str(Path.home() / ".revet/current/install_deps.sh")],
+                              capture_output=False, text=True)
+        if result.returncode != 0:
+            err("Installation failed. Install manually and retry.")
+            sys.exit(1)
+        ok("✓ Dependencies installed. Retrying...")
+        # Verify again after install
+        ok_deps, missing = check_deps_in_project()
+        if not ok_deps:
+            err(f"Still missing: {', '.join(missing)}")
+            sys.exit(1)
+
+    save_tty()
+    atexit.register(restore_tty)
+
+    server  = [None]
+    events  = queue.Queue()
+
+    def watch_thread():
+        import time
+        EXCLUDE = {"build", ".git", "__pycache__", ".cache"}
+        EXCLUDE_EXTS = {".db", ".db-shm", ".db-wal"}
+        config_exts = {".py", ".css", ".toml", ".lock"}
+        def _keep(f):
+            p = Path(f)
+            return (os.path.isfile(f)
+                    and not any(part in EXCLUDE for part in p.parts)
+                    and p.suffix not in EXCLUDE_EXTS)
+
+        all_files = [f for f in glob.glob("**/*", recursive=True) if _keep(f)]
+        config_files = [f for f in all_files if Path(f).suffix in config_exts]
+        watched = all_files
+        if not watched: return
+        config_set = set(config_files)
+
+        mtimes = {}
+        for f in watched:
+            try: mtimes[f] = os.stat(f).st_mtime
+            except OSError: mtimes[f] = 0
+        while True:
+            time.sleep(0.25)
+            # Re-glob to pick up newly created files
+            current = [f for f in glob.glob("**/*", recursive=True) if _keep(f)]
+            for f in current:
+                if f not in mtimes:
+                    mtimes[f] = 0
+            changed = set()
+            for f in current:
+                try:
+                    mtime = os.stat(f).st_mtime
+                    if mtime != mtimes.get(f):
+                        mtimes[f] = mtime
+                        changed.add(f)
+                except OSError:
+                    pass
+            if changed:
+                kind = "reconfigure" if changed & config_set else "save"
+                events.put((kind, sorted(changed)))
+
+    threading.Thread(target=watch_thread, daemon=True).start()
+    do_rebuild(server, port, lldb=lldb, profile=profile, asan=asan, debug=debug)
+
+    fd = sys.stdin.fileno()
+    if sys.stdin.isatty():
+        try:
+            tty.setraw(fd)
+        except (termios.error, OSError):
+            pass  # Terminal doesn't support raw mode, continue anyway
+
+    try:
+        while True:
+            try:
+                while True:
+                    _, data = events.get_nowait()
+                    if _saved_tty:
+                        termios.tcsetattr(fd, termios.TCSADRAIN, _saved_tty)
+                    do_rebuild(server, port, f"↺ {', '.join(os.path.basename(f) for f in data)}", lldb=lldb, profile=profile, asan=asan)
+                    if _saved_tty:
+                        try:
+                            tty.setraw(fd)
+                        except (termios.error, OSError):
+                            pass
+            except queue.Empty:
+                pass
+
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                key = os.read(fd, 1).decode("utf-8", errors="ignore")
+                if _saved_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, _saved_tty)
+                if key == "r":
+                    do_rebuild(server, port, lldb=lldb, profile=profile, asan=asan, debug=debug)
+                elif key == "d":
+                    if server[0] and server[0].poll() is None:
+                        subprocess.run(["lldb", "-p", str(server[0].pid)])
+                        os.system("clear"); header()
+                        flags = [f for f, on in [("asan", asan), ("ubsan", asan), ("lldb", lldb), ("profile", profile)] if on]
+                        if flags: dim(f"  flags: {' '.join(flags)}")
+                        if server[0].poll() is None:
+                            ok(f"● running  http://localhost:{port}")
+                        else:
+                            err("✖ server exited during debug session")
+                        dim("  r=rebuild  t=routes  d=debug  q=quit")
+                    else:
+                        err("no running server to attach to")
+                elif key == "t":
+                    os.system("clear"); header(); print_routes(port)
+                    if server[0] and server[0].poll() is None:
+                        ok(f"● {'profiling' if profile else 'running'}  http://localhost:{port}")
+                    dim("  r=rebuild  t=routes  d=debug  q=quit")
+                elif key in ("q", "\x03"):
+                    if server[0]:
+                        try:
+                            import signal
+                            os.killpg(os.getpgid(server[0].pid), signal.SIGTERM)
+                        except (ProcessLookupError, PermissionError):
+                            server[0].terminate()
+                        if profile:
+                            ok("● writing profile…")
+                            server[0].wait()
+                    sys.exit(0)
+                if _saved_tty:
+                    try:
+                        tty.setraw(fd)
+                    except (termios.error, OSError):
+                        pass
+    finally:
+        if _saved_tty:
+            termios.tcsetattr(fd, termios.TCSADRAIN, _saved_tty)
+
+# ── new project ───────────────────────────────────────────────────────────────
+def new_project(name, empty=False):
+    framework = FRAMEWORK_DIR
+    if not framework.exists():
+        err("framework not installed — run `sudo ./scripts/revet-fw install` from the revet repo first")
+        sys.exit(1)
+
+    dest = Path.cwd() / name
+    if dest.exists():
+        err(f"'{name}' already exists"); sys.exit(1)
+
+    # Create destination directory
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Copy only static config files (not framework copies)
+    for item in [".clang-format", ".clang-tidy"]:
+        src_path = framework / item
+        if not src_path.exists(): continue
+        dst_path = dest / item
+        shutil.copy2(src_path, dst_path)
+
+    # Copy user config if it exists (for later use)
+    os.makedirs(dest / "src", exist_ok=True)
+
+    # Copy template files (skip CMakeLists.txt—it's generated at build time)
+    tmpl = framework / "template"
+    for src in tmpl.rglob("*"):
+        if src.is_dir(): continue
+        rel = src.relative_to(tmpl)
+
+        # Skip CMakeLists.txt—generated at build time
+        if rel.name == "CMakeLists.txt": continue
+
+        # Skip starter app files if --empty is requested
+        if empty:
+            parts = rel.parts
+            if parts and parts[0] == "app":
+                continue
+            if rel.name == "models.hpp": continue
+
+        dst = dest / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        content = src.read_text().replace("{{name}}", name)
+        dst.write_text(content)
+
+    # If empty, create a minimal index.cpp so it at least compiles
+    if empty:
+        routes_dir = dest / "app" / "routes"
+        routes_dir.mkdir(parents=True, exist_ok=True)
+        (routes_dir / "index.cpp").write_text('#include <revet/web.hpp>\n\nstatic auto render_get(const auto&) {\n    return "<h1>Project: ' + name + '</h1>";\n}\n')
+        (routes_dir / "site_init.cpp").write_text('#include <revet/web.hpp>\n\n// Site-specific initialization\n// Called before the server starts listening\n// Use this for database schema setup, resource initialization, etc.\nvoid site_init() {\n    // Add your initialization code here\n}\n')
+        (dest / "app" / "styles").mkdir(parents=True, exist_ok=True)
+        (dest / "app" / "components").mkdir(parents=True, exist_ok=True)
+        (dest / "app" / "layouts").mkdir(parents=True, exist_ok=True)
+        (dest / "app" / "queries").mkdir(parents=True, exist_ok=True)
+        (dest / "app" / "states").mkdir(parents=True, exist_ok=True)
+        (dest / "src/models.hpp").write_text("#pragma once\n")
+
+    # Version pin
+    installed_version = (framework / "VERSION").read_text().strip() if (framework / "VERSION").exists() else "unknown"
+    (dest / ".revet_version").write_text(installed_version)
+
+    # Add .gitignore for generated files
+    gitignore_content = "# Generated files\nCMakeLists.txt\nbuild/\n.DS_Store\n"
+    (dest / ".gitignore").write_text(gitignore_content)
+
+    subprocess.run(["git", "init"], cwd=dest, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=dest, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial commit from revet template"], cwd=dest, check=True, capture_output=True)
+
+    ok(f"✔ created {name}/")
+    info(f"  cd {name} && revet dev")
+
+    if not shutil.which("samply"):
+        info("")
+        info("  tip: install samply for flame graph profiling (press p in dev mode)")
+        info("       cargo install samply && samply setup")
+
+# ── upgrade ───────────────────────────────────────────────────────────────────
+def upgrade(force=False):
+    """Update project to current framework version and regenerate CMakeLists.txt."""
+    framework = FRAMEWORK_DIR
+    if not framework.exists():
+        err("framework not installed — run `sudo ./scripts/revet-fw install` from the revet repo first")
+        sys.exit(1)
+
+    project = Path.cwd()
+    if not (project / "revet.toml").exists():
+        err("no revet.toml found — are you in a revet project?"); sys.exit(1)
+
+    installed_version = (framework / "VERSION").read_text().strip() if (framework / "VERSION").exists() else "unknown"
+    project_version   = (project / ".revet_version").read_text().strip() if (project / ".revet_version").exists() else None
+
+    if project_version == installed_version and not force:
+        ok(f"✔ using framework {installed_version}"); return
+
+    # Update version marker
+    # (CMakeLists.txt is now generated at build time, not stored in git)
+    (project / ".revet_version").write_text(installed_version)
+
+    if project_version and project_version != installed_version:
+        ok(f"✔ framework updated: {project_version} → {installed_version}")
+        dim("  CMakeLists.txt will be regenerated at next build")
+    else:
+        ok(f"✔ using framework {installed_version}")
+
+# ── clean ─────────────────────────────────────────────────────────────────────
+def clean():
+    for p in [BUILD_DIR, "src/wrapped", "src/routes.cpp", "CMakeLists.txt"]:
+        if os.path.isdir(p):    shutil.rmtree(p)
+        elif os.path.isfile(p): os.remove(p)
+
+# ── main ──────────────────────────────────────────────────────────────────────
+class RevetParser(argparse.ArgumentParser):
+    def error(self, message):
+        err(message)
+        info("Run `revet --help` for usage.")
+        sys.exit(1)
+
+parser = RevetParser(prog="revet", add_help=False)
+parser.add_argument("command", nargs="?", default="dev")
+parser.add_argument("extra", nargs="?")
+parser.add_argument("--port", type=int, default=None)
+parser.add_argument("--logging", type=str, default=None, choices=["debug", "info", "warn", "error"])
+parser.add_argument("--lldb", action="store_true")
+parser.add_argument("--profile", action="store_true")
+parser.add_argument("--asan", action="store_true")
+parser.add_argument("--debug", action="store_true", help="Build with debug symbols")
+parser.add_argument("--version", action="store_true")
+parser.add_argument("--help", "-h", action="store_true")
+parser.add_argument("--force", action="store_true")
+parser.add_argument("--empty", "--blank", "--clean", action="store_true", help="Create bare project without starter site")
+args = parser.parse_args()
+
+if args.version:
+    print(REVET_VERSION); sys.exit(0)
+
+def print_help(command=None):
+    info(f"revet {REVET_VERSION}")
+    info("")
+    if command == "new":
+        info("Usage: revet new <name> [--empty]")
+        info("")
+        info("Arguments:")
+        info("  <name>         — project directory name")
+        info("")
+        info("Options:")
+        info("  --empty        — bare project (minimal index route, no starter site)")
+        info("  --blank        — alias for --empty")
+        info("  --clean        — alias for --empty")
+    elif command == "dev":
+        info("Usage: revet dev [options]")
+        info("")
+        info("Options:")
+        info("  --port N       — listen on port N (default: 8080 or revet.toml)")
+        info("  --logging LEVEL  — set log level: debug, info, warn, error")
+        info("  --asan         — enable AddressSanitizer + UBSan")
+        info("  --lldb         — launch under lldb")
+        info("  --profile      — record with samply (flame graph)")
+        info("  --debug        — build with debug symbols")
+    else:
+        info("Usage: revet [command] [options]")
+        info("")
+        info("Commands:")
+        info("  dev            — debug build with file watcher  [--port N] [--logging LEVEL] [--asan] [--lldb] [--profile] [--debug]")
+        info("  build          — release build for deployment  [--debug]")
+        info("  packages       — interactive package manager TUI")
+        info("  add <pkg>      — add a Conan package dependency  [pkg@version]")
+        info("  remove <pkg>   — remove a package dependency")
+        info("  lock           — regenerate revet.lock from current deps")
+        info("  new <name>     — scaffold a new project  [--empty|--blank|--clean]")
+        info("  upgrade        — sync with installed framework version  [--force]")
+        info("  tidy           — run clang-tidy --fix on project source")
+        info("  format         — run clang-format -i on project source")
+        info("  clean          — remove build artifacts")
+
+if args.help:
+    print_help(args.command if args.command != "dev" or len(sys.argv) > 2 else None)
+    sys.exit(0)
+
+try:
+    Path.cwd()
+except FileNotFoundError:
+    err("Current directory no longer exists. cd into your project directory and retry.")
+    sys.exit(1)
+
+cmd = args.command
+
+KNOWN_COMMANDS = {"dev", "build", "packages", "pkg", "add", "remove", "lock", "new", "upgrade", "tidy", "format", "clean", "help"}
+if cmd not in KNOWN_COMMANDS:
+    err(f"unknown command: {cmd}")
+    info("")
+    print_help()
+    sys.exit(1)
+
+if cmd not in ("new", "upgrade", "help") and not os.path.exists("revet.toml"):
+    err("no revet.toml found — not a revet project"); sys.exit(1)
+
+if cmd == "add":
+    if not args.extra: err("usage: revet add <package>[@version]"); sys.exit(1)
+    cmd_add(args.extra)
+elif cmd == "remove":
+    if not args.extra: err("usage: revet remove <package>"); sys.exit(1)
+    cmd_remove(args.extra)
+elif cmd == "lock":
+    cmd_lock()
+elif cmd in ("packages", "pkg"):
+    cmd_packages()
+elif cmd == "dev":
+    dev(resolve_port(args.port), lldb=args.lldb, profile=args.profile, asan=args.asan, debug=args.debug, logging=args.logging)
+elif cmd == "build":
+    r = cmake_build(release=True, debug=args.debug)
+    print(r.stdout)
+    if r.returncode: print(r.stderr, file=sys.stderr); sys.exit(1)
+elif cmd == "new":
+    if not args.extra: err("usage: revet new <name> [--empty|--blank|--clean]"); sys.exit(1)
+    new_project(args.extra, empty=args.empty)
+elif cmd == "upgrade":
+    upgrade(force=args.force)
+elif cmd == "tidy":
+    clang_tidy = shutil.which("clang-tidy")
+    if not clang_tidy:
+        # Check Homebrew LLVM on macOS
+        homebrew_clang_tidy = Path("/opt/homebrew/opt/llvm/bin/clang-tidy")
+        if homebrew_clang_tidy.exists():
+            clang_tidy = str(homebrew_clang_tidy)
+        else:
+            import platform
+            os_name = platform.system()
+            if os_name == "Darwin":
+                err("clang-tidy not found. Install with: brew install llvm")
+            elif os_name == "Linux":
+                err("clang-tidy not found. Install with: apt-get install clang-tools (Debian/Ubuntu) or dnf install clang-tools-extra (Fedora)")
+            else:
+                err("clang-tidy not found. Install LLVM/Clang for your platform")
+            sys.exit(1)
+    if not os.path.exists("build/compile_commands.json"):
+        err("build/compile_commands.json not found — run `revet build` first")
+        sys.exit(1)
+    files = glob.glob("src/**/*.cpp", recursive=True) + \
+            glob.glob("app/**/*.cpp", recursive=True)
+    if not files:
+        err("No source files found to tidy")
+        sys.exit(1)
+    info(f"Running clang-tidy on {len(files)} files...")
+    subprocess.run([
+        clang_tidy, "-p", "build", "--fix", "--fix-errors", *files
+    ])
+    ok("Tidy complete")
+elif cmd == "format":
+    clang_format = shutil.which("clang-format")
+    if not clang_format:
+        # Check Homebrew LLVM on macOS
+        homebrew_clang_format = Path("/opt/homebrew/opt/llvm/bin/clang-format")
+        if homebrew_clang_format.exists():
+            clang_format = str(homebrew_clang_format)
+        else:
+            import platform
+            os_name = platform.system()
+            if os_name == "Darwin":
+                err("clang-format not found. Install with: brew install llvm")
+            elif os_name == "Linux":
+                err("clang-format not found. Install with: apt-get install clang-format (Debian/Ubuntu) or dnf install clang-tools-extra (Fedora)")
+            else:
+                err("clang-format not found. Install LLVM/Clang for your platform")
+            sys.exit(1)
+    import glob as _glob
+    files = (_glob.glob("src/**/*.cpp", recursive=True) +
+             _glob.glob("src/**/*.hpp", recursive=True) +
+             _glob.glob("app/**/*.cpp", recursive=True) +
+             _glob.glob("app/**/*.hpp", recursive=True))
+    if not files:
+        err("No source files found to format")
+        sys.exit(1)
+    info(f"Formatting {len(files)} files...")
+    subprocess.run([clang_format, "-i", "-j", str(os.cpu_count() or 1), "--style=file", *files])
+    ok("Format complete")
+elif cmd == "clean":
+    clean()
+elif cmd == "help":
+    print_help()

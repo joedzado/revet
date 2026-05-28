@@ -1,0 +1,4 @@
+inline $ns::Pool& _pool_$name() {
+    static $ns::Pool p{"$path", $pool};
+    return p;
+}

@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+import os, sys, shutil, subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+VERSION = (ROOT / "VERSION").read_text().strip()
+
+def info(s): print(f"\033[36m{s}\033[0m")
+def ok(s):   print(f"\033[32m✔ {s}\033[0m")
+
+def cmd_install():
+    import pwd
+
+    sudo_user = os.environ.get("SUDO_USER")
+    home_dir = Path(pwd.getpwnam(sudo_user).pw_dir) if sudo_user else Path.home()
+    target = home_dir / ".revet/current"
+    info(f"Installing revet {VERSION} to {target}...")
+
+    if target.exists(): shutil.rmtree(target)
+    if os.path.exists(target):
+        shutil.rmtree(target)
+    os.makedirs(target, exist_ok=True)
+
+    for d in ["cmake", "src", "static", "template", "include", "vendor", "CMakeLists.txt", ".clang-format", ".clang-tidy", "conanfile.py", "THIRD_PARTY_LICENSES", "LICENSE"]:
+        if (ROOT / d).exists():
+            if (ROOT / d).is_dir():
+                shutil.copytree(ROOT / d, target / d,
+                                ignore=shutil.ignore_patterns("build", "wrapped", "routes.cpp", "__pycache__", ".vscode", "generated"))
+            else:
+                shutil.copy2(ROOT / d, target / d)
+
+    shutil.copy2(ROOT / "VERSION", target / "VERSION")
+
+    # Copy check_deps.py and install_deps.sh
+    shutil.copy2(ROOT / "scripts/check_deps.py", target / "check_deps.py")
+    shutil.copy2(ROOT / "scripts/install_deps.sh", target / "install_deps.sh")
+    os.chmod(target / "install_deps.sh", 0o755)
+
+    # Install the user-facing CLI
+    cli_src = ROOT / "bin/revet"
+    cli_dst = target / "revet"
+    shutil.copy2(cli_src, cli_dst)
+
+    # Create global symlink
+    bin_path = "/usr/local/bin/revet"
+    if os.path.exists(bin_path): os.remove(bin_path)
+    os.symlink(cli_dst, bin_path)
+
+    # Verify critical headers landed
+    required = [
+        "include/revet/web.hpp", "include/revet/html.hpp", "include/revet/css.hpp",
+        "include/revet/htmx.hpp", "include/revet/ui.hpp", "include/revet/csrf.hpp",
+        "include/revet/i18n.hpp", "include/revet/form.hpp",
+        "cmake/codegen.py", "cmake/gen_states.py", "cmake/gen_forms.py",
+        "template/app/routes/index.cpp", "template/app/forms/user.hpp",
+    ]
+    missing = [h for h in required if not (target / h).exists()]
+    if missing:
+        for h in missing:
+            info(f"  ✘ missing after install: {h}")
+        sys.exit(f"Installation incomplete — {len(missing)} file(s) missing from {target}")
+
+    ok("Installation complete. You can now use 'revet' in any directory.")
+
+def cmd_test():
+    info("Running framework tests...")
+    cpus = os.cpu_count() or 1
+    gen = ["-G", "Ninja"] if shutil.which("ninja") else []
+
+    # If build directory exists and generator is different, clean it
+    if os.path.exists("build/CMakeCache.txt"):
+        with open("build/CMakeCache.txt") as f:
+            content = f.read()
+            using_ninja = "CMAKE_GENERATOR:INTERNAL=Ninja" in content
+            want_ninja = "Ninja" in str(gen)
+            if using_ninja != want_ninja:
+                info("Generator mismatch, cleaning build directory...")
+                shutil.rmtree("build")
+
+    # Install dependencies via Conan
+    info("Installing dependencies via Conan...")
+    subprocess.run(["conan", "install", ".", "--output-folder=build/conan", "--build=missing", "-s", "build_type=Debug"], check=True)
+
+    subprocess.run(["cmake", *gen, "-B", "build", "-S", ".", "-DCMAKE_BUILD_TYPE=Debug", "-DREVET_ASAN=ON", "-DREVET_BUILD_SAMPLE=ON"], check=True)
+    subprocess.run(["cmake", "--build", "build", "-j", str(cpus)], check=True)
+
+    # Run Python tests (codegen scripts)
+    info("Running Python tests...")
+    subprocess.run(
+        ["python3", "-m", "unittest",
+         "tests.test_gen_api",
+         "tests.test_gen_queries",
+         "tests.test_gen_json_models",
+         "tests.test_gen_resources",
+         "tests.test_gen_components",
+         "tests.test_gen_states",
+         "tests.test_optimistic_js",
+         "-v"],
+        check=True,
+    )
+
+    # Run C++ tests
+    info("Running C++ tests...")
+    subprocess.run(["ctest", "--test-dir", "build", "--output-on-failure", "-j", str(cpus)], check=True)
+    _augment_compile_commands()
+    ok("All tests passed.")
+
+def cmd_tidy():
+    clang_tidy = shutil.which("clang-tidy") or (
+        "/opt/homebrew/opt/llvm/bin/clang-tidy"
+        if os.path.exists("/opt/homebrew/opt/llvm/bin/clang-tidy") else None
+    )
+    
+    if not clang_tidy:
+        import platform
+        os_name = platform.system()
+        if os_name == "Darwin":
+            info("clang-tidy not found. Install with: brew install llvm")
+        else:
+            info("clang-tidy not found.")
+        sys.exit(1)
+
+    if not os.path.exists("build/compile_commands.json"):
+        info("Generating compile_commands.json...")
+        gen = ["-G", "Ninja"] if shutil.which("ninja") else []
+        # Install dependencies via Conan if not already done
+        if not os.path.exists("build/conan/ctre-config.cmake"):
+            info("Installing dependencies via Conan...")
+            subprocess.run(["conan", "install", ".", "--output-folder=build/conan", "--build=missing", "-s", "build_type=Debug"], check=True)
+        subprocess.run(["cmake", *gen, "-B", "build", "-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DREVET_BUILD_SAMPLE=ON"], check=True)
+
+    import glob as _glob
+    files = _glob.glob("src/**/*.cpp", recursive=True)
+
+    if not files:
+        print("No source files found to tidy")
+        return
+
+    import subprocess as _sp
+    sdk_path = _sp.check_output(["xcrun", "--show-sdk-path"]).decode().strip()    
+    fix = "--fix" in sys.argv or "-f" in sys.argv
+    cmd = [
+        clang_tidy, "-p", "build",
+        "--quiet",
+        f"--extra-arg=-isysroot{sdk_path}",
+        "--header-filter=^(src/|include/)"
+    ]
+    if fix:
+        cmd.append("--fix")
+        cmd.append("--fix-errors")
+    
+    files = [f for f in files if "generated" not in f] # Skip generated files
+    info(f"Running clang-tidy on {len(files)} framework files...")
+    subprocess.run(cmd + files)
+    ok("Framework tidy complete.")
+
+def cmd_format():
+    clang_format = shutil.which("clang-format")
+    if not clang_format:
+        # Check Homebrew LLVM on macOS
+        homebrew_clang_format = Path("/opt/homebrew/opt/llvm/bin/clang-format")
+        if homebrew_clang_format.exists():
+            clang_format = str(homebrew_clang_format)
+        else:
+            import platform
+            os_name = platform.system()
+            if os_name == "Darwin":
+                info("clang-format not found. Install with: brew install llvm")
+            elif os_name == "Linux":
+                info("clang-format not found. Install with: apt-get install clang-tools (Debian/Ubuntu) or dnf install clang-tools-extra (Fedora)")
+            else:
+                info("clang-format not found. Install LLVM/Clang for your platform")
+            sys.exit(1)
+
+    import glob as _glob
+    files = (_glob.glob("src/**/*.cpp", recursive=True) +
+             _glob.glob("src/**/*.hpp", recursive=True) +
+             _glob.glob("tests/*.cpp"))
+
+    if not files:
+        print("No source files found to format")
+        return
+
+    info(f"Formatting {len(files)} framework files...")
+    subprocess.run([clang_format, "-i", "-j", str(os.cpu_count() or 1), "--style=file", *files])
+    ok("Framework format complete.")
+
+def _augment_compile_commands():
+    import json, glob as _glob
+    cc_path = ROOT / "build" / "compile_commands.json"
+    if not cc_path.exists():
+        return
+    cmds = json.loads(cc_path.read_text())
+    routes_entry = next((c for c in cmds if "routes.cpp" in c["file"]), None)
+    if not routes_entry:
+        return
+
+    existing = {c["file"] for c in cmds}
+    site_files = _glob.glob(str(ROOT / "site/**/*.cpp"), recursive=True)
+    added = 0
+    for f in site_files:
+        abs_f = str(Path(f).resolve())
+        if abs_f in existing:
+            continue
+        entry = dict(routes_entry)
+        entry["file"] = abs_f
+        entry["output"] = abs_f.replace(".cpp", ".o")
+        cmds.append(entry)
+        added += 1
+
+    if added:
+        cc_path.write_text(json.dumps(cmds, indent=2))
+        info(f"  compile_commands.json: added {added} site file(s)")
+
+def cmd_build():
+    info("Building sample...")
+    cpus = os.cpu_count() or 1
+    result = subprocess.run(
+        ["cmake", "--build", "build", "-j", str(cpus)],
+        check=False
+    )
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+    _augment_compile_commands()
+    ok("Build complete.")
+
+def cmd_run(args):
+    bin_path = ROOT / "build" / "revet"
+    if not bin_path.exists():
+        info("Binary not found — building first...")
+        cmd_build()
+    info(f"Starting server...")
+    try:
+        subprocess.run([str(bin_path), *args])
+    except KeyboardInterrupt:
+        pass
+
+def cmd_clean():
+    info("Cleaning framework build artifacts...")
+    for p in ["build", "CMakeUserPresets.json"]:
+        if os.path.isdir(p):
+            shutil.rmtree(p)
+            info(f"  removed {p}/")
+        elif os.path.isfile(p):
+            os.remove(p)
+            info(f"  removed {p}")
+    ok("Clean complete.")
+
+def cmd_help():
+    info(f"revet-fw {VERSION} — framework developer tool")
+    info("")
+    info("Usage: ./scripts/revet-fw [command]")
+    info("")
+    info("Commands:")
+    info("  install   — deploy framework to ~/.revet/current/  (default, requires sudo)")
+    info("  build     — build the sample app (cmake --build build)")
+    info("  run       — build if needed, then start the sample server")
+    info("  test      — build with ASAN and run all framework tests")
+    info("  tidy      — run clang-tidy --fix on src/ and tests/")
+    info("  format    — run clang-format -i on src/ and tests/")
+    info("  clean     — remove build artifacts and generated files")
+    info("  help      — show this message")
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "install"
+    if cmd in ("--help", "-h", "help"): cmd_help()
+    elif cmd == "install": cmd_install()
+    elif cmd == "build":   cmd_build()
+    elif cmd == "run":     cmd_run(sys.argv[2:])
+    elif cmd == "test":    cmd_test()
+    elif cmd == "tidy":    cmd_tidy()
+    elif cmd == "format":  cmd_format()
+    elif cmd == "clean":   cmd_clean()
+    else:
+        print(f"Unknown command: {cmd}")
+        cmd_help()
+        sys.exit(1)

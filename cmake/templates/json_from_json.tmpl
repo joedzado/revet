@@ -1,0 +1,4 @@
+template<> inline $name from_json<$name>([[maybe_unused]] Document& doc) {
+    auto root = doc.root();
+    return from_json_value<$name>(root);
+}

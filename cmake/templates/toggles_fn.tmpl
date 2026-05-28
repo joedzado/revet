@@ -1,0 +1,4 @@
+inline bool $name(const web::ParamMap& cookies) {
+    auto v = cookies.get("_cw_$name");
+    return v.empty() ? $default_str : (v == "1");
+}

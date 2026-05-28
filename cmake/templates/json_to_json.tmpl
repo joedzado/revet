@@ -1,0 +1,6 @@
+template<> inline std::string to_json<$name>([[maybe_unused]] const $name& val) {
+    std::string out = "{";
+$body
+    out += "}";
+    return out;
+}

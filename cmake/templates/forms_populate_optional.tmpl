@@ -1,0 +1,7 @@
+    if (auto v = p.get("$mname"); !v.empty()) {
+        if (!f.$mname) f.$mname.emplace();
+        f.$mname->name = "$mname";
+        f.$mname->value = std::string(v);
+    } else {
+        f.$mname.reset();
+    }

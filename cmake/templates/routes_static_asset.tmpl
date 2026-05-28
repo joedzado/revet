@@ -1,0 +1,11 @@
+    {
+        web::Route r; r.path = "$path";
+        r.get = [](const web::Request&) -> web::Response {
+            web::Response resp;
+            resp.body = std::string(revet::detail::$symbol);
+            resp.headers["Content-Type"] = "application/javascript; charset=utf-8";
+            resp.headers["Cache-Control"] = "public, max-age=86400";
+            return resp;
+        };
+        out.push_back(r);
+    }
