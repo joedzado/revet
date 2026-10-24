@@ -1,0 +1,3 @@
+#!/bin/sh
+# zig as an aarch64 Linux cross toolchain (glibc 2.36: Debian 12+, Raspberry Pi OS Bookworm+).
+exec zig ar "$@"

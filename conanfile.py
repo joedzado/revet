@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from conan import ConanFile
-from conan.tools.cmake import CMakeDeps
+from conan.tools.cmake import CMakeDeps, CMakeToolchain
 
 
 class CppWebConan(ConanFile):
@@ -19,3 +19,4 @@ class CppWebConan(ConanFile):
     def generate(self):
         deps = CMakeDeps(self)
         deps.generate()
+        CMakeToolchain(self).generate()

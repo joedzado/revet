@@ -376,7 +376,6 @@ struct Url {
     }
 };
 
-
 enum class FileType : std::uint8_t { jpeg, png, gif, webp, pdf, zip, unknown };
 
 struct UploadedFile {

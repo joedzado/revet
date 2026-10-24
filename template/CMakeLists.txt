@@ -79,7 +79,7 @@ endif()
 # ── All deps resolved via Conan (build/conan/ populated by revet CLI) ─────────
 # Conan installs Release packages; map Debug cmake builds to use them too
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/conan")
 find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
@@ -89,7 +89,8 @@ target_link_libraries(revet_core INTERFACE
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)
-    set(GEN_DIR ${CMAKE_BINARY_DIR}/generated)
+    # Codegen output is target-independent; cross builds (build/<target>) share it.
+    set(GEN_DIR ${CMAKE_SOURCE_DIR}/build/generated)
     file(MAKE_DIRECTORY ${GEN_DIR})
 
     # Codegen needs Python 3.12+ (tomllib, PEP 701 f-strings). REVET_PYTHON picks the interpreter;
@@ -198,7 +199,10 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     target_link_libraries(revet PRIVATE revet_core)
     target_compile_options(revet PRIVATE -Wno-unknown-attributes)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_compile_options(revet PRIVATE -march=native -flto)
+        if(NOT CMAKE_CROSSCOMPILING)
+            target_compile_options(revet PRIVATE -march=native)
+        endif()
+        target_compile_options(revet PRIVATE -flto)
         target_link_options(revet PRIVATE -flto)
     endif()
 

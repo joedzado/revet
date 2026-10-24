@@ -273,7 +273,7 @@ def _generate_project_conanfile(user_deps: dict) -> Path:
     all_requires = "\n".join(f'        self.requires("{r}")' for r in fw_reqs + extra_refs)
 
     content = f'''from conan import ConanFile
-from conan.tools.cmake import CMakeDeps
+from conan.tools.cmake import CMakeDeps, CMakeToolchain
 
 class CppWebProjectConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
@@ -284,6 +284,7 @@ class CppWebProjectConan(ConanFile):
     def generate(self):
         deps = CMakeDeps(self)
         deps.generate()
+        CMakeToolchain(self).generate()
 '''
     out = Path("build") / "project_conanfile.py"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -811,11 +812,27 @@ def generate_cmakelists():
     if not dest.exists() or dest.read_text() != content:
         dest.write_text(content)
 
-def cmake_build(release=False, asan=False, debug=False):
+TARGETS_DIR = FRAMEWORK_DIR / "cmake" / "targets"
+
+def _target_profile(target: str) -> Path:
+    """A bundled target name (cmake/targets/<name>/profile) or a Conan profile path."""
+    if Path(target).is_file():
+        return Path(target).resolve()
+    profile = TARGETS_DIR / target / "profile"
+    if not profile.is_file():
+        known = sorted(d.name for d in TARGETS_DIR.iterdir() if (d / "profile").is_file()) if TARGETS_DIR.is_dir() else []
+        err(f"unknown target: {target}" + (f" (available: {', '.join(known)})" if known else ""))
+        sys.exit(1)
+    return profile
+
+def cmake_build(release=False, asan=False, debug=False, target=None):
     # Generate CMakeLists.txt at build time
     generate_cmakelists()
 
-    conan_dir = Path(BUILD_DIR) / "conan"
+    # Cross builds get their own tree under build/ so they never clobber the host build.
+    build_dir = f"{BUILD_DIR}/{Path(target).stem if Path(target).is_file() else target}" if target else BUILD_DIR
+    profile = _target_profile(target) if target else None
+    conan_dir = Path(build_dir) / "conan"
     conan_dir.mkdir(parents=True, exist_ok=True)
 
     user_deps = _get_deps_from_toml(_read_toml_raw()) if Path("revet.toml").exists() else {}
@@ -835,30 +852,36 @@ def cmake_build(release=False, asan=False, debug=False):
         conan_cmd = ["conan", "install", str(conanfile),
                      f"--output-folder={conan_dir}", "--build=missing",
                      "-s", "build_type=Release"]
-        # Fresh clone with committed lockfile — use it for reproducible install
-        if lock_file.exists() and not hash_marker.exists():
+        if profile:
+            conan_cmd += [f"-pr:h={profile}", "-pr:b=default"]
+        # Fresh clone with committed lockfile — use it for reproducible install.
+        # The lockfile describes the host graph, so cross builds skip it.
+        if lock_file.exists() and not hash_marker.exists() and not profile:
             conan_cmd.append(f"--lockfile={lock_file}")
         conan_result = subprocess.run(conan_cmd, capture_output=True, text=True)
         if conan_result.returncode != 0:
             err("conan install failed. Run: bash ~/.revet/current/install_deps.sh")
             return conan_result
         _conan_mark_updated(user_deps, conan_dir)
-        _conan_update_lockfile(conanfile)
+        if not profile:
+            _conan_update_lockfile(conanfile)
 
     bt = "Debug" if debug else ("Release" if release else "Debug")
     gen = ["-G", "Ninja"] if shutil.which("ninja") else []
 
     # Clean if generator changed
-    cache_path = Path(BUILD_DIR) / "CMakeCache.txt"
+    cache_path = Path(build_dir) / "CMakeCache.txt"
     if cache_path.exists():
         content = cache_path.read_text()
         using_ninja = "CMAKE_GENERATOR:INTERNAL=Ninja" in content
         want_ninja  = "Ninja" in str(gen)
         if using_ninja != want_ninja:
             info("Generator changed, cleaning build directory...")
-            shutil.rmtree(BUILD_DIR)
+            shutil.rmtree(build_dir)
 
-    cmake_args = ["cmake", *gen, "-B", BUILD_DIR, "-S", ".", f"-DCMAKE_BUILD_TYPE={bt}"]
+    cmake_args = ["cmake", *gen, "-B", build_dir, "-S", ".", f"-DCMAKE_BUILD_TYPE={bt}"]
+    if profile:
+        cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={(conan_dir / 'conan_toolchain.cmake').resolve()}")
     if asan:
         cmake_args.append("-DREVET_ASAN=ON")
 
@@ -868,7 +891,7 @@ def cmake_build(release=False, asan=False, debug=False):
         return config_result
 
     result = subprocess.run(
-        ["cmake", "--build", BUILD_DIR, "--", f"-j{os.cpu_count() or 1}"],
+        ["cmake", "--build", build_dir, "--", f"-j{os.cpu_count() or 1}"],
         capture_output=True, text=True)
 
     # If build failed, check if it's a missing dependency
@@ -880,7 +903,7 @@ def cmake_build(release=False, asan=False, debug=False):
             result.stderr += f"Run: bash ~/.revet/current/install_deps.sh\n"
             result.stderr += f"Then: revet clean && revet dev\n"
 
-    if not release and result.returncode == 0 and shutil.which("dsymutil"):
+    if not release and not profile and result.returncode == 0 and shutil.which("dsymutil"):
         subprocess.run(["dsymutil", f"{BUILD_DIR}/revet"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result
@@ -1259,6 +1282,7 @@ parser.add_argument("--lldb", action="store_true")
 parser.add_argument("--profile", action="store_true")
 parser.add_argument("--asan", action="store_true")
 parser.add_argument("--debug", action="store_true", help="Build with debug symbols")
+parser.add_argument("--target", type=str, default=None, help="Cross-compile: bundled target name or Conan profile path")
 parser.add_argument("--version", action="store_true")
 parser.add_argument("--help", "-h", action="store_true")
 parser.add_argument("--force", action="store_true")
@@ -1296,7 +1320,7 @@ def print_help(command=None):
         info("")
         info("Commands:")
         info("  dev            — debug build with file watcher  [--port N] [--logging LEVEL] [--asan] [--lldb] [--profile] [--debug]")
-        info("  build          — release build for deployment  [--debug]")
+        info("  build          — release build for deployment  [--debug] [--target linux-arm64]")
         info("  packages       — interactive package manager TUI")
         info("  add <pkg>      — add a Conan package dependency  [pkg@version]")
         info("  remove <pkg>   — remove a package dependency")
@@ -1342,7 +1366,7 @@ elif cmd in ("packages", "pkg"):
 elif cmd == "dev":
     dev(resolve_port(args.port), lldb=args.lldb, profile=args.profile, asan=args.asan, debug=args.debug, logging=args.logging)
 elif cmd == "build":
-    r = cmake_build(release=True, debug=args.debug)
+    r = cmake_build(release=True, debug=args.debug, target=args.target)
     print(r.stdout)
     if r.returncode: print(r.stderr, file=sys.stderr); sys.exit(1)
 elif cmd == "new":

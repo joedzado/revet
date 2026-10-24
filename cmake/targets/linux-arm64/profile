@@ -1,0 +1,24 @@
+# Cross-compile for 64-bit ARM Linux (Raspberry Pi 3/4/5/Zero 2 W on 64-bit Pi OS) using zig.
+# Requires zig (https://ziglang.org) on PATH. Usage: revet build --target linux-arm64
+[settings]
+os=Linux
+arch=armv8
+build_type=Release
+compiler=clang
+# zig 0.15 ships clang 20; Conan's settings stop at 19 and the ABI is the same.
+compiler.version=19
+compiler.libcxx=libc++
+compiler.cppstd=23
+
+[conf]
+tools.build:compiler_executables={"c": "{{ profile_dir }}/cc", "cpp": "{{ profile_dir }}/c++"}
+tools.cmake.cmaketoolchain:system_name=Linux
+tools.cmake.cmaketoolchain:system_processor=aarch64
+tools.cmake.cmaketoolchain:extra_variables={"CMAKE_AR": "{{ profile_dir }}/ar", "CMAKE_RANLIB": "{{ profile_dir }}/ranlib"}
+tools.gnu:host_triplet=aarch64-linux-gnu
+
+[buildenv]
+CC={{ profile_dir }}/cc
+CXX={{ profile_dir }}/c++
+AR={{ profile_dir }}/ar
+RANLIB={{ profile_dir }}/ranlib
