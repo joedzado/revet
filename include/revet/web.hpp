@@ -36,6 +36,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <csignal>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -1311,6 +1312,11 @@ inline auto sse_gate(const Request& req, const std::vector<Middleware>& guards) 
 } // namespace detail
 
 inline void listen(const std::vector<Route>& all_routes) {
+    // A client that disconnects mid-response (closing a tab on an SSE stream,
+    // say) would otherwise kill the server with SIGPIPE on its next write;
+    // with it ignored, send() just returns EPIPE.
+    std::signal(SIGPIPE, SIG_IGN);
+
     const auto& cfg = detail::server_config();
     // Found now rather than on the first login.
     if (crypto::key_required() && std::getenv("REVET_COOKIE_KEY") == nullptr) {
