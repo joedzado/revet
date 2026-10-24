@@ -196,7 +196,7 @@ Async handlers (required for DB/HTTP calls):
 static auto render_get(const web::Request& req) -> web::Task<web::Response> {
     auto users = co_await queries::users::all(db);
     co_return layout_main(req, "Users", html::ul{
-        html::nodes(users, [](const User& u) { return html::li{ u.name }; })
+        html::list(users, [](const User& u) { return html::li{ u.name }; })
     });
 }
 ```
@@ -230,7 +230,7 @@ logged_in ? html::p{ "Welcome" } : html::Node{}
 **List from data:**
 ```cpp
 html::ul{
-    html::nodes(users, [](const User& u) { return html::li{ u.name }; })
+    html::list(users, [](const User& u) { return html::li{ u.name }; })
 }
 ```
 
