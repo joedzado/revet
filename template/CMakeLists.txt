@@ -68,9 +68,14 @@ endif()
 
 if("postgres" IN_LIST REVET_DB_BACKENDS)
     target_compile_definitions(revet_core INTERFACE REVET_DB_POSTGRES)
-    find_library(POSTGRES_LIB pq)
-    if(POSTGRES_LIB)
+    # Homebrew's libpq is keg-only, so it is not on the default search paths.
+    find_library(POSTGRES_LIB pq HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
+    find_path(POSTGRES_INCLUDE libpq-fe.h
+        HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+        PATH_SUFFIXES postgresql)
+    if(POSTGRES_LIB AND POSTGRES_INCLUDE)
         target_link_libraries(revet_core INTERFACE ${POSTGRES_LIB})
+        target_include_directories(revet_core INTERFACE ${POSTGRES_INCLUDE})
     else()
         message(FATAL_ERROR "PostgreSQL client library not found")
     endif()

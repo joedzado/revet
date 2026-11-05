@@ -140,3 +140,57 @@ Internal — used by `http::get/post/...`. You typically don't construct one you
 - [attributes.md](./attributes.md) for the markers the codegen reads.
 - [security.md](security.md) for the pre-deploy checklist.
 - [config.md](config.md) for env vars + `revet.toml` reference.
+
+## Postgres (`<revet/db/postgres.hpp>` namespace `db::postgres`)
+
+Tested against Postgres 16 by `tests/test_postgres_e2e.cpp`, which is skipped unless `REVET_TEST_PG_URL` points at a throwaway database.
+
+```cpp
+auto h = resources::my_db<db::Write>();
+
+// ? is a placeholder, except inside literals, comments and dollar quoting.
+// With arguments, write ?? for a literal ?, such as the jsonb operator.
+// With no arguments, the SQL is sent verbatim.
+auto rows = h.query("select name from accounts where id = ?::uuid", id);
+
+// query() reads NULL as "". Use query_nullable() where that matters.
+auto cells = h.query_nullable("select closed_at::text from accounts");
+if (!cells[0][0]) { /* NULL */ }
+
+// nullptr and an empty std::optional bind as NULL.
+h.exec("update accounts set note = ? where id = ?::uuid", std::optional<std::string>{}, id);
+
+// Rolls back on scope exit unless committed.
+db::postgres::Transaction tx(h);
+h.exec("insert into log (msg) values (?)", msg);
+tx.commit();
+```
+
+A connection returned to the pool has any open transaction rolled back. A lost connection makes the current query throw and is reconnected for the next one, so callers decide whether to retry.
+
+## Decimal (`<revet/decimal.hpp>` namespace `revet`)
+
+Exact fixed-point arithmetic for money, up to 38 significant digits. Never use `double` for money. Read `numeric` columns as text and parse them.
+
+```cpp
+auto total = revet::Decimal::parse("0.1") + revet::Decimal::parse("0.2"); // "0.3"
+total.to_string();                                    // same text Postgres prints
+total.rescale(2);                                     // ties away from zero, like round()
+total.rescale(2, revet::Rounding::HalfEven);
+a.divide(b, 4);                                       // result scale is explicit
+```
+
+Scale follows Postgres: `+` and `-` take the larger scale, `*` adds them. A result that does not fit throws `DecimalError`.
+
+## Rails encrypted columns (`<revet/rails_encryption.hpp>` namespace `rails`)
+
+Reads and writes `ActiveRecord::Encryption` columns with the default scheme. Needs hardware AES, so the constructor throws on a Raspberry Pi 4 or older.
+
+```cpp
+const rails::Encryption enc({primary_key, deterministic_key, key_derivation_salt});
+auto url = enc.decrypt(stored, rails::Scheme::Deterministic); // encrypts :x, deterministic: true
+auto raw = enc.decrypt(stored, rails::Scheme::Primary);       // encrypts :x
+auto out = enc.encrypt(raw, rails::Scheme::Primary);
+```
+
+Errors never contain plaintext, ciphertext or keys. Envelope encryption and key references are not supported.

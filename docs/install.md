@@ -12,7 +12,7 @@
 | **libsodium-dev** | AEAD for cookies + CSRF. Linked against the system version. | 1.0.18 |
 | **libcurl-dev** | Outbound HTTP client. | 7.x |
 | **libsqlite3-dev** | SQLite resource backend. | 3.x |
-| **libpq-dev** *(optional)* | Postgres resource backend. Skip if not using postgres. | 14 |
+| **libpq-dev** *(optional; macOS: `brew install libpq`)* | Postgres resource backend. Skip if not using postgres. | 14 |
 
 ## macOS
 

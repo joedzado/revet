@@ -2,6 +2,7 @@
 
 #include "states.hpp"
 
+#include <memory>
 #include <algorithm>
 #include <any>
 #include <array>
@@ -969,6 +970,69 @@ inline auto dispatch(const Request& req, const Handler& handler, const std::vect
     return next();
 }
 
+namespace detail {
+
+inline auto internal_error_response(const Request& req) -> Response {
+    if (error_handlers().contains(status::internal_error)) {
+        return error_handlers().at(status::internal_error)(req);
+    }
+    auto resp = to_response(std::string("500 Internal Server Error"));
+    resp.status = status::internal_error;
+    return resp;
+}
+
+// Parameters are held in the coroutine frame, so req outlives every suspension.
+inline auto run_async_handler(std::shared_ptr<const Request> req, const AsyncHandler& handler, Response from_pipeline)
+    -> Task<Response> {
+    Response resp;
+    try {
+        resp = co_await handler(*req);
+    } catch (const std::exception& e) {
+        std::println(stderr, "Error handling request: {}", e.what());
+        resp = internal_error_response(*req);
+    } catch (...) {
+        std::println(stderr, "Error handling request: unknown exception");
+        resp = internal_error_response(*req);
+    }
+    // Keep what middleware added on the way out, such as a CSRF cookie.
+    // The handler wins where both set the same name.
+    for (const auto& [key, value] : from_pipeline.cookies.data) {
+        resp.cookies.data.try_emplace(key, value);
+    }
+    for (const auto& [key, value] : from_pipeline.headers.data) {
+        resp.headers.data.try_emplace(key, value);
+    }
+    co_return resp;
+}
+
+} // namespace detail
+
+// Async counterpart of dispatch(). Route guards and global middleware run first,
+// on the calling thread, and the handler only starts if all of them call next.
+// Calls done exactly once, including when the handler throws.
+inline void dispatch_async(std::shared_ptr<const Request> req, const AsyncHandler& handler,
+                           const std::vector<Middleware>& guards, std::function<void(const Response&)> done) {
+    bool reached = false;
+    Response from_pipeline;
+    try {
+        const Handler sentinel = [&reached](const Request&) -> Response {
+            reached = true;
+            return {};
+        };
+        from_pipeline = dispatch(*req, sentinel, guards);
+    } catch (const std::exception& e) {
+        std::println(stderr, "Error handling request: {}", e.what());
+        done(detail::internal_error_response(*req));
+        return;
+    }
+    if (!reached) {
+        done(from_pipeline);
+        return;
+    }
+    detail::run_async_handler(std::move(req), handler, std::move(from_pipeline))
+        .start([done = std::move(done)](Response resp) { done(resp); });
+}
+
 struct Route {
     std::string path;
     Handler get;
@@ -1122,10 +1186,11 @@ inline void listen(const std::vector<Route>& all_routes) {
             }
 
             if (async_h) {
-                (*async_h)(req).start([client_fd](const Response& resp) {
-                    send_response(client_fd, resp);
-                    close(client_fd);
-                });
+                dispatch_async(std::make_shared<const Request>(std::move(req)), *async_h, it->guards,
+                               [client_fd](const Response& resp) {
+                                   send_response(client_fd, resp);
+                                   close(client_fd);
+                               });
                 return;
             }
 
