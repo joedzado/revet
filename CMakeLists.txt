@@ -51,10 +51,28 @@ find_package(Catch2 3 REQUIRED)
 if(Catch2_FOUND)
     include(CTest)
     file(GLOB test_sources "${CMAKE_SOURCE_DIR}/tests/*.cpp")
+
+    # libpq is optional: without it the Postgres e2e test is not built.
+    # Homebrew's libpq is keg-only, so it is not on the default search paths.
+    find_library(REVET_TEST_PQ_LIB pq HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
+    find_path(REVET_TEST_PQ_INCLUDE libpq-fe.h
+        HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+        PATH_SUFFIXES postgresql)
+
     foreach(test_src ${test_sources})
         get_filename_component(test_name ${test_src} NAME_WE)
 
+        if(${test_name} STREQUAL "test_postgres_e2e" AND NOT (REVET_TEST_PQ_LIB AND REVET_TEST_PQ_INCLUDE))
+            message(STATUS "libpq not found: skipping test_postgres_e2e")
+            continue()
+        endif()
+
         add_executable(${test_name} ${test_src})
+        if(${test_name} STREQUAL "test_postgres_e2e")
+            target_compile_definitions(${test_name} PRIVATE REVET_DB_POSTGRES)
+            target_include_directories(${test_name} PRIVATE ${REVET_TEST_PQ_INCLUDE})
+            target_link_libraries(${test_name} PRIVATE ${REVET_TEST_PQ_LIB})
+        endif()
         target_link_libraries(${test_name} PRIVATE revet_core Catch2::Catch2WithMain)
         if(${test_name} MATCHES "sqlite")
             target_compile_definitions(${test_name} PRIVATE REVET_DB_SQLITE)

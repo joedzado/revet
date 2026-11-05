@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <revet/db/pg_params.hpp>
 #include <string>
 
@@ -63,4 +64,47 @@ TEST_CASE("to_pg_param: string_view passthrough") {
 
 TEST_CASE("to_pg_param: const char* passthrough") {
     CHECK(to_pg_param("literal") == "literal");
+}
+
+using db::postgres::detail::positional_sql;
+using db::postgres::detail::to_nullable_pg_param;
+
+TEST_CASE("to_nullable_pg_param: NULL sources") {
+    CHECK_FALSE(to_nullable_pg_param(nullptr).has_value());
+    CHECK_FALSE(to_nullable_pg_param(std::optional<int>{}).has_value());
+    CHECK(to_nullable_pg_param(std::optional<int>{4}) == std::optional<std::string>("4"));
+    CHECK(to_nullable_pg_param(std::string("")) == std::optional<std::string>(""));
+}
+
+TEST_CASE("positional_sql: placeholders") {
+    CHECK(positional_sql("select ?, ?") == "select $1, $2");
+    CHECK(positional_sql("no params") == "no params");
+    CHECK(positional_sql("") == "");
+}
+
+TEST_CASE("positional_sql: ? is left alone inside quoted text and comments") {
+    CHECK(positional_sql("select '?', ?") == "select '?', $1");
+    CHECK(positional_sql("select 'it''s ?', ?") == "select 'it''s ?', $1");
+    CHECK(positional_sql(R"(select "a?b", ?)") == R"(select "a?b", $1)");
+    CHECK(positional_sql(R"(select E'\'?', ?)") == R"(select E'\'?', $1)");
+    CHECK(positional_sql("select 1 -- ?\n, ?") == "select 1 -- ?\n, $1");
+    CHECK(positional_sql("select /* ? /* ? */ ? */ ?") == "select /* ? /* ? */ ? */ $1");
+    CHECK(positional_sql("select $$?$$, ?") == "select $$?$$, $1");
+    CHECK(positional_sql("select $tag$ ? $$ ? $tag$, ?") == "select $tag$ ? $$ ? $tag$, $1");
+}
+
+TEST_CASE("positional_sql: ?? is a literal ?") {
+    CHECK(positional_sql("select j ?? 'k', ?") == "select j ? 'k', $1");
+}
+
+TEST_CASE("positional_sql: a backslash only escapes in E strings") {
+    CHECK(positional_sql(R"(select '\', ?)") == R"(select '\', $1)");
+    CHECK(positional_sql(R"(select name'\', ?)") == R"(select name'\', $1)");
+}
+
+TEST_CASE("positional_sql: explicit $n and unterminated text do not crash") {
+    CHECK(positional_sql("select $1") == "select $1");
+    CHECK(positional_sql("select 'open ?") == "select 'open ?");
+    CHECK(positional_sql("select /* open ?") == "select /* open ?");
+    CHECK(positional_sql("select $tag$ open ?") == "select $tag$ open ?");
 }
