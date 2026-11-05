@@ -113,7 +113,7 @@ struct Integer {
     static constexpr bool is_textarea = false;
 };
 
-struct Decimal {
+struct DecimalInput {
     static constexpr const char* input_type = "number";
     static constexpr const char* inputmode = "decimal";
     static constexpr const char* autocomplete = "";
