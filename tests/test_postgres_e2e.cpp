@@ -2,6 +2,7 @@
 // REVET_TEST_PG_URL is set, for example:
 //   REVET_TEST_PG_URL=postgres://postgres:pw@127.0.0.1:55432/revet_test
 // These tests create and drop tables named e2e_*, so use a throwaway database.
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <mutex>
 #include <optional>
 #include <revet/db/postgres.hpp>
+#include <revet/decimal.hpp>
 #include <revet/thread_pool.hpp>
 #include <stdexcept>
 #include <string>
@@ -291,4 +293,44 @@ TEST_CASE("postgres: concurrent readers and writers lose nothing", "[postgres]")
     Handle<Write> w(pool);
     CHECK(w.query("select count(*) from e2e_load")[0][0] == std::to_string((kThreads / 2) * kPerThread));
     w.exec("drop table e2e_load");
+}
+
+TEST_CASE("postgres: Decimal arithmetic matches the server byte for byte", "[postgres]") {
+    REQUIRE_PG();
+    Pool pool(test_url(), 1);
+    Handle<> h(pool);
+
+    using revet::Decimal;
+    const std::vector<std::string> values = {
+        "0",      "0.00",   "1",       "-1",     "0.0001",   "-0.0001", "1.005",  "-1.005", "2.5",
+        "-2.5",   "12.3400", "99999.99", "0.1",   "0.2",      "3.14159", "1000000", "1234.5678",
+        "999999999999999.9999", "-999999999999999.9999", "1234.567890123456789012", "512.3456789012"};
+
+    for (const auto& a : values) {
+        for (const auto& b : values) {
+            INFO(a << " , " << b);
+            const auto da = Decimal::parse(a);
+            const auto db_ = Decimal::parse(b);
+            const auto row = h.query("select ?::numeric + ?::numeric, ?::numeric - ?::numeric, ?::numeric * ?::numeric",
+                                     a, b, a, b, a, b)[0];
+            CHECK((da + db_).to_string() == row[0]);
+            CHECK((da - db_).to_string() == row[1]);
+            // Over 38 digits a product may not fit: throwing is correct, a wrong value is not.
+            const auto digits = std::count_if(row[2].begin(), row[2].end(), [](char c) { return c >= '0' && c <= '9'; });
+            std::optional<std::string> product;
+            try {
+                product = (da * db_).to_string();
+            } catch (const revet::DecimalError&) {
+                CHECK(digits > 38);
+            }
+            if (product) {
+                CHECK(*product == row[2]);
+            }
+        }
+        INFO(a);
+        for (const int scale : {0, 1, 2, 4}) {
+            const auto rounded = h.query("select round(?::numeric, ?::int)", a, scale)[0][0];
+            CHECK(Decimal::parse(a).rescale(scale).to_string() == rounded);
+        }
+    }
 }
