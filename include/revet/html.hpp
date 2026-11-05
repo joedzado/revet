@@ -29,12 +29,25 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
 struct raw_tag {};
 
 struct Node {
+    // A child starting with a space is read as an attribute by detail::split, so text
+    // must never start with one, or " onclick=x" in user data would become a live attribute.
+    static constexpr auto escape_text(std::string_view s) -> std::string {
+        std::string out = sanitize::html_escape(s);
+        if (out.starts_with(' ')) {
+            out.replace(0, 1, "&#32;");
+        }
+        return out;
+    }
+
     std::string str;
 
     constexpr Node() = default;
-    constexpr Node(const std::string& s) : str(sanitize::html_escape(s)) {}
-    constexpr Node(std::string_view s) : str(sanitize::html_escape(s)) {}
-    constexpr Node(const char* s) : str(sanitize::html_escape(s)) {}
+    constexpr Node(const std::string& s) : str(escape_text(s)) {}
+    constexpr Node(std::string_view s) : str(escape_text(s)) {}
+    // Literals may use the " #id" and " .class" shorthand. Runtime strings never can.
+    constexpr Node(const char* s)
+        : str(std::string_view(s).starts_with(" #") || std::string_view(s).starts_with(" .") ? sanitize::html_escape(s)
+                                                                                              : escape_text(s)) {}
     constexpr Node(raw_tag, std::string s) : str(std::move(s)) {}
 
     template<std::integral T>

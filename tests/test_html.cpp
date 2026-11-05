@@ -150,3 +150,13 @@ TEST_CASE("form structure", "[html]") {
     };
     CHECK(s == "<form method=\"get\"><input type=\"text\" name=\"q\"><button>Search</button></form>");
 }
+
+TEST_CASE("text starting with a space cannot become an attribute", "[html][security]") {
+    const std::string hostile = " onmouseover=alert(1) x";
+    const std::string out = html::td{hostile};
+    CHECK(out == "<td>&#32;onmouseover=alert(1) x</td>");
+    CHECK(std::string(html::td{std::string(" .evil")}) == "<td>&#32;.evil</td>");
+    CHECK(std::string(html::td{std::string(" #evil")}) == "<td>&#32;#evil</td>");
+    CHECK(std::string(html::td{html::attr.title("ok"), "plain"}) == "<td title=\"ok\">plain</td>");
+    CHECK(std::string(html::span{"a ", html::span{" b"}}) == "<span>a <span>&#32;b</span></span>");
+}
