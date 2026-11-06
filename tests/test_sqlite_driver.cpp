@@ -66,3 +66,12 @@ TEST_CASE("sqlite: SQL need not be NUL-terminated", "[sqlite]") {
     CHECK(h.query(std::string_view(text).substr(0, 8))[0][0] == "1");
     CHECK(h.query(std::string_view(text).substr(0, 8), std::nullopt) .size() == 1);
 }
+
+TEST_CASE("sqlite: the path can come from the environment", "[sqlite]") {
+    setenv("REVET_TEST_SQLITE_PATH", temp_db().c_str(), 1);
+    db::sqlite::Pool pool("env:REVET_TEST_SQLITE_PATH", 1);
+    db::sqlite::Handle<db::Read> h(pool);
+    CHECK(h.query("select 1")[0][0] == "1");
+    unsetenv("REVET_TEST_SQLITE_PATH");
+    CHECK_THROWS(db::sqlite::Pool("env:REVET_TEST_SQLITE_PATH", 1));
+}

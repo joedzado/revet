@@ -5,6 +5,7 @@
 #ifdef REVET_DB_SQLITE
 #include <algorithm>
 #include <condition_variable>
+#include <cstdlib>
 #include <format>
 #include <mutex>
 #include <optional>
@@ -59,6 +60,13 @@ public:
     Pool(std::string_view path, int size) {
         conns_.reserve(size);
         std::string path_str(path); // Convert to null-terminated string
+        if (path_str.starts_with("env:")) {
+            const char* value = std::getenv(path_str.substr(4).c_str());
+            if (value == nullptr || *value == '\0') {
+                throw std::runtime_error("db::sqlite: " + path_str.substr(4) + " is not set");
+            }
+            path_str = value;
+        }
         std::generate_n(std::back_inserter(conns_), size, [&] {
             sqlite3* c = nullptr;
             int rc = sqlite3_open_v2(path_str.c_str(), &c, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
