@@ -35,6 +35,12 @@ inline bool secure_eq(std::string_view a, std::string_view b) {
     return same_bytes && a.size() == b.size();
 }
 
+// A hostname is guessable, so production should refuse to derive a key from one.
+inline auto key_required() -> bool {
+    const char* required = std::getenv("REVET_REQUIRE_COOKIE_KEY");
+    return required != nullptr && std::string_view(required) == "1";
+}
+
 // Fills key from REVET_COOKIE_KEY env var, or derives from hostname as a fallback.
 inline void get_key(unsigned char key[crypto_secretbox_KEYBYTES]) {
     const char* key_env = std::getenv("REVET_COOKIE_KEY");
@@ -42,8 +48,14 @@ inline void get_key(unsigned char key[crypto_secretbox_KEYBYTES]) {
         if (std::strlen(key_env) != 64) {
             throw std::runtime_error("REVET_COOKIE_KEY must be 64 hex characters");
         }
-        size_t bin_len;
-        sodium_hex2bin(key, crypto_secretbox_KEYBYTES, key_env, 64, nullptr, &bin_len, nullptr);
+        size_t bin_len = 0;
+        // Without this check, non-hex text silently gives a mostly empty key.
+        if (sodium_hex2bin(key, crypto_secretbox_KEYBYTES, key_env, 64, nullptr, &bin_len, nullptr) != 0 ||
+            bin_len != crypto_secretbox_KEYBYTES) {
+            throw std::runtime_error("REVET_COOKIE_KEY must be 64 hex characters");
+        }
+    } else if (key_required()) {
+        throw std::runtime_error("REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback");
     } else {
         // Cache the derived key — crypto_pwhash is intentionally slow
         static std::once_flag derived_once;

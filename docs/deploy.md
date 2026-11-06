@@ -105,6 +105,8 @@ WantedBy=multi-user.target
 
 ```env
 REVET_COOKIE_KEY=<64 hex chars>
+REVET_REQUIRE_COOKIE_KEY=1   # refuse to start without a key, instead of deriving one from the hostname
+REVET_BIND=127.0.0.1         # comma-separated IPv4 addresses, or --bind. Default: every interface
 REVET_FORCE_SECURE_COOKIES=1
 LOG_LEVEL=info
 DATABASE_URL=postgres://app:...@db.internal/myapp

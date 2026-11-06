@@ -63,9 +63,8 @@ Response CurlClient::execute(const std::string& method, const std::string& url,
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
-    // Defaults: callers can override via a future timeout-aware API.
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,        30L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(options_.connect_timeout.count()));
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(options_.total_timeout.count()));
 
     std::string response_body;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);

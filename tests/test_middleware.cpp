@@ -1,3 +1,5 @@
+#include <arpa/inet.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <revet/web.hpp>
 #include <string>
@@ -204,4 +206,49 @@ TEST_CASE("dispatch — middleware wraps handler symmetrically", "[middleware]")
     web::dispatch(make_req(web::Method::GET, "/"), handler);
 
     REQUIRE(order == std::vector<std::string>{"before-a", "before-b", "handler", "after-b", "after-a"});
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+
+TEST_CASE("SSE routes run global middleware, even with no guards", "[middleware][sse]") {
+    ScopedMiddlewares _;
+    web::use([](const web::Request&, const web::Next&) -> web::Response {
+        web::Response refused;
+        refused.status = web::status::forbidden;
+        return refused;
+    });
+    const auto gate = web::detail::sse_gate(make_req(web::Method::GET, "/events"), {});
+    REQUIRE(gate.has_value());
+    CHECK(gate->status == web::status::forbidden);
+}
+
+TEST_CASE("SSE routes stream when nothing refuses", "[middleware][sse]") {
+    ScopedMiddlewares _;
+    web::use([](const web::Request&, const web::Next& next) { return next(); });
+    CHECK_FALSE(web::detail::sse_gate(make_req(web::Method::GET, "/events"), {}).has_value());
+}
+
+// ── Binding ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("--bind and REVET_BIND take a list", "[bind]") {
+    CHECK(web::detail::parse_binds("127.0.0.1,192.168.64.1") == std::vector<std::string>{"127.0.0.1", "192.168.64.1"});
+    CHECK(web::detail::parse_binds("127.0.0.1") == std::vector<std::string>{"127.0.0.1"});
+    CHECK(web::detail::parse_binds("").empty());
+}
+
+TEST_CASE("listeners bind where asked, or say why not", "[bind]") {
+    const auto fd = web::detail::open_listener("127.0.0.1", 0);
+    REQUIRE(fd.has_value());
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    REQUIRE(getsockname(*fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
+    char text[INET_ADDRSTRLEN];
+    CHECK(std::string(inet_ntop(AF_INET, &addr.sin_addr, text, sizeof(text))) == "127.0.0.1");
+    close(*fd);
+
+    const auto bad = web::detail::open_listener("not-an-address", 0);
+    REQUIRE_FALSE(bad.has_value());
+    CHECK(bad.error().find("not an IPv4 address") != std::string::npos);
+    // TEST-NET-3 is never assigned to this machine.
+    CHECK_FALSE(web::detail::open_listener("203.0.113.1", 0).has_value());
 }
