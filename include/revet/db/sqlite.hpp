@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <format>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -55,6 +56,17 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
     }
 }
 
+// Runs on every connection a pool opens, for custom functions and collations. Register
+// before the first pool opens. sqlite3_auto_extension can't do this: Apple's SQLite
+// ignores it.
+inline auto connection_hooks() -> std::vector<std::function<void(sqlite3*)>>& {
+    static std::vector<std::function<void(sqlite3*)>> hooks;
+    return hooks;
+}
+inline void on_open(std::function<void(sqlite3*)> hook) {
+    connection_hooks().push_back(std::move(hook));
+}
+
 class Pool {
 public:
     Pool(std::string_view path, int size) {
@@ -83,6 +95,9 @@ public:
             // failing at once, and foreign keys are off unless asked for.
             sqlite3_busy_timeout(c, 5000);
             sqlite3_exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
+            for (const auto& hook : connection_hooks()) {
+                hook(c);
+            }
             return c;
         });
     }

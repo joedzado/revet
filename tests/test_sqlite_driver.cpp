@@ -75,3 +75,13 @@ TEST_CASE("sqlite: the path can come from the environment", "[sqlite]") {
     unsetenv("REVET_TEST_SQLITE_PATH");
     CHECK_THROWS(db::sqlite::Pool("env:REVET_TEST_SQLITE_PATH", 1));
 }
+
+TEST_CASE("sqlite: hooks run on every connection", "[sqlite]") {
+    int opened = 0;
+    db::sqlite::on_open([&](sqlite3*) { ++opened; });
+    {
+        db::sqlite::Pool pool(temp_db(), 3);
+        CHECK(opened == 3);
+    }
+    db::sqlite::connection_hooks().clear();
+}
