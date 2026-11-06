@@ -28,8 +28,12 @@
 #include "css_utils.hpp"
 #include "task.hpp"
 
+#include <cerrno>
+#include <expected>
 // Network headers
+#include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -37,6 +41,7 @@ namespace web {
 
 struct ServerConfig {
     int port = 8080;
+    std::vector<std::string> binds; // IPv4 addresses. Empty → every interface.
     int request_threads = 0; // 0 → hardware_concurrency()
     int io_threads = 0;      // 0 → 4 × hardware_concurrency()
 };
@@ -63,12 +68,33 @@ inline auto server_config() -> ServerConfig& {
 }
 } // namespace detail
 
+namespace detail {
+// "127.0.0.1,192.168.64.1" → each address.
+inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
+    std::vector<std::string> out;
+    while (!text.empty()) {
+        const auto comma = text.find(',');
+        const auto part = text.substr(0, comma);
+        if (!part.empty()) {
+            out.emplace_back(part);
+        }
+        text = comma == std::string_view::npos ? std::string_view{} : text.substr(comma + 1);
+    }
+    return out;
+}
+} // namespace detail
+
 inline void init(int argc, char** argv) {
     auto& cfg = detail::server_config();
+    if (const char* binds = std::getenv("REVET_BIND")) {
+        cfg.binds = detail::parse_binds(binds);
+    }
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
         if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
             cfg.port = std::stoi(argv[++i]);
+        } else if (arg == "--bind" && i + 1 < argc) {
+            cfg.binds = detail::parse_binds(argv[++i]);
         } else if (arg == "--request-threads" && i + 1 < argc) {
             cfg.request_threads = std::stoi(argv[++i]);
         } else if (arg == "--io-threads" && i + 1 < argc) {
@@ -1057,8 +1083,52 @@ struct Route {
     std::vector<Middleware> guards;
 };
 
+namespace detail {
+// A listening socket, or the reason there isn't one. Empty address → every interface.
+inline auto open_listener(const std::string& address, int port) -> std::expected<int, std::string> {
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    addr.sin_addr.s_addr = INADDR_ANY;
+    if (!address.empty() && inet_pton(AF_INET, address.c_str(), &addr.sin_addr) != 1) {
+        return std::unexpected(std::format("not an IPv4 address: {}", address));
+    }
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return std::unexpected("socket failed");
+    }
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 || ::listen(fd, SOMAXCONN) < 0) {
+        const std::string reason = std::strerror(errno);
+        close(fd);
+        return std::unexpected(std::format("can't listen on {}:{}: {}", address.empty() ? "*" : address, port, reason));
+    }
+    return fd;
+}
+
+// Runs an SSE route's global middleware and guards. A response means don't stream.
+inline auto sse_gate(const Request& req, const std::vector<Middleware>& guards) -> std::optional<Response> {
+    bool reached = false;
+    const auto sentinel = [&reached](const Request&) -> Response {
+        reached = true;
+        return {};
+    };
+    Response refused = dispatch(req, sentinel, guards);
+    if (reached) {
+        return std::nullopt;
+    }
+    return refused;
+}
+} // namespace detail
+
 inline void listen(const std::vector<Route>& all_routes) {
     const auto& cfg = detail::server_config();
+    // Found now rather than on the first login.
+    if (crypto::key_required() && std::getenv("REVET_COOKIE_KEY") == nullptr) {
+        std::println(stderr, "REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback");
+        std::exit(1);
+    }
     const int rthreads =
         cfg.request_threads > 0 ? cfg.request_threads : static_cast<int>(std::thread::hardware_concurrency());
     const int ithreads =
@@ -1067,34 +1137,30 @@ inline void listen(const std::vector<Route>& all_routes) {
     detail::request_pool() = std::make_unique<WorkerPool>(rthreads);
     detail::io_pool() = std::make_unique<WorkerPool>(ithreads);
 
-    std::println("Server running on http://localhost:{} "
+    // Exits rather than returns, so a supervisor sees a failure and tries again.
+    std::vector<pollfd> listeners;
+    for (const auto& address : cfg.binds.empty() ? std::vector<std::string>{""} : cfg.binds) {
+        const auto fd = detail::open_listener(address, cfg.port);
+        if (!fd) {
+            std::println(stderr, "{}", fd.error());
+            std::exit(1);
+        }
+        listeners.push_back({.fd = *fd, .events = POLLIN, .revents = 0});
+    }
+
+    std::println("Server running on port {} at {} "
                  "(request-threads={}, io-threads={})",
-                 cfg.port, rthreads, ithreads);
-
-    int const server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
-        std::println(stderr, "socket failed");
-        return;
-    }
-
-    int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(static_cast<uint16_t>(cfg.port));
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        std::println(stderr, "bind failed");
-        close(server_fd);
-        return;
-    }
-
-    ::listen(server_fd, SOMAXCONN);
+                 cfg.port, cfg.binds.empty() ? std::string("every interface") : std::format("{}", cfg.binds), rthreads, ithreads);
 
     while (true) {
-        int const client_fd = accept(server_fd, nullptr, nullptr);
+        if (poll(listeners.data(), static_cast<nfds_t>(listeners.size()), -1) <= 0) {
+            continue;
+        }
+        for (const auto& listener : listeners) {
+        if ((listener.revents & POLLIN) == 0) {
+            continue;
+        }
+        int const client_fd = accept(listener.fd, nullptr, nullptr);
         if (client_fd < 0) {
             continue;
         }
@@ -1146,19 +1212,16 @@ inline void listen(const std::vector<Route>& all_routes) {
             // SSE — detached thread so pool isn't held for connection duration
             if (req.method == Method::GET && it->sse) {
                 std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() {
-                    bool ok = true;
-                    Response guard_resp;
-                    if (!guards.empty()) {
-                        bool reached = false;
-                        auto sentinel = [&reached](const Request&) -> Response {
-                            reached = true;
-                            return {};
-                        };
-                        guard_resp = dispatch(req, sentinel, guards);
-                        ok = reached;
+                    std::optional<Response> refused;
+                    try {
+                        refused = detail::sse_gate(req, guards);
+                    } catch (const std::exception& e) {
+                        std::println(stderr, "SSE middleware error: {}", e.what());
+                        refused = to_response(std::string("500 Internal Server Error"));
+                        refused->status = status::internal_error;
                     }
-                    if (!ok) {
-                        send_response(client_fd, guard_resp);
+                    if (refused) {
+                        send_response(client_fd, *refused);
                     } else {
                         const std::string_view sse_head = "HTTP/1.1 200 OK\r\n"
                                                           "Content-Type: text/event-stream\r\n"
@@ -1235,6 +1298,7 @@ inline void listen(const std::vector<Route>& all_routes) {
             send_response(client_fd, resp);
             close(client_fd);
         });
+        }
     }
 }
 

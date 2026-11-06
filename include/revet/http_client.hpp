@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -53,8 +54,19 @@ public:
 // Production HTTP client using libcurl
 class CurlClient final : public Client {
 public:
+    struct Options {
+        std::chrono::seconds connect_timeout{10};
+        std::chrono::seconds total_timeout{30};
+    };
+
+    CurlClient() = default;
+    explicit CurlClient(Options options) : options_(options) {}
+
     Response execute(const std::string& method, const std::string& url,
                      const std::map<std::string, std::string>& headers, const std::string& body) override;
+
+private:
+    Options options_;
 };
 
 // Mock HTTP client for testing

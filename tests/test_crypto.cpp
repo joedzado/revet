@@ -45,3 +45,24 @@ TEST_CASE("crypto hostname fallback still round-trips", "[crypto]") {
     std::string ct = web::crypto::encrypt("fallback test");
     REQUIRE(web::crypto::decrypt(ct) == "fallback test");
 }
+
+TEST_CASE("a cookie key must be real hex, and can be required", "[crypto]") {
+    unsigned char key[crypto_secretbox_KEYBYTES];
+    const char* saved = std::getenv("REVET_COOKIE_KEY");
+    const std::string restore = saved != nullptr ? saved : "";
+
+    setenv("REVET_COOKIE_KEY", std::string(64, 'z').c_str(), 1);
+    CHECK_THROWS(web::crypto::get_key(key));
+    setenv("REVET_COOKIE_KEY", std::string(64, 'a').c_str(), 1);
+    CHECK_NOTHROW(web::crypto::get_key(key));
+
+    unsetenv("REVET_COOKIE_KEY");
+    setenv("REVET_REQUIRE_COOKIE_KEY", "1", 1);
+    CHECK_THROWS(web::crypto::get_key(key));
+    unsetenv("REVET_REQUIRE_COOKIE_KEY");
+    CHECK_NOTHROW(web::crypto::get_key(key));
+
+    if (saved != nullptr) {
+        setenv("REVET_COOKIE_KEY", restore.c_str(), 1);
+    }
+}
