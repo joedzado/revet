@@ -3,6 +3,17 @@
 
 namespace svg {
 
+// SVG has no void elements: "<path d=...>" without "/>" stays open, and whatever
+// follows it nests inside. So leaves always self-close.
+template<html::fixed_string Tag>
+struct leaf : html::Node {
+    leaf(std::initializer_list<html::Node> c = {})
+        : html::Node{html::raw_tag{}, std::format("<{}{}/>", Tag.value, html::detail::split(c).first)} {}
+
+    template<typename... Args>
+    leaf(Args&&... args) : leaf({html::Node(std::forward<Args>(args))...}) {}
+};
+
 // ── Attribute helpers ─────────────────────────────────────────────────────────
 struct attr_t {
     constexpr auto operator()(std::string_view name, std::string_view value) const -> html::Node {
@@ -146,14 +157,14 @@ using stop = html::elem<"stop">;
 using title = html::elem<"title">;
 
 // ── Leaf elements (no children) ───────────────────────────────────────────────
-using path = html::void_elem<"path">;
-using circle = html::void_elem<"circle">;
-using ellipse = html::void_elem<"ellipse">;
-using rect = html::void_elem<"rect">;
-using line = html::void_elem<"line">;
-using polyline = html::void_elem<"polyline">;
-using polygon = html::void_elem<"polygon">;
-using use_el = html::void_elem<"use">;
-using image = html::void_elem<"image">;
+using path = leaf<"path">;
+using circle = leaf<"circle">;
+using ellipse = leaf<"ellipse">;
+using rect = leaf<"rect">;
+using line = leaf<"line">;
+using polyline = leaf<"polyline">;
+using polygon = leaf<"polygon">;
+using use_el = leaf<"use">;
+using image = leaf<"image">;
 
 } // namespace svg

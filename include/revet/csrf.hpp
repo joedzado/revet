@@ -42,7 +42,7 @@ inline auto token_from(const Request& req) -> std::string {
     if (!tok.empty()) {
         return tok;
     }
-    return req.cookies.get(k_cookie_name);
+    return web::crypto::decrypt(req.cookies.get(k_cookie_name));
 }
 
 inline auto field(const Request& req) -> html::Node {

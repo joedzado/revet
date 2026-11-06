@@ -253,6 +253,13 @@ struct Response {
     auto state(const T& val) -> Response&;
     template<typename T>
     auto flash(const T& val) -> Response&;
+
+    // Without this, cookies set by this response last until the browser closes.
+    std::optional<long> cookie_max_age;
+    auto keep_cookies_for(std::chrono::seconds age) -> Response& {
+        cookie_max_age = age.count();
+        return *this;
+    }
 };
 
 struct Context {
@@ -875,7 +882,8 @@ inline void send_response(int fd, const Response& resp) {
             if (v.empty()) {
                 head += std::format("Set-Cookie: {}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}\r\n", k, suffix);
             } else {
-                head += std::format("Set-Cookie: {}={}; Path=/; HttpOnly; SameSite=Lax{}\r\n", k, v, suffix);
+                const std::string age = resp.cookie_max_age ? std::format("; Max-Age={}", *resp.cookie_max_age) : "";
+                head += std::format("Set-Cookie: {}={}; Path=/; HttpOnly; SameSite=Lax{}{}\r\n", k, v, age, suffix);
             }
         }
     }

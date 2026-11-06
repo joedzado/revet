@@ -5,7 +5,9 @@
 #ifdef REVET_DB_SQLITE
 #include <algorithm>
 #include <condition_variable>
+#include <cstdlib>
 #include <format>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -24,11 +26,23 @@ namespace db::sqlite {
 
 using Row = std::vector<std::string>;
 using Result = std::vector<Row>;
+using NullableRow = std::vector<std::optional<std::string>>;
+using NullableResult = std::vector<NullableRow>;
 
 template<typename T>
 inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_floating_point_v<U>) {
+    if constexpr (std::is_same_v<U, std::nullopt_t>) {
+        sqlite3_bind_null(stmt, idx);
+    } else if constexpr (requires { arg.has_value(); *arg; }) {
+        if (arg) {
+            bind_arg(stmt, idx, *arg);
+        } else {
+            sqlite3_bind_null(stmt, idx);
+        }
+    } else if constexpr (std::is_same_v<U, bool>) {
+        sqlite3_bind_int(stmt, idx, arg ? 1 : 0);
+    } else if constexpr (std::is_floating_point_v<U>) {
         sqlite3_bind_double(stmt, idx, static_cast<double>(arg));
     } else if constexpr (std::is_integral_v<U> && !std::is_same_v<U, bool>) {
         if constexpr (sizeof(U) <= 4) {
@@ -42,11 +56,29 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
     }
 }
 
+// Runs on every connection a pool opens, for custom functions and collations. Register
+// before the first pool opens. sqlite3_auto_extension can't do this: Apple's SQLite
+// ignores it.
+inline auto connection_hooks() -> std::vector<std::function<void(sqlite3*)>>& {
+    static std::vector<std::function<void(sqlite3*)>> hooks;
+    return hooks;
+}
+inline void on_open(std::function<void(sqlite3*)> hook) {
+    connection_hooks().push_back(std::move(hook));
+}
+
 class Pool {
 public:
     Pool(std::string_view path, int size) {
         conns_.reserve(size);
         std::string path_str(path); // Convert to null-terminated string
+        if (path_str.starts_with("env:")) {
+            const char* value = std::getenv(path_str.substr(4).c_str());
+            if (value == nullptr || *value == '\0') {
+                throw std::runtime_error("db::sqlite: " + path_str.substr(4) + " is not set");
+            }
+            path_str = value;
+        }
         std::generate_n(std::back_inserter(conns_), size, [&] {
             sqlite3* c = nullptr;
             int rc = sqlite3_open_v2(path_str.c_str(), &c, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
@@ -58,6 +90,13 @@ public:
                     sqlite3_close(c);
                 }
                 throw std::runtime_error(full_error);
+            }
+            // Readers keep working during a write, a busy database waits rather than
+            // failing at once, and foreign keys are off unless asked for.
+            sqlite3_busy_timeout(c, 5000);
+            sqlite3_exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
+            for (const auto& hook : connection_hooks()) {
+                hook(c);
             }
             return c;
         });
@@ -118,8 +157,10 @@ public:
     Result query(std::string_view sql) const {
         Result result;
         char* err = nullptr;
+        // string_view does not guarantee a terminating NUL.
+        const std::string text(sql);
         sqlite3_exec(
-            conn_, sql.data(),
+            conn_, text.c_str(),
             [](void* data, int cols, char** vals, char**) -> int {
                 auto& res = *static_cast<Result*>(data);
                 Row row;
@@ -144,35 +185,13 @@ public:
     }
     template<typename... Args>
     Result query(std::string_view sql, Args&&... args) const {
-        sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(conn_, sql.data(), -1, &stmt, nullptr) != SQLITE_OK) {
-            std::string err = sqlite3_errmsg(conn_);
-            throw std::runtime_error("db::sqlite: prepare failed: " + err + " (SQL: " + std::string(sql) + ")");
-        }
-        int idx = 1;
-        (bind_arg(stmt, idx++, std::forward<Args>(args)), ...);
-        const int cols = sqlite3_column_count(stmt);
-        Result result;
-        int    rc = SQLITE_OK;
-        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-            Row row;
-            row.reserve(static_cast<size_t>(cols));
-            for (auto i : std::views::iota(0, cols)) {
-                const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
-                row.emplace_back(txt ? txt : "");
-            }
-            result.push_back(std::move(row));
-        }
-        if (rc != SQLITE_DONE) {
-            // Don't surface errmsg before finalize — errmsg is a pointer to
-            // memory owned by the connection and finalize may invalidate it
-            // on some sqlite builds. Snapshot the message first.
-            std::string err = sqlite3_errmsg(conn_);
-            sqlite3_finalize(stmt);
-            throw std::runtime_error("db::sqlite: step failed: " + err + " (SQL: " + std::string(sql) + ")");
-        }
-        sqlite3_finalize(stmt);
-        return result;
+        return run<Row>(sql, std::forward<Args>(args)...);
+    }
+
+    // As query, but a NULL column is std::nullopt rather than an empty string.
+    template<typename... Args>
+    NullableResult query_nullable(std::string_view sql, Args&&... args) const {
+        return run<NullableRow>(sql, std::forward<Args>(args)...);
     }
 
     // Write — only available on Handle<Write>
@@ -202,10 +221,84 @@ public:
             });
     }
 
+    // For a loadable extension or a custom function on this connection.
+    [[nodiscard]] auto native() const -> sqlite3* {
+        return conn_;
+    }
+
 private:
+    template<typename RowT, typename... Args>
+    std::vector<RowT> run(std::string_view sql, Args&&... args) const {
+        sqlite3_stmt* stmt = nullptr;
+        // Passing the length: string_view does not guarantee a terminating NUL.
+        if (sqlite3_prepare_v2(conn_, sql.data(), static_cast<int>(sql.size()), &stmt, nullptr) != SQLITE_OK) {
+            std::string err = sqlite3_errmsg(conn_);
+            throw std::runtime_error("db::sqlite: prepare failed: " + err + " (SQL: " + std::string(sql) + ")");
+        }
+        int idx = 1;
+        (bind_arg(stmt, idx++, std::forward<Args>(args)), ...);
+        const int cols = sqlite3_column_count(stmt);
+        std::vector<RowT> result;
+        int rc = SQLITE_OK;
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            RowT row;
+            row.reserve(static_cast<size_t>(cols));
+            for (auto i : std::views::iota(0, cols)) {
+                const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+                if constexpr (std::is_same_v<RowT, NullableRow>) {
+                    row.emplace_back(txt ? std::optional<std::string>(txt) : std::nullopt);
+                } else {
+                    row.emplace_back(txt ? txt : "");
+                }
+            }
+            result.push_back(std::move(row));
+        }
+        if (rc != SQLITE_DONE) {
+            // Don't surface errmsg before finalize — errmsg is a pointer to
+            // memory owned by the connection and finalize may invalidate it
+            // on some sqlite builds. Snapshot the message first.
+            std::string err = sqlite3_errmsg(conn_);
+            sqlite3_finalize(stmt);
+            throw std::runtime_error("db::sqlite: step failed: " + err + " (SQL: " + std::string(sql) + ")");
+        }
+        sqlite3_finalize(stmt);
+        return result;
+    }
+
     Pool& pool_;
     sqlite3* conn_;
     std::optional<std::unique_lock<std::mutex>> write_lock_;
+};
+
+// ── Transaction ───────────────────────────────────────────────────────────────
+
+// Rolls back on scope exit unless commit() was called. Must not outlive its Handle.
+// IMMEDIATE takes the write lock now, so a read inside can't fail upgrading later.
+class Transaction {
+public:
+    explicit Transaction(Handle<Write>& handle) : handle_(handle) {
+        handle_.exec("BEGIN IMMEDIATE");
+    }
+    ~Transaction() {
+        if (open_) {
+            try {
+                handle_.exec("ROLLBACK");
+            } catch (...) {
+                // SQLite may have rolled back already, on a full disk for example.
+            }
+        }
+    }
+    Transaction(const Transaction&) = delete;
+    Transaction& operator=(const Transaction&) = delete;
+
+    void commit() {
+        handle_.exec("COMMIT");
+        open_ = false;
+    }
+
+private:
+    Handle<Write>& handle_;
+    bool open_ = true;
 };
 
 } // namespace db::sqlite
