@@ -180,6 +180,7 @@ def main():
     cpp = sorted(global_includes)
     cpp.append('#include "htmx_asset.hpp"')
     cpp.append('#include "optimistic_asset.hpp"')
+    cpp.append('#include "server.hpp"  // revet.toml max_body, applied at static init')
     cpp.append("")
 
     for ns, content in site_contents.items():
