@@ -1,6 +1,6 @@
 # Codegen pipeline reference
 
-`revet build` invokes 15 Python scripts in `cmake/gen_*.py` at CMake configure time. Each scans some part of `app/` (or `revet.toml`) and emits a header (or several) into `build/generated/`. The user's `main.cpp` and `routes.cpp` include these headers.
+`revet build` invokes 16 Python scripts in `cmake/gen_*.py` at CMake configure time. Each scans some part of `app/` (or `revet.toml`) and emits a header (or several) into `build/generated/`. The user's `main.cpp` and `routes.cpp` include these headers.
 
 Source of truth: `template/CMakeLists.txt` lines 100–155.
 
@@ -19,6 +19,7 @@ Source of truth: `template/CMakeLists.txt` lines 100–155.
 | `gen_styles` | `app/styles/*.hpp` | `styles.hpp` | Compile-time CSS-in-C++ helpers — emits selector constants. |
 | `gen_toggles` | `app/states/*.hpp` (`[[revet::toggle]]`) | `toggles.hpp` | For every cookie-backed UI toggle (dark mode, sidebar collapse, etc.), generates a toggle-flip route + readers. |
 | `gen_uploads` | `revet.toml [uploads.*]` | `uploads.hpp` | One `uploads::<bucket>::allow(req, validator)` function per declared bucket. Validators check magic bytes, atomically move accepted files from incoming → validated. |
+| `gen_server` | `revet.toml` top-level `max_body` | `server.hpp` | Sets `web::config::max_body_bytes` at static initialisation when `max_body` is present (fails the build on an unreadable size). Included by `routes.cpp`, so env `REVET_MAX_BODY` and `--max-body` still override it. |
 | `gen_dependencies` | `revet.toml [build.dependencies]` | `dependencies.cmake` | Generates `target_link_libraries(revet PRIVATE ...)` calls for the user's Conan deps. Wired via `include(${GEN_DIR}/dependencies.cmake OPTIONAL)`. |
 | `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` | Loads each locale's strings into a `constexpr` map keyed by `i18n::<symbol>`. Always runs; emits an empty namespace if no CSVs. |
 | `gen_htmx` | `static/htmx.min.js` + `revet.toml [htmx].version` | `htmx_asset.hpp` | Inlines the bundled HTMX into a `constexpr std::string_view`. Mounted at `/_revet/htmx.js`. |

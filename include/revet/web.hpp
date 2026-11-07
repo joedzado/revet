@@ -59,6 +59,18 @@ inline bool& secure_cookies_flag() {
 }
 inline bool secure_cookies()             { return secure_cookies_flag(); }
 inline void secure_cookies(bool enabled) { secure_cookies_flag() = enabled; }
+
+// Largest request body the server reads, in bytes. Bodies are buffered in memory, so this
+// is a memory bound, not a feature limit. Default 64 MiB. Sources, each overriding the one
+// before: revet.toml `max_body = "256MB"`, env REVET_MAX_BODY, --max-body; app code calling
+// max_body_bytes(n) after web::init overrides all of them.
+inline constexpr size_t DEFAULT_MAX_BODY_BYTES = 64UL * 1024UL * 1024UL;
+inline size_t& max_body_bytes_ref() {
+    static size_t bytes = DEFAULT_MAX_BODY_BYTES;
+    return bytes;
+}
+inline size_t max_body_bytes()           { return max_body_bytes_ref(); }
+inline void max_body_bytes(size_t bytes) { max_body_bytes_ref() = bytes; }
 } // namespace config
 
 namespace detail {
@@ -69,6 +81,38 @@ inline auto server_config() -> ServerConfig& {
 } // namespace detail
 
 namespace detail {
+// "64MB", "512k", "1.5GiB", "1048576" → bytes. Units are binary (K = 1024). Empty on bad input.
+inline auto parse_size(std::string_view text) -> std::optional<size_t> {
+    while (!text.empty() && text.front() == ' ') text.remove_prefix(1);
+    while (!text.empty() && text.back() == ' ') text.remove_suffix(1);
+    size_t i = 0;
+    while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '.')) ++i;
+    if (i == 0) {
+        return std::nullopt;
+    }
+    double value = 0;
+    try {
+        value = std::stod(std::string(text.substr(0, i)));
+    } catch (...) {
+        return std::nullopt;
+    }
+    std::string unit;
+    for (char c : text.substr(i)) {
+        if (c != ' ') unit += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    double mult = 1;
+    if (unit.empty() || unit == "b") mult = 1;
+    else if (unit == "k" || unit == "kb" || unit == "kib") mult = 1024.0;
+    else if (unit == "m" || unit == "mb" || unit == "mib") mult = 1024.0 * 1024.0;
+    else if (unit == "g" || unit == "gb" || unit == "gib") mult = 1024.0 * 1024.0 * 1024.0;
+    else return std::nullopt;
+    const double bytes = value * mult;
+    if (!(bytes >= 1) || bytes > 1e15) {
+        return std::nullopt;
+    }
+    return static_cast<size_t>(bytes);
+}
+
 // "127.0.0.1,192.168.64.1" → each address.
 inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
     std::vector<std::string> out;
@@ -89,6 +133,11 @@ inline void init(int argc, char** argv) {
     if (const char* binds = std::getenv("REVET_BIND")) {
         cfg.binds = detail::parse_binds(binds);
     }
+    if (const char* body = std::getenv("REVET_MAX_BODY")) {
+        if (auto n = detail::parse_size(body)) {
+            config::max_body_bytes(*n);
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
         if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
@@ -99,6 +148,10 @@ inline void init(int argc, char** argv) {
             cfg.request_threads = std::stoi(argv[++i]);
         } else if (arg == "--io-threads" && i + 1 < argc) {
             cfg.io_threads = std::stoi(argv[++i]);
+        } else if (arg == "--max-body" && i + 1 < argc) {
+            if (auto n = detail::parse_size(argv[++i])) {
+                config::max_body_bytes(*n);
+            }
         }
     }
 }
@@ -241,7 +294,6 @@ struct Url {
     }
 };
 
-inline constexpr size_t MAX_BODY_BYTES = 2UL * 1024UL * 1024UL; // 2 MB
 
 enum class FileType : std::uint8_t { jpeg, png, gif, webp, pdf, zip, unknown };
 
@@ -818,7 +870,7 @@ inline auto parse_request(int fd) -> Request {
                 } catch (...) {
                     content_length = 0;
                 }
-                if (content_length > MAX_BODY_BYTES) {
+                if (content_length > config::max_body_bytes()) {
                     req.body_too_large = true;
                     content_length = 0;
                 }

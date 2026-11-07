@@ -106,11 +106,45 @@ TEST_CASE("parse_request — body within limit accepted", "[request]") {
 }
 
 TEST_CASE("parse_request — Content-Length over limit sets body_too_large", "[request]") {
-    // Claim 3 MB body (over 2 MB limit) — don't actually send that much data
+    // Claim 100 MiB (over the 64 MiB default) — don't actually send that much data
     const auto r = parse("POST / HTTP/1.1\r\n"
-                         "Content-Length: 3145728\r\n\r\n");
+                         "Content-Length: 104857600\r\n\r\n");
     CHECK(r.body_too_large);
     CHECK(r.form.data.empty());
+}
+
+TEST_CASE("parse_request — default limit is 64 MiB, not 2 MB", "[request]") {
+    CHECK(web::config::max_body_bytes() == web::config::DEFAULT_MAX_BODY_BYTES);
+    CHECK(web::config::DEFAULT_MAX_BODY_BYTES == 64UL * 1024 * 1024);
+    // A 3 MB claim used to be rejected; it now passes the size check.
+    const auto r = parse("POST / HTTP/1.1\r\n"
+                         "Content-Length: 3145728\r\n\r\n");
+    CHECK(!r.body_too_large);
+}
+
+TEST_CASE("parse_request — configured limit applies", "[request]") {
+    web::config::max_body_bytes(1024);
+    const auto big = parse("POST / HTTP/1.1\r\n"
+                           "Content-Length: 2048\r\n\r\n");
+    const auto small = parse("POST / HTTP/1.1\r\n"
+                             "Content-Length: 5\r\n\r\n"
+                             "hello");
+    web::config::max_body_bytes(web::config::DEFAULT_MAX_BODY_BYTES);
+    CHECK(big.body_too_large);
+    CHECK(!small.body_too_large);
+}
+
+TEST_CASE("parse_size — sizes with binary units", "[request]") {
+    using web::detail::parse_size;
+    CHECK(parse_size("1048576") == 1048576UL);
+    CHECK(parse_size("64MB") == 64UL * 1024 * 1024);
+    CHECK(parse_size("512k") == 512UL * 1024);
+    CHECK(parse_size("1.5GiB") == static_cast<size_t>(1.5 * 1024 * 1024 * 1024));
+    CHECK(parse_size(" 2 mb ") == 2UL * 1024 * 1024);
+    CHECK(!parse_size(""));
+    CHECK(!parse_size("lots"));
+    CHECK(!parse_size("10 parsecs"));
+    CHECK(!parse_size("0"));
 }
 
 // ── known bugs (hidden from default run, tag [known-bug]) ────────────────────

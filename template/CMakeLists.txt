@@ -127,6 +127,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     add_codegen(Styles    gen_styles    "${GEN_DIR}/styles.hpp")
     add_codegen(Toggles   gen_toggles   "${GEN_DIR}/toggles.hpp")
     add_codegen(Uploads   gen_uploads   "${GEN_DIR}/uploads.hpp")
+    add_codegen(Server    gen_server    "${GEN_DIR}/server.hpp")
     add_codegen(Dependencies gen_dependencies "${GEN_DIR}/dependencies.cmake")
 
     # I18n — always runs; produces empty namespace if no locale/strings.csv
@@ -152,6 +153,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GEN_DIR}/styles.hpp
         ${GEN_DIR}/toggles.hpp
         ${GEN_DIR}/uploads.hpp
+        ${GEN_DIR}/server.hpp
         ${GEN_DIR}/dependencies.cmake
         ${GEN_DIR}/i18n.hpp
     )
