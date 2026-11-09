@@ -21,6 +21,16 @@ Breaking changes between framework versions are listed in the CHANGELOG (when a 
 - **Codegen output changes** are caught at compile time — a renamed function in a generated header surfaces as an "undeclared identifier" error in your code. Fix the call site; recompile.
 - **Runtime contract changes** (e.g. cookie format, route registration shape) are caught either at startup (`std::runtime_error` on init) or by the first failing request. Read the release notes for migration steps.
 
+## 0.2 → 0.3
+
+Nothing has to change: old apps build as they are. To take the new defaults:
+
+- **Delete `src/main.cpp`, `src/error_handlers.hpp` and `src/logging_config.hpp`** if they are the template's copies (byte-identical in every app so far). The framework then supplies `main()`. `error_handlers.hpp` was never wired up; use `web::on_error_page()` for custom error pages.
+- **Every `src/*.cpp` is now compiled.** A stray `.cpp` in `src/` that was silently ignored before will now build and link; delete it or fix it.
+- **Route params are percent-decoded** and **`urls::` helpers percent-encode** their arguments. If an app decoded `req.params` itself or encoded before calling a `urls::` helper, drop that code, or values get decoded or encoded twice (`%2520`).
+- **Asset routes send one `Content-Type`.** No action.
+- Inline JS kept in C++ raw strings can move to `app/scripts/<name>.js` and load with `scripts::<name>_tag()`.
+
 ## Cookie key behavior across upgrades
 
 The framework uses `REVET_COOKIE_KEY` for AEAD on state cookies and the CSRF cookie. Upgrades **do not** rotate this key — old cookies remain valid. The same key produces the same ciphertext format across framework versions.
