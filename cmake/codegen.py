@@ -54,7 +54,7 @@ def has_models(models_dir) -> bool:
     return models_dir.exists() and any(models_dir.glob("*.hpp"))
 
 def escape_str(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
 
 def rel_include(hpp_path, proj) -> str:
     return f'#include "../../{hpp_path.relative_to(proj)}"'

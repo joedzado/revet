@@ -4,6 +4,8 @@
 #pragma once
 #ifdef REVET_DB_SQLITE
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <condition_variable>
 #include <cstdlib>
 #include <format>
@@ -50,6 +52,9 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
         } else {
             sqlite3_bind_int64(stmt, idx, static_cast<sqlite3_int64>(arg));
         }
+    } else if constexpr (requires { arg.to_string(); } && !std::is_convertible_v<U, std::string_view>) {
+        const std::string s = arg.to_string(); // revet::Decimal and similar
+        sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     } else {
         std::string s{std::forward<T>(arg)};
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
@@ -194,6 +199,23 @@ public:
         return run<NullableRow>(sql, std::forward<Args>(args)...);
     }
 
+    // Typed results. NULL needs std::optional<T>; a bad value throws.
+    //   for (auto [id, total] : h.query_as<std::string, double>("select id, sum(x) from t group by id")) ...
+    //   auto n = h.scalar<int64_t>("select count(*) from t").value_or(0);
+    template<typename... Cols, typename... Args>
+    auto query_as(std::string_view sql, Args&&... args) -> std::vector<std::tuple<Cols...>> {
+        return db::typed<Cols...>(query_nullable(sql, std::forward<Args>(args)...));
+    }
+    // First column of the first row; nullopt if there are no rows or it is NULL.
+    template<typename T, typename... Args>
+    auto scalar(std::string_view sql, Args&&... args) -> std::optional<T> {
+        auto raw = query_nullable(sql, std::forward<Args>(args)...);
+        if (raw.empty() || raw[0].empty() || !raw[0][0]) {
+            return std::nullopt;
+        }
+        return db::detail::convert<T>(raw[0][0], 0);
+    }
+
     // Write — only available on Handle<Write>
     template<typename... Args>
     void exec(std::string_view sql, Args&&... args)
@@ -208,6 +230,14 @@ public:
         return web::run_on_io(
             [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() {
                 return std::apply([&](const auto&... a) { return query(s, a...); }, t);
+            });
+    }
+
+    template<typename... Args>
+    auto async_query_nullable(std::string_view sql, Args&&... args) const {
+        return web::run_on_io(
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() {
+                return std::apply([&](const auto&... a) { return query_nullable(s, a...); }, t);
             });
     }
 
@@ -300,6 +330,46 @@ private:
     Handle<Write>& handle_;
     bool open_ = true;
 };
+
+// ── Backup ────────────────────────────────────────────────────────────────────
+
+struct BackupOptions {
+    std::filesystem::path dir;    // created if missing
+    std::string prefix = "backup"; // files are <prefix>-<stamp>.db
+    std::size_t keep = 14;         // newest N with this prefix are kept, older ones deleted
+    bool daily = true;             // stamp is the UTC date, and an existing file for today means no new copy
+};
+
+// A consistent copy of the open database (VACUUM INTO), safe while the app is serving.
+// Returns the new file, or nullopt when `daily` and today's copy already exists.
+template<typename Intent>
+auto backup(Handle<Intent>& h, const BackupOptions& o) -> std::optional<std::filesystem::path> {
+    namespace fs = std::filesystem;
+    fs::create_directories(o.dir);
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const std::string stamp = o.daily ? std::format("{:%Y-%m-%d}", now) : std::format("{:%Y%m%d-%H%M%S}", now);
+    const fs::path file = o.dir / std::format("{}-{}.db", o.prefix, stamp);
+    if (fs::exists(file)) {
+        if (o.daily) {
+            return std::nullopt;
+        }
+        throw std::runtime_error("db::sqlite::backup: " + file.string() + " exists");
+    }
+    h.query("VACUUM INTO ?", file.string());
+    fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write);
+    std::vector<fs::path> kept;
+    for (const auto& e : fs::directory_iterator(o.dir)) {
+        const auto name = e.path().filename().string();
+        if (e.path().extension() == ".db" && name.starts_with(o.prefix + "-")) {
+            kept.push_back(e.path());
+        }
+    }
+    std::ranges::sort(kept); // stamps sort by time
+    for (std::size_t i = 0; i + o.keep < kept.size(); ++i) {
+        fs::remove(kept[i]);
+    }
+    return file;
+}
 
 } // namespace db::sqlite
 #endif // REVET_DB_SQLITE

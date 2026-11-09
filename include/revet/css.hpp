@@ -238,15 +238,27 @@ inline auto collect_styles() -> Node {
     return Node{raw_tag{}, std::string(STYLES_SENTINEL)};
 }
 
+// html::html_doc{html::lang("en"), html::head{...}, html::body{...}} gives <html lang="en">.
+static constexpr std::string_view LANG_MARKER = "\x01revet-lang:";
+inline auto lang(std::string_view language) -> Node {
+    return Node{raw_tag{}, std::string(LANG_MARKER) + std::string(language)};
+}
+
 struct html_doc : Node {
     std::string inner;
+    std::string lang;
 
     html_doc(std::initializer_list<Node> c) : Node{raw_tag{}, ""} {
         for (const auto& n : c) {
+            if (n.str.starts_with(LANG_MARKER)) {
+                lang = n.str.substr(LANG_MARKER.size());
+                continue;
+            }
             inner += n.str;
         }
         str = render();
     }
+
 
     [[nodiscard]] auto render() const -> std::string {
         std::string css;
@@ -266,7 +278,10 @@ struct html_doc : Node {
         }
         css += "</style>";
 
-        std::string out = "<!DOCTYPE html><html>" + inner + "</html>";
+        std::string out = lang.empty() ? "<!DOCTYPE html><html>"
+                                       : std::format("<!DOCTYPE html><html lang=\"{}\">", sanitize::html_escape(lang));
+        out += inner;
+        out += "</html>";
         auto pos = out.find(STYLES_SENTINEL);
         if (pos != std::string::npos) {
             out.replace(pos, STYLES_SENTINEL.size(), css);

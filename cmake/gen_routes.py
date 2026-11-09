@@ -7,6 +7,7 @@ _TOGGLE_HANDLER  = _tmpl("routes_toggle_handler.tmpl")
 _URL_PARAM       = _tmpl("routes_url_param.tmpl")
 _URL_STATIC      = _tmpl("routes_url_static.tmpl")
 _STATIC_ASSET    = _tmpl("routes_static_asset.tmpl")
+_APP_SCRIPT      = _tmpl("routes_app_script.tmpl")
 
 # Regex to detect [[revet::model]] struct names in models/*.hpp
 _MODEL_ATTR_RE = re.compile(
@@ -39,7 +40,7 @@ def _handler_args(state_vars, suffix=""):
 def main():
     # gen_htmx and gen_optimistic must run first — routes.cpp includes their asset headers
     import subprocess
-    for script in ("gen_htmx.py", "gen_optimistic.py"):
+    for script in ("gen_htmx.py", "gen_optimistic.py", "gen_scripts.py"):
         subprocess.run(
             [sys.executable, str(Path(__file__).parent / script), sys.argv[1]],
             check=True
@@ -119,7 +120,7 @@ def main():
         if params:
             param_args = ", ".join(f"std::string_view {p}" for p in params)
             fmt_route  = re.sub(r':\w+', '{}', route)
-            args_list  = ", ".join(params)
+            args_list  = ", ".join(f"sanitize::url_encode({p})" for p in params)
             hpp_url_entries.append(_URL_PARAM.substitute(ns=ns, param_args=param_args, fmt_route=fmt_route, args_list=args_list))
         else:
             hpp_url_entries.append(_URL_STATIC.substitute(ns=ns, route=route))
@@ -180,6 +181,7 @@ def main():
     cpp = sorted(global_includes)
     cpp.append('#include "htmx_asset.hpp"')
     cpp.append('#include "optimistic_asset.hpp"')
+    cpp.append('#include "scripts.hpp"')
     cpp.append('#include "server.hpp"  // revet.toml max_body, applied at static init')
     cpp.append("")
 
@@ -198,6 +200,11 @@ def main():
         ("/_revet/optimistic.js", "optimistic_js"),
     ]:
         cpp.append(_STATIC_ASSET.substitute(path=path, symbol=symbol))
+
+    # App scripts (app/scripts/*.js): the URL carries a content hash, so they can be cached for good.
+    from gen_scripts import scan as scan_scripts
+    for name, url, _ in scan_scripts():
+        cpp.append(_APP_SCRIPT.substitute(path=url, symbol=name))
 
     # Add automatic toggle routes
     for path, name in toggle_routes:

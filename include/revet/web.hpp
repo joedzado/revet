@@ -3,6 +3,8 @@
 #include "states.hpp"
 
 #include <memory>
+#include <charconv>
+#include <cmath>
 #include <algorithm>
 #include <any>
 #include <array>
@@ -71,7 +73,28 @@ inline size_t& max_body_bytes_ref() {
 }
 inline size_t max_body_bytes()           { return max_body_bytes_ref(); }
 inline void max_body_bytes(size_t bytes) { max_body_bytes_ref() = bytes; }
+
+// Where the app keeps its files. Priority: --data-dir, REVET_DATA_DIR, revet.toml `data_dir`, "data".
+inline std::filesystem::path& data_dir_ref() {
+    static std::filesystem::path dir = "data";
+    return dir;
+}
+inline void data_dir(std::filesystem::path dir) { data_dir_ref() = std::move(dir); }
 } // namespace config
+
+// The app's data directory (see config::data_dir_ref), e.g. web::data_dir() / "snapshots".
+inline auto data_dir() -> const std::filesystem::path& {
+    return config::data_dir_ref();
+}
+
+// A whole file as text; nullopt if it can't be opened.
+inline auto read_text(const std::filesystem::path& path) -> std::optional<std::string> {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        return std::nullopt;
+    }
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
 
 namespace detail {
 inline auto server_config() -> ServerConfig& {
@@ -133,6 +156,9 @@ inline void init(int argc, char** argv) {
     if (const char* binds = std::getenv("REVET_BIND")) {
         cfg.binds = detail::parse_binds(binds);
     }
+    if (const char* dir = std::getenv("REVET_DATA_DIR"); dir != nullptr && *dir != '\0') {
+        config::data_dir(dir);
+    }
     if (const char* body = std::getenv("REVET_MAX_BODY")) {
         if (auto n = detail::parse_size(body)) {
             config::max_body_bytes(*n);
@@ -148,6 +174,8 @@ inline void init(int argc, char** argv) {
             cfg.request_threads = std::stoi(argv[++i]);
         } else if (arg == "--io-threads" && i + 1 < argc) {
             cfg.io_threads = std::stoi(argv[++i]);
+        } else if (arg == "--data-dir" && i + 1 < argc) {
+            config::data_dir(argv[++i]);
         } else if (arg == "--max-body" && i + 1 < argc) {
             if (auto n = detail::parse_size(argv[++i])) {
                 config::max_body_bytes(*n);
@@ -233,6 +261,60 @@ struct ParamMap {
             return data.at(key);
         }
         return std::string(fallback);
+    }
+    // Typed read: the fallback's type picks the result, e.g. req.query.get("page", 1) -> int.
+    // Missing, empty, or unparseable values (including trailing junk like "12abc") give the fallback;
+    // nothing throws. Bools accept 1/true/on/yes and 0/false/off/no.
+    template<typename T>
+        requires std::is_arithmetic_v<T>
+    [[nodiscard]] auto get(std::string_view key, T fallback) const -> T {
+        return as<T>(key).value_or(fallback);
+    }
+    // The value parsed as T, or nullopt if missing or unparseable.
+    template<typename T>
+        requires std::is_arithmetic_v<T>
+    [[nodiscard]] auto as(std::string_view key) const -> std::optional<T> {
+        const auto it = data.find(key);
+        if (it == data.end()) {
+            return std::nullopt;
+        }
+        std::string_view v = it->second;
+        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) {
+            v.remove_prefix(1);
+        }
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) {
+            v.remove_suffix(1);
+        }
+        if (v.empty()) {
+            return std::nullopt;
+        }
+        if constexpr (std::is_same_v<T, bool>) {
+            if (v == "1" || v == "true" || v == "on" || v == "yes") {
+                return true;
+            }
+            if (v == "0" || v == "false" || v == "off" || v == "no") {
+                return false;
+            }
+            return std::nullopt;
+        } else {
+            if (v.front() == '+') {
+                v.remove_prefix(1);
+            }
+            T out{};
+            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), out);
+            if (ec != std::errc{} || ptr != v.data() + v.size()) {
+                return std::nullopt;
+            }
+            if constexpr (std::is_floating_point_v<T>) {
+                if (!std::isfinite(out)) {
+                    return std::nullopt;
+                }
+            }
+            return out;
+        }
+    }
+    [[nodiscard]] auto has(std::string_view key) const -> bool {
+        return data.contains(key);
     }
     [[nodiscard]] auto is(std::string_view key, std::string_view val) const -> bool {
         return get(key) == val;
@@ -729,7 +811,7 @@ inline auto match_route(std::string_view pattern, std::string_view path, ParamMa
     ParamMap captured;
     for (size_t i = 0; i < pat.size(); ++i) {
         if (!pat[i].empty() && pat[i][0] == ':') {
-            captured.data[std::string(pat[i].substr(1))] = std::string(seg[i]);
+            captured.data[std::string(pat[i].substr(1))] = sanitize::url_decode_path(seg[i]);
         } else if (pat[i] != seg[i]) {
             return false;
         }
@@ -1025,6 +1107,61 @@ inline void on_error(Status status, Handler h) {
     error_handlers()[status.code] = std::move(h);
 }
 
+// One renderer for every error page, so they share the app's layout:
+//   web::on_error_page([](const web::Request& req, web::Status s, std::string_view msg) {
+//       return layout_main(req, s.text, html::p{msg.empty() ? s.text : msg});
+//   });
+// It also serves 404/405/413/500 unless on_error() set a handler for that status.
+// The status on the returned response is forced to `s`.
+using ErrorPage = std::function<Response(const Request&, Status, std::string_view message)>;
+
+inline auto error_page_renderer() -> ErrorPage& {
+    static ErrorPage renderer;
+    return renderer;
+}
+
+inline void on_error_page(ErrorPage f) {
+    error_page_renderer() = std::move(f);
+}
+
+// An error page for `s` with an optional message for the user. Without a renderer: plain text.
+inline auto error_page(const Request& req, Status s, std::string_view message = {}) -> Response {
+    Response resp;
+    if (const auto& render = error_page_renderer()) {
+        resp = render(req, s, message);
+    } else {
+        resp.body = message.empty() ? std::format("{} {}", s.code, s.text) : std::string(message);
+        resp.content_type = "text/plain; charset=utf-8";
+    }
+    resp.status = s;
+    return resp;
+}
+
+inline auto bad_request(const Request& req, std::string_view message = {}) -> Response {
+    return error_page(req, status::bad_request, message);
+}
+
+inline auto not_found(const Request& req, std::string_view message = {}) -> Response {
+    return error_page(req, status::not_found, message);
+}
+
+inline auto forbidden(const Request& req, std::string_view message = {}) -> Response {
+    return error_page(req, status::forbidden, message);
+}
+
+namespace detail {
+// The on_error() handler for `s`, else one that uses the error page renderer, else empty.
+inline auto error_handler_for(Status s) -> Handler {
+    if (error_handlers().contains(s.code)) {
+        return error_handlers().at(s.code);
+    }
+    if (error_page_renderer()) {
+        return [s](const Request& req) { return error_page(req, s); };
+    }
+    return {};
+}
+} // namespace detail
+
 inline auto middlewares() -> std::vector<Middleware>& {
     static std::vector<Middleware> mws;
     return mws;
@@ -1059,8 +1196,8 @@ inline auto dispatch(const Request& req, const Handler& handler, const std::vect
 namespace detail {
 
 inline auto internal_error_response(const Request& req) -> Response {
-    if (error_handlers().contains(status::internal_error)) {
-        return error_handlers().at(status::internal_error)(req);
+    if (auto handler = detail::error_handler_for(status::internal_error)) {
+        return handler(req);
     }
     auto resp = to_response(std::string("500 Internal Server Error"));
     resp.status = status::internal_error;
@@ -1234,8 +1371,8 @@ inline void listen(const std::vector<Route>& all_routes) {
 
             if (req.body_too_large) {
                 Response resp;
-                if (error_handlers().contains(status::payload_too_large)) {
-                    resp = error_handlers().at(status::payload_too_large)(req);
+                if (auto handler = detail::error_handler_for(status::payload_too_large)) {
+                    resp = handler(req);
                 } else {
                     resp = to_response(std::string("413 Payload Too Large"));
                     resp.status = status::payload_too_large;
@@ -1250,8 +1387,8 @@ inline void listen(const std::vector<Route>& all_routes) {
 
             if (it == all_routes.end()) {
                 Response resp;
-                if (error_handlers().contains(status::not_found)) {
-                    resp = error_handlers().at(status::not_found)(req);
+                if (auto handler = detail::error_handler_for(status::not_found)) {
+                    resp = handler(req);
                 } else {
                     resp = to_response(std::string("404 Not Found"));
                     resp.status = status::not_found;
@@ -1331,8 +1468,8 @@ inline void listen(const std::vector<Route>& all_routes) {
                 } else if (req.method == Method::PATCH && it->patch) {
                     resp = dispatch(req, it->patch, it->guards);
                 } else {
-                    if (error_handlers().contains(status::method_not_allowed)) {
-                        resp = error_handlers().at(status::method_not_allowed)(req);
+                    if (auto handler = detail::error_handler_for(status::method_not_allowed)) {
+                        resp = handler(req);
                     } else {
                         resp = to_response(std::string("405 Method Not Allowed"));
                         resp.status = status::method_not_allowed;
@@ -1340,8 +1477,8 @@ inline void listen(const std::vector<Route>& all_routes) {
                 }
             } catch (const std::exception& e) {
                 std::println(stderr, "Error handling request: {}", e.what());
-                if (error_handlers().contains(status::internal_error)) {
-                    resp = error_handlers().at(status::internal_error)(req);
+                if (auto handler = detail::error_handler_for(status::internal_error)) {
+                    resp = handler(req);
                 } else {
                     resp = to_response(std::string("500 Internal Server Error"));
                     resp.status = status::internal_error;

@@ -24,6 +24,8 @@ inline std::string to_pg_param(T&& arg) {
         return std::format("{:.17g}", static_cast<double>(arg));
     } else if constexpr (std::is_integral_v<U>) {
         return std::format("{}", static_cast<int64_t>(arg));
+    } else if constexpr (requires { arg.to_string(); } && !std::is_convertible_v<U, std::string_view>) {
+        return arg.to_string(); // revet::Decimal and similar
     } else {
         return std::string(std::forward<T>(arg));
     }

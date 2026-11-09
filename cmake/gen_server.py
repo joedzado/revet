@@ -29,19 +29,25 @@ def to_bytes(value):
 
 
 max_body = None
+data_dir = None
 if TOML.exists():
     with TOML.open("rb") as f:
         data = tomllib.load(f)
+    if isinstance(data.get("data_dir"), str):
+        data_dir = data["data_dir"]
     if "max_body" in data:
         try:
             max_body = to_bytes(data["max_body"])
         except ValueError as e:
             sys.exit(f"revet.toml: {e}")
 
+# Applied at static init, so before web::init: env vars and flags still win.
+body = []
 if max_body is None:
-    write_file(OUT, HEADER + "// max_body not set: web::config::DEFAULT_MAX_BODY_BYTES applies\n")
+    body.append("// max_body not set: web::config::DEFAULT_MAX_BODY_BYTES applies")
 else:
-    write_file(OUT, HEADER + (
-        "namespace revet::generated {\n"
-        f"inline const bool max_body_set = (web::config::max_body_bytes({max_body}UL), true);\n"
-        "} // namespace revet::generated\n"))
+    body.append(f"inline const bool max_body_set = (web::config::max_body_bytes({max_body}UL), true);")
+if data_dir is not None:
+    escaped = data_dir.replace("\\", "\\\\").replace('"', '\\"')
+    body.append(f'inline const bool data_dir_set = (web::config::data_dir("{escaped}"), true);')
+write_file(OUT, HEADER + "namespace revet::generated {\n" + "\n".join(body) + "\n} // namespace revet::generated\n")

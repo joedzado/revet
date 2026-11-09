@@ -287,5 +287,69 @@ class TestNamedParams(unittest.TestCase):
         self.assertIn("uuid", stderr)
 
 
+
+
+class TestSweepAdditions(unittest.TestCase):
+    """CTEs, nullable params, typed returns and scalars (gaps found in healthdb/ledger)."""
+
+    def test_with_select_is_query(self):
+        hpp = gen("-- @revet:name: totals\n-- @revet:raw\nWITH d AS (SELECT 1 AS x) SELECT x FROM d;\n")
+        self.assertIn("db.query(", hpp)
+
+    def test_with_insert_is_exec(self):
+        hpp = gen("-- @revet:name: copy\nWITH src AS (SELECT a FROM t) INSERT INTO u (a) SELECT a FROM src;\n")
+        self.assertIn("db.exec(", hpp)
+
+    def test_with_nested_select_in_cte_then_update_is_exec(self):
+        hpp = gen("-- @revet:name: bump\nWITH r(n) AS (SELECT count(*) FROM (SELECT 1)) UPDATE t SET n = (SELECT n FROM r);\n")
+        self.assertIn("db.exec(", hpp)
+
+    def test_with_without_statement_is_error(self):
+        _, err, code = gen_err("-- @revet:name: bad\n-- @revet:raw\nWITH d AS (SELECT 1);\n")
+        self.assertNotEqual(code, 0)
+        self.assertIn("WITH has no statement", err)
+
+    def test_nullable_param(self):
+        hpp = gen("-- @revet:name: put\n-- @revet:param: note string?\n-- @revet:param: n int64\nUPDATE t SET note = :note WHERE n = :n;\n")
+        self.assertIn("std::optional<std::string> note;", hpp)
+        self.assertIn("int64_t n;", hpp)
+
+    def test_returns_typed_tuples(self):
+        hpp = gen("-- @revet:name: rows\n-- @revet:returns: string, double, int64?\nSELECT a, b, c FROM t;\n")
+        self.assertIn("std::vector<std::tuple<std::string, double, std::optional<int64_t>>>", hpp)
+        self.assertIn("db::typed<std::string, double, std::optional<int64_t>>", hpp)
+        self.assertIn("async_query_nullable", hpp)
+
+    def test_scalar(self):
+        hpp = gen("-- @revet:name: count\n-- @revet:scalar: int64\nSELECT count(*) FROM t;\n")
+        self.assertIn("-> std::optional<int64_t>", hpp)
+        self.assertIn("db::detail::convert<int64_t>", hpp)
+
+    def test_nullable_scalar_not_double_wrapped(self):
+        hpp = gen("-- @revet:name: latest\n-- @revet:scalar: string?\nSELECT max(a) FROM t;\n")
+        self.assertIn("-> std::optional<std::string>", hpp)
+        self.assertNotIn("std::optional<std::optional", hpp)
+
+    def test_decimal_type(self):
+        hpp = gen("-- @revet:name: sums\n-- @revet:returns: decimal\nSELECT sum(a) FROM t;\n")
+        self.assertIn("revet::Decimal", hpp)
+
+    def test_two_shapes_is_error(self):
+        _, err, code = gen_err("-- @revet:name: x\n-- @revet:raw\n-- @revet:scalar: int\nSELECT 1;\n")
+        self.assertNotEqual(code, 0)
+        self.assertIn("pick one of", err)
+
+    def test_unknown_type_is_error(self):
+        _, err, code = gen_err("-- @revet:name: x\n-- @revet:returns: money\nSELECT 1;\n")
+        self.assertNotEqual(code, 0)
+        self.assertIn("unknown type 'money'", err)
+
+    def test_missing_queries_dir_is_fine(self):
+        with tempfile.TemporaryDirectory() as td:
+            _, _, code = run_gen(Path(td))
+            self.assertEqual(code, 0)
+            self.assertIn("no queries", (Path(td) / "build" / "generated" / "queries.hpp").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

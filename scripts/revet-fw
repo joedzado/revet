@@ -94,6 +94,8 @@ def cmd_test():
          "tests.test_gen_resources",
          "tests.test_gen_components",
          "tests.test_gen_states",
+         "tests.test_gen_server",
+         "tests.test_gen_scripts",
          "tests.test_optimistic_js",
          "-v"],
         check=True,

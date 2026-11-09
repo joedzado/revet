@@ -1,6 +1,7 @@
 #include <revet/web.hpp>
 #include <revet/csrf.hpp>
 #include <revet/htmx.hpp>
+#include <revet/page.hpp>
 #include "routes.hpp"
 #include "queries.hpp"
 #include "styles.hpp"
@@ -60,16 +61,8 @@ web::Response layout_main(const web::Request& req, std::string_view title, html:
     };
 
     return web::to_response(html::html_doc{
-        html::head{
-            html::meta{html::attr.charset("utf-8")},
-            html::meta{html::attr.name("viewport"),
-                       html::attr.content("width=device-width,initial-scale=1")},
-            html::title{std::string(title)},
-            html::script{html::raw("(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;})()")},
-            html::collect_styles(),
-            htmx::script_tag(),
-            htmx::optimistic_script_tag(),
-        },
+        html::lang("en"),
+        html::standard_head({.title = title, .optimistic = true}),
         html::body{
             web::csrf::htmx_headers(req),
             html::checkbox{SB_ID, styles::sb_toggle_input},

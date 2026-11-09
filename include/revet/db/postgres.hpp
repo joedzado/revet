@@ -170,6 +170,24 @@ public:
         return extract<NullableRow>(run(sql, std::forward<Args>(args)...));
     }
 
+    // Typed results. NULL needs std::optional<T>; a bad value throws.
+    //   for (auto [id, total] : h.query_as<std::string, double>("select id, sum(x) from t group by id")) ...
+    //   auto n = h.scalar<int64_t>("select count(*) from t").value_or(0);
+    template<typename... Cols, typename... Args>
+    auto query_as(std::string_view sql, Args&&... args) -> std::vector<std::tuple<Cols...>> {
+        return db::typed<Cols...>(query_nullable(sql, std::forward<Args>(args)...));
+    }
+    // First column of the first row; nullopt if there are no rows or it is NULL.
+    template<typename T, typename... Args>
+    auto scalar(std::string_view sql, Args&&... args) -> std::optional<T> {
+        auto raw = query_nullable(sql, std::forward<Args>(args)...);
+        if (raw.empty() || raw[0].empty() || !raw[0][0]) {
+            return std::nullopt;
+        }
+        return db::detail::convert<T>(raw[0][0], 0);
+    }
+
+
     template<typename... Args>
     void exec(std::string_view sql, Args&&... args)
         requires std::is_same_v<Intent, Write>
