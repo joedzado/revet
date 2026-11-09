@@ -22,6 +22,7 @@ Source of truth: `template/CMakeLists.txt` lines 100–155.
 | `gen_server` | `revet.toml` top-level `max_body` | `server.hpp` | Sets `web::config::max_body_bytes` at static initialisation when `max_body` is present (fails the build on an unreadable size). Included by `routes.cpp`, so env `REVET_MAX_BODY` and `--max-body` still override it. |
 | `gen_dependencies` | `revet.toml [build.dependencies]` | `dependencies.cmake` | Generates `target_link_libraries(revet PRIVATE ...)` calls for the user's Conan deps. Wired via `include(${GEN_DIR}/dependencies.cmake OPTIONAL)`. |
 | `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` | Loads each locale's strings into a `constexpr` map keyed by `i18n::<symbol>`. Always runs; emits an empty namespace if no CSVs. |
+| `gen_scripts` | `app/scripts/*.js` | `scripts.hpp` | Embeds each script as `scripts::<name>_js` with a content-hashed URL `scripts::<name>`; `gen_routes` serves it with `Cache-Control: immutable`. Run by `gen_routes`. |
 | `gen_htmx` | `static/htmx.min.js` + `revet.toml [htmx].version` | `htmx_asset.hpp` | Inlines the bundled HTMX into a `constexpr std::string_view`. Mounted at `/_revet/htmx.js`. |
 | `gen_optimistic` | `static/optimistic.ts` (compiled with `bun`) | `optimistic_asset.hpp` | Optimistic-update runtime, same pattern as htmx. Skipped if `bun` isn't installed. |
 

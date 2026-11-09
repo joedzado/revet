@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include "json_write.hpp"
+
 namespace revet::json {
 
 // Exception for JSON errors
@@ -74,6 +76,26 @@ public:
 
     // Check if field exists
     bool has(std::string_view key);
+
+    // The field converted to T, or `fallback` if it is missing, null, or the wrong type.
+    template<typename T>
+    T get(std::string_view key, T fallback = T{}) {
+        try {
+            if (!has(key)) {
+                return fallback;
+            }
+            Value v = at(key);
+            if (v.is_null()) {
+                return fallback;
+            }
+            return static_cast<T>(v);
+        } catch (...) {
+            return fallback;
+        }
+    }
+    std::string get(std::string_view key, const char* fallback) {
+        return get<std::string>(key, std::string(fallback));
+    }
 
     // Check if null
     bool is_null();

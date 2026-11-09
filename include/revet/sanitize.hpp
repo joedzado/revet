@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cctype>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -90,6 +92,44 @@ inline auto url_decode(std::string_view str) -> std::string {
             }
         } else {
             res += str[i];
+        }
+    }
+    return res;
+}
+
+// Percent-decodes a path segment. Unlike url_decode, '+' stays '+' (it only means space in a query string).
+inline auto url_decode_path(std::string_view str) -> std::string {
+    std::string res;
+    res.reserve(str.size());
+    for (size_t i = 0; i < str.size(); ++i) {
+        int v = 0;
+        if (str[i] == '%' && i + 3 <= str.size()) {
+            auto [ptr, ec] = std::from_chars(str.data() + i + 1, str.data() + i + 3, v, 16);
+            if (ec == std::errc{} && ptr == str.data() + i + 3) {
+                res += static_cast<char>(v);
+                i += 2;
+                continue;
+            }
+        }
+        res += str[i];
+    }
+    return res;
+}
+
+// Percent-encodes everything but RFC 3986 unreserved characters (A-Z a-z 0-9 - . _ ~),
+// so the result is safe as a path segment or a query value.
+inline auto url_encode(std::string_view str) -> std::string {
+    static constexpr std::string_view hex = "0123456789ABCDEF";
+    std::string res;
+    res.reserve(str.size());
+    for (const char ch : str) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c) != 0 || c == '-' || c == '.' || c == '_' || c == '~') {
+            res += ch;
+        } else {
+            res += '%';
+            res += hex[c >> 4];
+            res += hex[c & 0xF];
         }
     }
     return res;

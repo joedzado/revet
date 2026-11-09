@@ -54,5 +54,19 @@ class TestGenServer(unittest.TestCase):
         self.assertNotEqual(code, 0)
 
 
+
+
+class TestDataDir(unittest.TestCase):
+    def test_data_dir_from_toml(self):
+        code, hpp, _ = run('data_dir = "/srv/app \\"x\\""\n')
+        self.assertEqual(code, 0)
+        self.assertIn('web::config::data_dir("/srv/app \\"x\\"")', hpp)
+
+    def test_no_data_dir(self):
+        code, hpp, _ = run('name = "x"\n')
+        self.assertEqual(code, 0)
+        self.assertNotIn("data_dir", hpp)
+
+
 if __name__ == "__main__":
     unittest.main()

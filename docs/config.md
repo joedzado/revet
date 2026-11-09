@@ -12,6 +12,7 @@ revet apps are configured in three places:
 name = "myapp"           # required; binary identity + cookie scope
 port = 8080              # default 8080; overridden by --port / web::config
 max_body = "64MB"        # largest request body read, default 64 MiB; "512KB", "1GB" or bytes
+data_dir = "data"        # web::data_dir(); REVET_DATA_DIR and --data-dir override
 
 # Logging
 [logging]
@@ -54,6 +55,8 @@ url  = "env:DATABASE_URL"   # `env:NAME` reads the value from environment
 |---|---|---|---|
 | `REVET_COOKIE_KEY` | `crypto.hpp` | 64-char hex (32 bytes) AEAD key for state + CSRF cookies. Without it, derives a key from `hostname()` — fine for dev, never for prod. | **Yes** |
 | `REVET_FORCE_SECURE_COOKIES` | `web.hpp` | When `=1`, all `Set-Cookie` headers include the `Secure` attribute. Off by default for localhost dev. | **Yes** (when serving HTTPS) |
+| `REVET_DATA_DIR` | `web.hpp` | `web::data_dir()`. Overrides `revet.toml data_dir`; `--data-dir` overrides this. | No |
+| `REVET_PYTHON` | `CMakeLists.txt` | Python 3.12+ interpreter for codegen. Without it, the newest `python3` on PATH or in Homebrew. | No |
 | `REVET_MAX_BODY` | `web.hpp` | Largest request body in bytes or with a binary unit (`64MB`, `1GB`). Overrides `revet.toml max_body`. Bigger bodies get 413. | No |
 | `LOG_LEVEL` | `log.hpp` | Overrides `revet.toml [logging].level`. Values: `debug`, `info`, `warn`, `error`. | No |
 | `DATABASE_URL` (or any name you reference) | `db/postgres.hpp` via `url = "env:DATABASE_URL"` | Resolves the postgres connection string at startup. | If using postgres |
@@ -74,6 +77,7 @@ int main(int argc, char** argv) {
 | `--port N` / `-p N` | `ServerConfig.port` | 8080 (or `revet.toml`) | TCP listen port |
 | `--request-threads N` | `ServerConfig.request_threads` | `hardware_concurrency()` (number of logical CPU cores — e.g. 10 on an M1 Pro) | CPU-bound work — route handlers, codegen wrappers. Don't oversubscribe past cores. |
 | `--io-threads N` | `ServerConfig.io_threads` | `4 × hardware_concurrency()` | I/O-bound work — `co_await http::get`, `async_query/async_exec`, etc. Bumped for high-fan-out outbound HTTP. |
+| `--data-dir DIR` | `web::config::data_dir(path)` | `data` (or `revet.toml` / env) | Where the app keeps its files: `web::data_dir()`. |
 | `--max-body SIZE` | `web::config::max_body_bytes(size_t)` | 64 MiB (or `revet.toml` / env) | Request bodies are buffered in memory, so this bounds memory per request. Over the limit → 413. |
 | — | `web::config::secure_cookies(bool)` | `false` (or env) | See above. |
 

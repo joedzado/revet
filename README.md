@@ -128,10 +128,11 @@ myapp/
 │   ├── queries/             ← SQL queries (auto-generated bindings)
 │   ├── forms/               ← Form structs with [[revet::form]] annotations
 │   └── states/              ← Encrypted cookie state and UI toggles
-│   └── apis/                ← Outbound HTTP API declarations ([[revet::external]])
+│   ├── apis/                ← Outbound HTTP API declarations ([[revet::external]])
+│   └── scripts/             ← App JS (embedded, served hashed at /_app/)
 ├── locale/                  ← i18n translation strings (.csv)
 ├── models/                  ← Typed data models (auto-serialization)
-├── src/                     ← main.cpp, site_init.cpp, helpers
+├── src/                     ← Plain C++ helpers (every .cpp compiled); main.cpp optional
 └── tests/                   ← Test files (optional)
 ```
 
@@ -151,7 +152,8 @@ Each folder has a specific file type convention and codegen role. All generated 
 | `app/apis/` | `.hpp` | `apis.hpp` | Outbound HTTP — `[[revet::external]]` function decls become async `namespace::fn()` coroutines. |
 | `models/` | `.hpp` | `models.hpp` | Typed JSON/DB model structs with `[[revet::model]]`. |
 | `locale/` | `.csv` | `i18n.hpp` | Translation strings become `i18n::key` constants. |
-| `src/` | `.cpp`, `.hpp` | (compiled directly) | App utilities. Not auto-included. |
+| `app/scripts/` | `.js` | `scripts.hpp` | Embedded at build time and served at `/_app/<name>.<hash>.js` with immutable caching. `scripts::<name>_tag()` gives the `<script defer>` tag. |
+| `src/` | `.cpp`, `.hpp` | (compiled directly) | App utilities; every `src/*.cpp` is compiled. Not auto-included. `src/main.cpp` is optional: without it the framework's entry point runs `site_init()` (if defined) and serves the routes. |
 
 ## Core Concepts
 
@@ -401,6 +403,34 @@ co_await queries::users::create(db, {.name = name, .email = email});  // multi-p
 auto count = queries::users::sync_count(db);
 ```
 
+Beyond `@revet:model` and `@revet:raw`:
+
+```sql
+-- @revet:name: totals_by_day
+-- @revet:returns: string, double, int64?      -- std::vector<std::tuple<std::string, double, std::optional<int64_t>>>
+WITH d AS (SELECT day, sum(v) AS total, max(n) AS n FROM samples GROUP BY day)
+SELECT day, total, n FROM d ORDER BY day;
+
+-- @revet:name: count
+-- @revet:scalar: int64                         -- std::optional<int64_t>
+SELECT count(*) FROM samples;
+
+-- @revet:name: set_note
+-- @revet:param: note string?                   -- std::optional<std::string>: empty binds NULL
+-- @revet:param: id int64
+UPDATE samples SET note = :note WHERE id = :id;
+```
+
+Types: `int`, `int32`, `int64`, `uint32`, `uint64`, `double`, `float`, `string`, `bool`, `decimal` (`revet::Decimal`); a trailing `?` makes one nullable. `WITH` blocks are classified by the statement after the CTEs.
+
+For SQL built at runtime, handles have the same typed reads:
+
+```cpp
+for (auto [name, total] : h.query_as<std::string, double>("select name, sum(x) from t group by name")) { ... }
+const auto n = h.scalar<int64_t>("select count(*) from t where kind = ?", kind).value_or(0);
+db::sqlite::backup(h, {.dir = web::data_dir() / "backups", .prefix = "app", .keep = 14});  // VACUUM INTO, daily
+```
+
 #### 3. Define model structs
 
 Place structs annotated with `[[revet::model]]` in `models/`. The framework generates `from_json<T>`, `to_json<T>`, and `from_row<T>` for each.
@@ -425,6 +455,34 @@ Add `-- @revet:model: TypeName` to any SQL block and the generated function retu
 
 User u = revet::json::from_json<User>(doc);   // parse JSON document
 std::string s = revet::json::to_json(u);      // serialize to JSON string
+```
+
+### Everyday helpers
+
+```cpp
+#include <revet/page.hpp>    // html::standard_head({.title = t, .theme_color = "#111"}, {scripts::chart_tag()})
+                             // html::html_doc{html::lang("en"), head, body}
+#include <revet/svg.hpp>     // svg::path_data{}.move(0, h).line(x, y).close(); svg::points(pts); svg::attr.viewbox(w, h)
+                             // attributes take numbers: html::attr.min(0), svg::attr.x(1.5)
+                             // html::inline_style{}.var("x", pct, "%")  ->  style="--x:12.5%"
+#include <revet/json.hpp>    // revet::json::Writer w; w.object().field("id", 7).end();  json::quote(s)
+                             // value.get<int64_t>("count", 0)
+#include <revet/time.hpp>    // revet::time::ago(ms) "3 h ago", today_iso(), parse_date("2026-11-08"), format_local(ms, "%H:%M")
+#include <revet/jobs.hpp>    // static web::jobs::SingleFlight sync; sync.start(fn); sync.status()
+                             // web::jobs::every(std::chrono::hours{24}, fn)
+#include <revet/otp.hpp>     // web::otp::ReplayGuard / code() / base32_*  (TOTP), web::otp::Throttle
+#include <revet/hash.hpp>    // web::hash::sha1_hex, hmac_sha1, md5_hex (interop only)
+
+req.query.get("page", 1);          // int; bad or missing input gives the fallback, never throws
+req.query.as<double>("lat");       // std::optional<double>
+req.params.get("name");            // route params arrive percent-decoded; urls::topic__name_(x) encodes x
+web::data_dir() / "snapshots";     // --data-dir, REVET_DATA_DIR, revet.toml data_dir, else "data"
+
+// One renderer for every error page, in the app's layout:
+web::on_error_page([](const web::Request& req, web::Status s, std::string_view msg) {
+    return layout_main(req, s.text, html::p{msg.empty() ? s.text : msg});
+});
+return web::bad_request(req, "A transaction needs a name.");   // also not_found, forbidden, error_page
 ```
 
 ### Input Validation
