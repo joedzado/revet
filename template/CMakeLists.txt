@@ -164,7 +164,15 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GEN_DIR}/i18n.hpp
     )
 
-    include(${GEN_DIR}/dependencies.cmake OPTIONAL)
+    # Generate at configure time: the build-time codegen above runs after this
+    # configure on a fresh build dir, and find_package needs the Conan files that
+    # revet build has just installed.
+    execute_process(COMMAND python3 ${FRAMEWORK_DIR}/cmake/gen_dependencies.py ${CMAKE_SOURCE_DIR}
+                    RESULT_VARIABLE _gen_deps_rc)
+    if(NOT _gen_deps_rc EQUAL 0)
+        message(FATAL_ERROR "gen_dependencies.py failed (${_gen_deps_rc})")
+    endif()
+    include(${GEN_DIR}/dependencies.cmake)
 
     # Every .cpp in src/ is compiled, plus components and layouts. src/main.cpp is optional:
     # without it the framework's default entry point is used.
