@@ -15,8 +15,9 @@ Usage from project directory:
   revet format
   revet clean
 """
-import os, subprocess, threading, select, glob, queue, re, tty, termios, atexit, shutil, argparse
+import os, subprocess, hashlib, fcntl, threading, select, glob, queue, re, tty, termios, atexit, shutil, argparse
 from pathlib import Path
+from contextlib import contextmanager
 from typing import List, Optional, Dict, Union
 
 # ── locate framework ──────────────────────────────────────────────────────────
@@ -825,12 +826,38 @@ def _target_profile(target: str) -> Path:
         sys.exit(1)
     return profile
 
+def _build_dir_for(target):
+    # Profile files are keyed by resolved path: two profiles named "rpi.profile" must not share a tree.
+    if Path(target).is_file():
+        digest = hashlib.sha1(str(Path(target).resolve()).encode()).hexdigest()[:8]
+        return f"{BUILD_DIR}/{Path(target).stem}-{digest}"
+    return f"{BUILD_DIR}/{target}"
+
+@contextmanager
+def _build_lock():
+    # Host and cross builds share build/generated (codegen output is target-independent), so builds run one at a time.
+    Path(BUILD_DIR).mkdir(parents=True, exist_ok=True)
+    with open(f"{BUILD_DIR}/.build.lock", "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("waiting for another revet build to finish…", file=sys.stderr)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
 def cmake_build(release=False, asan=False, debug=False, target=None):
+    with _build_lock():
+        return _cmake_build(release=release, asan=asan, debug=debug, target=target)
+
+def _cmake_build(release=False, asan=False, debug=False, target=None):
     # Generate CMakeLists.txt at build time
     generate_cmakelists()
 
     # Cross builds get their own tree under build/ so they never clobber the host build.
-    build_dir = f"{BUILD_DIR}/{Path(target).stem if Path(target).is_file() else target}" if target else BUILD_DIR
+    build_dir = _build_dir_for(target) if target else BUILD_DIR
     profile = _target_profile(target) if target else None
     conan_dir = Path(build_dir) / "conan"
     conan_dir.mkdir(parents=True, exist_ok=True)
@@ -918,7 +945,7 @@ def parse_routes():
         if not m: continue
         methods = []
         for x, field in [("GET", "r.get"), ("POST", "r.post"), ("PUT", "r.put"),
-                         ("DEL", "r.del"), ("PATCH", "r.patch"), ("SSE", "r.sse")]:
+                         ("DEL", "r.del"), ("PATCH", "r.patch"), ("SSE", "r.sse"), ("WS", "r.ws")]:
             if field in block: methods.append(x)
         routes.append((m.group(1), methods))
     return routes
