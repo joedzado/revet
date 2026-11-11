@@ -41,9 +41,21 @@ auto client_frame(uint8_t first_byte, std::string_view payload, std::string_view
     -> std::string {
     std::string out;
     out += static_cast<char>(first_byte);
-    out += static_cast<char>(0x80 | payload.size());
-    out += key;
-    for (size_t i = 0; i < payload.size(); ++i) {
+    const size_t n = payload.size();
+    if (n < 126) {
+        out += static_cast<char>(0x80 | n);
+    } else if (n <= 0xFFFF) {
+        out += static_cast<char>(0x80 | 126);
+        out += static_cast<char>((n >> 8) & 0xFF);
+        out += static_cast<char>(n & 0xFF);
+    } else {
+        out += static_cast<char>(0x80 | 127);
+        for (int i = 7; i >= 0; --i) {
+            out += static_cast<char>((static_cast<uint64_t>(n) >> (i * 8)) & 0xFF);
+        }
+    }
+    out.append(key);
+    for (size_t i = 0; i < n; ++i) {
         out += static_cast<char>(payload[i] ^ key[i % 4]);
     }
     return out;
@@ -152,6 +164,100 @@ TEST_CASE("Conn::recv rejects a one-byte close payload with close 1002") {
     ::close(client_fd);
 }
 
+TEST_CASE("Conn::recv decodes a minimal 16-bit client frame") {
+    auto [server_fd, client_fd] = make_socketpair();
+    const std::string payload(200, 'q');
+    send_raw(client_fd, client_frame(0x82, payload));
+
+    auto conn = web::ws::Conn::make(server_fd);
+    auto msg = conn->recv();
+    REQUIRE(msg.has_value());
+    REQUIRE(msg->binary);
+    REQUIRE(msg->data == payload);
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv decodes a minimal 64-bit client frame") {
+    auto [server_fd, client_fd] = make_socketpair();
+    const std::string payload(65536, 'z');
+    const auto frame = client_frame(0x82, payload);
+    std::thread sender([client_fd, &frame] {
+        size_t sent = 0;
+        while (sent < frame.size()) {
+            const ssize_t n = ::send(client_fd, frame.data() + sent, frame.size() - sent, 0);
+            REQUIRE(n > 0);
+            sent += static_cast<size_t>(n);
+        }
+    });
+
+    auto conn = web::ws::Conn::make(server_fd);
+    auto msg = conn->recv();
+    sender.join();
+    REQUIRE(msg.has_value());
+    REQUIRE(msg->binary);
+    REQUIRE(msg->data == payload);
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv rejects a non-minimal 16-bit length with close 1002") {
+    auto [server_fd, client_fd] = make_socketpair();
+    // Masked text frame claiming a 16-bit length of 1.
+    std::string frame("\x81\xFE\x00\x01\x01\x02\x03\x04", 8);
+    frame += static_cast<char>('A' ^ 0x01);
+    send_raw(client_fd, frame);
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEA", 4));
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv rejects a non-minimal 64-bit length with close 1002") {
+    auto [server_fd, client_fd] = make_socketpair();
+    std::string frame("\x82\xFF\x00\x00\x00\x00\x00\x00\x00\x01", 10);
+    frame += "\x01\x02\x03\x04";
+    frame += static_cast<char>('A' ^ 0x01);
+    send_raw(client_fd, frame);
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEA", 4));
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv rejects a 64-bit length with the high bit set with close 1002") {
+    auto [server_fd, client_fd] = make_socketpair();
+    send_raw(client_fd, std::string("\x82\xFF\x80\x00\x00\x00\x00\x00\x00\x01\x01\x02\x03\x04", 14));
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEA", 4));
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv echoes close 1012 and rejects close 1015") {
+    auto [server_fd, client_fd] = make_socketpair();
+    send_raw(client_fd, client_frame(0x88, std::string_view("\x03\xF4", 2)));
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_FALSE(conn->recv().has_value());
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xF4", 4));
+
+    ::close(client_fd);
+
+    auto [server_fd2, client_fd2] = make_socketpair();
+    send_raw(client_fd2, client_frame(0x88, std::string_view("\x03\xF7", 2)));
+    auto conn2 = web::ws::Conn::make(server_fd2);
+    REQUIRE_THROWS_AS(conn2->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd2) == std::string("\x88\x02\x03\xEA", 4));
+    ::close(client_fd2);
+}
+
 TEST_CASE("Conn::recv rejects a reserved close code (1005) with close 1002") {
     auto [server_fd, client_fd] = make_socketpair();
     send_raw(client_fd, client_frame(0x88, std::string_view("\x03\xED", 2)));
@@ -258,10 +364,10 @@ TEST_CASE("Slot caps concurrent connections at k_max_connections") {
 
 TEST_CASE("ws_origin_allowed: no Origin or same-host Origin passes; cross-site and null fail") {
     web::Request req;
-    req.headers.data["host"] = "tronbyt.dzado.net";
+    req.headers.data["host"] = "example.com";
     REQUIRE(web::ws_origin_allowed(req));
 
-    req.headers.data["origin"] = "https://tronbyt.dzado.net";
+    req.headers.data["origin"] = "https://example.com";
     REQUIRE(web::ws_origin_allowed(req));
 
     req.headers.data["origin"] = "https://evil.example";
@@ -273,8 +379,8 @@ TEST_CASE("ws_origin_allowed: no Origin or same-host Origin passes; cross-site a
 
 TEST_CASE("ws_origin_allowed ignores host case and scheme") {
     web::Request req;
-    req.headers.data["host"] = "Tronbyt.DZADO.net";
-    req.headers.data["origin"] = "http://tronbyt.dzado.net";
+    req.headers.data["host"] = "Example.COM";
+    req.headers.data["origin"] = "http://example.com";
     REQUIRE(web::ws_origin_allowed(req));
 }
 

@@ -193,9 +193,10 @@ inline auto utf8_cut(std::string_view s) -> size_t {
     return s.size();
 }
 
-// RFC 6455 §7.4.1 codes a peer may send in a close frame.
+// Codes a peer may send. 1004, 1005, 1006 and 1015 are reserved and never on the wire.
+// 1012–1014 are registry additions after RFC 6455.
 inline auto close_code_valid(uint16_t code) -> bool {
-    return (code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1011) || (code >= 3000 && code <= 4999);
+    return (code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1014) || (code >= 3000 && code <= 4999);
 }
 
 } // namespace detail
@@ -493,21 +494,32 @@ private:
         frame.op = static_cast<Opcode>(raw_op);
         const bool control = (raw_op & 0x08) != 0;
 
-        uint64_t len = b1 & 0x7F;
-        if (len == 126) {
+        // RFC 6455 §5.2: the smallest length encoding is required, and the 64-bit high bit must be 0.
+        const uint8_t len_marker = b1 & 0x7F;
+        uint64_t len = len_marker;
+        if (len_marker == 126) {
             std::array<char, 2> ext{};
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame(st);
             }
             len = (static_cast<uint64_t>(static_cast<uint8_t>(ext[0])) << 8) | static_cast<uint8_t>(ext[1]);
-        } else if (len == 127) {
+            if (len < 126) {
+                fail(CloseCode::Protocol, "non-minimal payload length");
+            }
+        } else if (len_marker == 127) {
             std::array<char, 8> ext{};
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame(st);
             }
+            if ((static_cast<uint8_t>(ext[0]) & 0x80) != 0) {
+                fail(CloseCode::Protocol, "payload length high bit set");
+            }
             len = 0;
             for (char c : ext) {
                 len = (len << 8) | static_cast<uint8_t>(c);
+            }
+            if (len <= 0xFFFF) {
+                fail(CloseCode::Protocol, "non-minimal payload length");
             }
         }
         if (control && (!frame.fin || len > 125)) {
