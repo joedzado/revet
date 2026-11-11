@@ -1,7 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/web.hpp>
 #include <revet/websocket.hpp>
+#include <array>
+#include <atomic>
 #include <chrono>
+#include <csignal>
 #include <string>
 #include <thread>
 #include <sys/socket.h>
@@ -59,6 +62,75 @@ auto client_frame(uint8_t first_byte, std::string_view payload, std::string_view
         out += static_cast<char>(payload[i] ^ key[i % 4]);
     }
     return out;
+}
+
+auto read_headers(int fd, int timeout_ms = 1000) -> std::string {
+    std::string out;
+    std::array<char, 512> buf{};
+    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    while (out.find("\r\n\r\n") == std::string::npos && out.size() < 65536) {
+        const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
+        if (n <= 0) {
+            break;
+        }
+        out.append(buf.data(), static_cast<size_t>(n));
+    }
+    return out;
+}
+
+// RFC 6455 example key. Accept value is s3pPLMBiTxaQ9kYGzzhZRbK+xOo=.
+auto ws_upgrade(std::string_view extra = {}) -> std::string {
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: example.com\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                      "Sec-WebSocket-Version: 13\r\n";
+    req += extra;
+    req += "\r\n";
+    return req;
+}
+
+struct ResetMw {
+    ResetMw() { web::clear_middlewares(); }
+    ~ResetMw() { web::clear_middlewares(); }
+};
+
+// server is the accepted socket (on_client owns it). fd is the peer.
+struct Client {
+    int server = -1;
+    int fd = -1;
+    Client() {
+        std::signal(SIGPIPE, SIG_IGN);
+        std::array<int, 2> fds{};
+        REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
+        server = fds[0];
+        fd = fds[1];
+    }
+    Client(const Client&) = delete;
+    auto operator=(const Client&) -> Client& = delete;
+    ~Client() {
+        if (fd >= 0) {
+            ::close(fd);
+        }
+        for (int i = 0; i < 400 && web::ws::Slot::in_use() != 0; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+};
+
+void wait_idle() {
+    for (int i = 0; i < 400 && web::ws::Slot::in_use() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(web::ws::Slot::in_use() == 0);
+}
+
+void wait_flag(std::atomic<bool>& flag) {
+    for (int i = 0; i < 400 && !flag.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 } // namespace
@@ -375,6 +447,18 @@ TEST_CASE("ws_origin_allowed: no Origin or same-host Origin passes; cross-site a
 
     req.headers.data["origin"] = "null";
     REQUIRE_FALSE(web::ws_origin_allowed(req));
+
+    for (const char* origin : {"https://example.com.evil", "https://evil.example.com", "https://example.com/path",
+                               "https://user@example.com", "https://example.com:444", "http://example.com."}) {
+        req.headers.data["origin"] = origin;
+        REQUIRE_FALSE(web::ws_origin_allowed(req));
+    }
+
+    req.headers.data["host"] = "example.com:443";
+    req.headers.data["origin"] = "https://example.com";
+    REQUIRE_FALSE(web::ws_origin_allowed(req));
+    req.headers.data["origin"] = "https://example.com:443";
+    REQUIRE(web::ws_origin_allowed(req));
 }
 
 TEST_CASE("ws_origin_allowed ignores host case and scheme") {
@@ -464,4 +548,268 @@ TEST_CASE("is_ws_upgrade requires GET, Upgrade: websocket, Connection: upgrade a
     req.headers.data["sec-websocket-key"] = "dGhlIHNhbXBsZSBub25jZQ==";
     req.method = web::Method::POST;
     REQUIRE_FALSE(web::is_ws_upgrade(req));
+}
+
+TEST_CASE("on_client completes a same-origin upgrade and echoes a coalesced frame") {
+    ResetMw reset;
+    std::atomic<bool> echoed{false};
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+        if (auto msg = conn.recv()) {
+            conn.send_text(msg->data);
+            echoed = msg->data == "hi";
+        }
+    };
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade("Origin: https://example.com\r\n") + client_frame(0x81, "hi"));
+    web::on_client(client.server, routes);
+
+    auto resp = read_headers(client.fd);
+    if (resp.find("\x81\x02hi") == std::string::npos) {
+        resp += read_all(client.fd, 1000);
+    }
+    REQUIRE(resp.find("HTTP/1.1 101 Switching Protocols") != std::string::npos);
+    REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string::npos);
+    REQUIRE(resp.find("Upgrade: websocket") != std::string::npos);
+    REQUIRE(resp.find("\x81\x02hi") != std::string::npos);
+    wait_flag(echoed);
+    REQUIRE(echoed);
+    wait_idle();
+}
+
+TEST_CASE("on_client echoes a frame sent after the 101") {
+    ResetMw reset;
+    std::atomic<bool> echoed{false};
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+        if (auto msg = conn.recv()) {
+            conn.send_text(msg->data);
+            echoed = msg->data == "hi";
+        }
+    };
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto headers = read_headers(client.fd);
+    REQUIRE(headers.find("HTTP/1.1 101") != std::string::npos);
+    REQUIRE(headers.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string::npos);
+    send_raw(client.fd, client_frame(0x81, "hi"));
+    REQUIRE(read_all(client.fd, 1000).find("\x81\x02hi") != std::string::npos);
+    wait_flag(echoed);
+    REQUIRE(echoed);
+    wait_idle();
+}
+
+TEST_CASE("on_client runs global middleware when the route has no guards") {
+    ResetMw reset;
+    std::atomic<int> hits{0};
+    std::atomic<bool> ran{false};
+    web::use([&](const web::Request&, const web::Next& next) {
+        hits.fetch_add(1);
+        return next();
+    });
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn&) { ran = true; };
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 101") != std::string::npos);
+    wait_flag(ran);
+    REQUIRE(ran);
+    REQUIRE(hits.load() == 1);
+    wait_idle();
+}
+
+TEST_CASE("on_client refuses an upgrade when a guard does not call next") {
+    ResetMw reset;
+    std::atomic<bool> ran{false};
+    web::Route route;
+    route.path = "/ws";
+    route.guards.push_back([](const web::Request&, const web::Next&) {
+        return web::Response{.body = "nope", .status = web::status::forbidden};
+    });
+    route.ws = [&](const web::Request&, web::ws::Conn&) { ran = true; };
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 403") != std::string::npos);
+    REQUIRE(resp.find("nope") != std::string::npos);
+    REQUIRE(resp.find("101") == std::string::npos);
+    REQUIRE_FALSE(ran);
+    wait_idle();
+}
+
+TEST_CASE("on_client turns a middleware exception into 500 and no 101") {
+    ResetMw reset;
+    web::use([](const web::Request&, const web::Next&) -> web::Response { throw std::runtime_error("boom"); });
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [](const web::Request&, web::ws::Conn&) {};
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 500") != std::string::npos);
+    REQUIRE(resp.find("101") == std::string::npos);
+    wait_idle();
+}
+
+TEST_CASE("on_client rejects cross-origin and lookalike origins before 101") {
+    ResetMw reset;
+    std::atomic<int> ran{0};
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn&) { ran.fetch_add(1); };
+    std::vector<web::Route> routes{std::move(route)};
+
+    for (const char* origin : {"https://evil.example", "https://example.com.evil", "https://evil.example.com",
+                               "https://example.com/path", "https://user@example.com", "https://example.com:444",
+                               "null"}) {
+        Client client;
+        send_raw(client.fd, ws_upgrade(std::string("Origin: ") + origin + "\r\n"));
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 403") != std::string::npos);
+        REQUIRE(resp.find("101") == std::string::npos);
+    }
+    REQUIRE(ran.load() == 0);
+    wait_idle();
+}
+
+TEST_CASE("on_client rejects a bad version, HTTP/1.0, a missing Host, and Content-Length") {
+    ResetMw reset;
+    std::atomic<int> ran{0};
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn&) { ran.fetch_add(1); };
+    std::vector<web::Route> routes{std::move(route)};
+
+    {
+        Client client;
+        send_raw(client.fd, "GET /ws HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 12\r\n\r\n");
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 426") != std::string::npos);
+        REQUIRE(resp.find("Sec-WebSocket-Version: 13") != std::string::npos);
+        REQUIRE(resp.find("101") == std::string::npos);
+    }
+    {
+        Client client;
+        send_raw(client.fd, "GET /ws HTTP/1.0\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n");
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 400") != std::string::npos);
+        REQUIRE(resp.find("101") == std::string::npos);
+    }
+    {
+        Client client;
+        send_raw(client.fd, "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n");
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 400") != std::string::npos);
+        REQUIRE(resp.find("101") == std::string::npos);
+    }
+    {
+        Client client;
+        send_raw(client.fd, ws_upgrade("Content-Length: 2\r\n") + client_frame(0x81, "hi"));
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 400") != std::string::npos);
+        REQUIRE(resp.find("101") == std::string::npos);
+        REQUIRE(resp.find("\x81\x02hi") == std::string::npos);
+    }
+    REQUIRE(ran.load() == 0);
+    wait_idle();
+}
+
+TEST_CASE("on_client returns 503 when the connection cap is full") {
+    ResetMw reset;
+    Client client;
+    std::vector<std::optional<web::ws::Slot>> held;
+    for (int i = 0; i < web::ws::k_max_connections; ++i) {
+        auto slot = web::ws::Slot::acquire();
+        REQUIRE(slot.has_value());
+        held.push_back(std::move(slot));
+    }
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [](const web::Request&, web::ws::Conn&) {};
+    std::vector<web::Route> routes{std::move(route)};
+
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 503") != std::string::npos);
+    REQUIRE(resp.find("101") == std::string::npos);
+    held.clear();
+    wait_idle();
+}
+
+TEST_CASE("on_client serves an ordinary GET and a 413 without upgrading") {
+    ResetMw reset;
+    web::Route hello;
+    hello.path = "/hello";
+    hello.get = [](const web::Request&) { return web::to_response("world"); };
+    web::Route upload;
+    upload.path = "/up";
+    std::atomic<bool> posted{false};
+    upload.post = [&](const web::Request&) {
+        posted = true;
+        return web::to_response("no");
+    };
+    std::vector<web::Route> routes{std::move(hello), std::move(upload)};
+
+    {
+        Client client;
+        send_raw(client.fd, "GET /hello HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        REQUIRE(resp.find("HTTP/1.1 200") != std::string::npos);
+        REQUIRE(resp.find("world") != std::string::npos);
+    }
+    {
+        const auto prev = web::config::max_body_bytes();
+        web::config::max_body_bytes(4);
+        Client client;
+        send_raw(client.fd, "POST /up HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n"
+                            "Content-Length: 100\r\n\r\n{\"a\":1}");
+        web::on_client(client.server, routes);
+        auto resp = read_headers(client.fd);
+        web::config::max_body_bytes(prev);
+        REQUIRE(resp.find("HTTP/1.1 413") != std::string::npos);
+        REQUIRE_FALSE(posted);
+    }
+}
+
+TEST_CASE("a throwing WebSocket handler still releases its slot") {
+    ResetMw reset;
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [](const web::Request&, web::ws::Conn&) { throw std::runtime_error("handler"); };
+    std::vector<web::Route> routes{std::move(route)};
+
+    Client client;
+    send_raw(client.fd, ws_upgrade());
+    web::on_client(client.server, routes);
+    auto resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 101") != std::string::npos);
+    wait_idle();
 }
