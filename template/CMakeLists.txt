@@ -203,6 +203,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GENERATED_SOURCES}
         ${framework_impl_sources}
     )
+    # revet.toml `binary` sets the file name. The cmake target stays `revet`.
+    set_target_properties(revet PROPERTIES OUTPUT_NAME "{{binary}}")
     target_include_directories(revet PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/app/routes ${GEN_DIR})
     target_link_libraries(revet PRIVATE revet_core)
     target_compile_options(revet PRIVATE -Wno-unknown-attributes)
