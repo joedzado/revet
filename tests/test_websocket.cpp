@@ -1,3 +1,4 @@
+#include <zlib.h>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -855,4 +856,73 @@ TEST_CASE("a throwing WebSocket handler still releases its slot") {
     auto resp = read_headers(client.fd);
     REQUIRE(resp.find("HTTP/1.1 101") != std::string::npos);
     wait_idle();
+}
+
+TEST_CASE("negotiate_deflate accepts permessage-deflate and echoes the takeover and window params it honors") {
+    using web::ws::negotiate_deflate;
+    auto plain = negotiate_deflate("permessage-deflate");
+    REQUIRE(plain.enabled);
+    REQUIRE(plain.response == "permessage-deflate");
+
+    auto no_ctx = negotiate_deflate("permessage-deflate; server_no_context_takeover; client_no_context_takeover");
+    REQUIRE(no_ctx.enabled);
+    REQUIRE(no_ctx.server_no_ctx);
+    REQUIRE(no_ctx.response == "permessage-deflate; server_no_context_takeover");
+
+    auto window = negotiate_deflate("permessage-deflate; server_max_window_bits=10");
+    REQUIRE(window.enabled);
+    REQUIRE(window.server_bits == 10);
+    REQUIRE(window.response == "permessage-deflate; server_max_window_bits=10");
+}
+
+TEST_CASE("negotiate_deflate declines offers it cannot honor and falls through to the next") {
+    using web::ws::negotiate_deflate;
+    REQUIRE_FALSE(negotiate_deflate("").enabled);
+    REQUIRE_FALSE(negotiate_deflate("x-webkit-deflate-frame").enabled);
+    REQUIRE_FALSE(negotiate_deflate("permessage-deflate; server_max_window_bits=8").enabled);
+    REQUIRE_FALSE(negotiate_deflate("permessage-deflate; unknown_param").enabled);
+    REQUIRE_FALSE(negotiate_deflate("permessage-deflate; server_no_context_takeover=1").enabled);
+
+    auto next = negotiate_deflate("permessage-deflate; server_max_window_bits=8, permessage-deflate");
+    REQUIRE(next.enabled);
+    REQUIRE(next.response == "permessage-deflate");
+}
+
+TEST_CASE("Conn::recv inflates a permessage-deflate text message and send_text deflates the reply") {
+    auto [server_fd, client_fd] = make_socketpair();
+    auto conn = web::ws::Conn::make(server_fd);
+    conn->set_deflate(web::ws::negotiate_deflate("permessage-deflate"));
+
+    // Raw deflate of "Hello", sync-flushed, with the 00 00 FF FF tail removed as RFC 7692 requires.
+    z_stream zs{};
+    REQUIRE(deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) == Z_OK);
+    std::string plain = "Hello";
+    std::string out(64, '\0');
+    zs.next_in = reinterpret_cast<Bytef*>(plain.data());
+    zs.avail_in = static_cast<uInt>(plain.size());
+    zs.next_out = reinterpret_cast<Bytef*>(out.data());
+    zs.avail_out = static_cast<uInt>(out.size());
+    deflate(&zs, Z_SYNC_FLUSH);
+    out.resize(out.size() - zs.avail_out - 4);
+    deflateEnd(&zs);
+
+    // RSV1 set, FIN set, text, masked, 5 bytes.
+    std::string frame = std::string("\xC1\x80", 2) + std::string("\x01\x02\x03\x04", 4);
+    for (size_t i = 0; i < out.size(); ++i) {
+        frame += static_cast<char>(out[i] ^ "\x01\x02\x03\x04"[i % 4]);
+    }
+    frame[1] = static_cast<char>(0x80 | out.size());
+    send_raw(client_fd, frame);
+
+    auto msg = conn->recv();
+    REQUIRE(msg.has_value());
+    REQUIRE_FALSE(msg->binary);
+    REQUIRE(msg->data == "Hello");
+
+    REQUIRE(conn->send_text("Hello"));
+    const std::string reply = read_all(client_fd);
+    REQUIRE(reply.size() >= 2);
+    REQUIRE(static_cast<uint8_t>(reply[0]) == 0xC1); // FIN + RSV1 + text
+
+    ::close(client_fd);
 }

@@ -1527,13 +1527,17 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                 // Conn owns fd from here: it closes when the last reference drops.
                 auto conn = ws::Conn::make(client_fd, std::move(slot));
                 conn->prime(std::move(leftover));
+                const auto deflate = ws::negotiate_deflate(req.headers.get("sec-websocket-extensions"));
+                const std::string extensions =
+                    deflate.enabled ? std::format("Sec-WebSocket-Extensions: {}\r\n", deflate.response) : "";
                 const std::string handshake = std::format(
                     "HTTP/1.1 101 Switching Protocols\r\n"
                     "Upgrade: websocket\r\n"
                     "Connection: Upgrade\r\n"
                     "Sec-WebSocket-Accept: {}\r\n"
+                    "{}"
                     "\r\n",
-                    ws::accept_key(req.headers.get("sec-websocket-key")));
+                    ws::accept_key(req.headers.get("sec-websocket-key")), extensions);
                 size_t sent = 0;
                 while (sent < handshake.size()) {
                     const ssize_t n = ::send(client_fd, handshake.data() + sent, handshake.size() - sent, 0);
@@ -1545,6 +1549,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                     }
                     sent += static_cast<size_t>(n);
                 }
+                conn->set_deflate(deflate);
                 try {
                     ws_fn(req, *conn);
                 } catch (const std::exception& e) {

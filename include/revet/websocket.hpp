@@ -22,6 +22,8 @@
 
 #include "hash.hpp"
 
+#include <zlib.h>
+
 // RFC 6455 WebSocket: handshake, frame codec, and a server-side connection.
 
 namespace web::ws {
@@ -32,6 +34,7 @@ inline constexpr int k_idle_timeout_ms = 30'000;                   // ping after
 inline constexpr int k_max_connections = 256;                      // process-wide cap on open sockets
 inline constexpr int k_send_timeout_ms = 5'000;                    // a stalled peer can't hold the write lock forever
 inline constexpr auto k_frame_deadline = std::chrono::seconds(10); // bounds a slow-drip frame, not just one recv
+inline constexpr size_t k_max_buffered = size_t{256} << 20;       // bytes held by in-flight messages, process-wide
 
 enum class Opcode : uint8_t {
     Continuation = 0x0,
@@ -48,6 +51,7 @@ enum class CloseCode : uint16_t {
     Protocol = 1002,
     InvalidData = 1007,
     TooBig = 1009,
+    TryAgainLater = 1013,
 };
 
 struct Error : std::runtime_error {
@@ -60,6 +64,35 @@ struct Message {
 };
 
 namespace detail {
+
+// Bytes held by in-flight messages across all connections. A message holds what it has reassembled so far.
+inline auto buffered_total() -> std::atomic<size_t>& {
+    static std::atomic<size_t> total{0};
+    return total;
+}
+
+// One message's share of buffered_total(); released when the message is returned or abandoned.
+class Budget {
+public:
+    Budget() = default;
+    Budget(const Budget&) = delete;
+    auto operator=(const Budget&) -> Budget& = delete;
+    Budget(Budget&&) = delete;
+    auto operator=(Budget&&) -> Budget& = delete;
+    ~Budget() { buffered_total().fetch_sub(held_); }
+
+    [[nodiscard]] auto reserve(size_t n) -> bool {
+        if (buffered_total().fetch_add(n) + n > k_max_buffered) {
+            buffered_total().fetch_sub(n);
+            return false;
+        }
+        held_ += n;
+        return true;
+    }
+
+private:
+    size_t held_ = 0;
+};
 
 // Strict UTF-8 (RFC 3629): no overlongs, no surrogates, nothing above U+10FFFF.
 inline auto utf8_valid(std::string_view s) -> bool {
@@ -189,10 +222,10 @@ inline auto valid_key(std::string_view key) -> bool {
 }
 
 // Server-to-client frame: unmasked, single fragment unless fin is false.
-inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true) -> std::string {
+inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true, bool rsv1 = false) -> std::string {
     std::string out;
     out.reserve(payload.size() + 10);
-    out += static_cast<char>((fin ? 0x80 : 0x00) | static_cast<uint8_t>(op));
+    out += static_cast<char>((fin ? 0x80 : 0x00) | (rsv1 ? 0x40 : 0x00) | static_cast<uint8_t>(op));
     const size_t n = payload.size();
     if (n < 126) {
         out += static_cast<char>(n);
@@ -208,6 +241,118 @@ inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true) -
     }
     out += payload;
     return out;
+}
+
+// permessage-deflate (RFC 7692): what the server agreed to, and the response line that says so.
+struct Deflate {
+    bool enabled = false;
+    bool server_no_ctx = false; // the client asked us to reset our compressor after each message
+    int server_bits = 15;       // our compression window
+    std::string response;       // value for Sec-WebSocket-Extensions
+};
+
+namespace detail {
+
+inline auto trim(std::string_view s) -> std::string_view {
+    while (!s.empty() && s.front() == ' ') {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && s.back() == ' ') {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+inline auto lower(std::string_view s) -> std::string {
+    std::string out(s);
+    for (char& c : out) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+// A window size in 8..15, optionally quoted. nullopt for anything else.
+inline auto window_bits(std::string_view v) -> std::optional<int> {
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
+        v = v.substr(1, v.size() - 2);
+    }
+    if (v.empty() || v.size() > 2 || !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        return std::nullopt;
+    }
+    const int n = std::stoi(std::string(v));
+    if (n < 8 || n > 15) {
+        return std::nullopt;
+    }
+    return n;
+}
+
+} // namespace detail
+
+// Picks the first permessage-deflate offer we can accept; anything we can't honor is declined.
+inline auto negotiate_deflate(std::string_view header) -> Deflate {
+    while (!header.empty()) {
+        const auto comma = header.find(',');
+        const auto offer = detail::trim(header.substr(0, comma));
+        header = comma == std::string_view::npos ? std::string_view{} : header.substr(comma + 1);
+
+        const auto semi = offer.find(';');
+        if (detail::lower(detail::trim(offer.substr(0, semi))) != "permessage-deflate") {
+            continue;
+        }
+        std::string_view rest = semi == std::string_view::npos ? std::string_view{} : offer.substr(semi + 1);
+
+        Deflate d;
+        d.enabled = true;
+        std::string response = "permessage-deflate";
+        bool ok = true;
+        bool seen_sn = false;
+        bool seen_cn = false;
+        bool seen_sb = false;
+        bool seen_cb = false;
+        while (ok && !rest.empty()) {
+            const auto next = rest.find(';');
+            const auto param = detail::trim(rest.substr(0, next));
+            rest = next == std::string_view::npos ? std::string_view{} : rest.substr(next + 1);
+
+            const auto eq = param.find('=');
+            const auto key = detail::lower(detail::trim(param.substr(0, eq)));
+            const bool has_value = eq != std::string_view::npos;
+            const auto value = has_value ? detail::trim(param.substr(eq + 1)) : std::string_view{};
+
+            if (key == "server_no_context_takeover" && !has_value && !seen_sn) {
+                seen_sn = true;
+                d.server_no_ctx = true;
+                response += "; server_no_context_takeover";
+            } else if (key == "client_no_context_takeover" && !has_value && !seen_cn) {
+                // Accepted but not echoed: the client may keep its context, so our inflater always keeps its.
+                seen_cn = true;
+            } else if (key == "server_max_window_bits" && !seen_sb) {
+                seen_sb = true;
+                if (has_value) {
+                    // zlib cannot make a raw 8-bit window, so 8 is declined rather than rounded up.
+                    const auto bits = detail::window_bits(value);
+                    if (!bits || *bits == 8) {
+                        ok = false;
+                    } else {
+                        d.server_bits = *bits;
+                        response += std::format("; server_max_window_bits={}", *bits);
+                    }
+                }
+            } else if (key == "client_max_window_bits" && !seen_cb) {
+                seen_cb = true;
+                if (has_value && !detail::window_bits(value)) {
+                    ok = false;
+                }
+            } else {
+                ok = false;
+            }
+        }
+        if (ok) {
+            d.response = std::move(response);
+            return d;
+        }
+    }
+    return {};
 }
 
 // Counts open WebSocket connections process-wide; holds one slot for its lifetime.
@@ -269,6 +414,10 @@ public:
         return std::shared_ptr<Conn>(new Conn(fd, std::move(slot)));
     }
     ~Conn() {
+        if (deflate_) {
+            deflateEnd(&zout_);
+            inflateEnd(&zin_);
+        }
         ::close(fd_);
     }
     Conn(const Conn&) = delete;
@@ -278,6 +427,19 @@ public:
 
     [[nodiscard]] auto open() const -> bool {
         return open_.load();
+    }
+
+    // Switches on permessage-deflate for this connection; call once, right after the 101 is sent.
+    void set_deflate(const Deflate& d) {
+        if (!d.enabled) {
+            return;
+        }
+        if (deflateInit2(&zout_, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -d.server_bits, 8, Z_DEFAULT_STRATEGY) != Z_OK ||
+            inflateInit2(&zin_, -15) != Z_OK) {
+            throw Error("zlib initialization failed");
+        }
+        deflate_ = true;
+        server_no_ctx_ = d.server_no_ctx;
     }
 
     // Bytes that arrived after the upgrade request's headers; consumed before the socket is read.
@@ -290,8 +452,47 @@ public:
     auto recv() -> std::optional<Message> {
         Message msg;
         bool in_fragment = false;
+        bool compressed = false;   // the current message arrived with RSV1 set
         bool ping_outstanding = false;
-        std::string utf8_pending; // trailing bytes of a text message split mid-codepoint
+        std::string utf8_pending;  // trailing bytes of a text message split mid-codepoint
+        detail::Budget held;       // what this message holds in the process-wide budget
+
+        // Appends decoded message bytes; text is checked for UTF-8 as it arrives.
+        auto absorb = [&](std::string_view bytes) {
+            if (msg.data.size() + bytes.size() > k_max_message) {
+                fail(CloseCode::TooBig, "message too large");
+            }
+            if (!msg.binary) {
+                const std::string chunk = utf8_pending + std::string(bytes);
+                const size_t cut = detail::utf8_cut(chunk);
+                const std::string_view view(chunk);
+                if (!detail::utf8_valid(view.substr(0, cut)) || !detail::utf8_tail_ok(view.substr(cut))) {
+                    fail(CloseCode::InvalidData, "invalid UTF-8 in text message");
+                }
+                utf8_pending = chunk.substr(cut);
+            }
+            if (!held.reserve(bytes.size())) {
+                fail(CloseCode::TryAgainLater, "too many bytes buffered");
+            }
+            msg.data += bytes;
+        };
+
+        // Runs compressed bytes through the inflater. Z_SYNC_FLUSH only at the end of a message.
+        auto inflate_into = [&](std::string_view input, int flush) {
+            zin_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(input.data()));
+            zin_.avail_in = static_cast<uInt>(input.size());
+            std::array<unsigned char, 16384> out{};
+            do {
+                zin_.next_out = out.data();
+                zin_.avail_out = static_cast<uInt>(out.size());
+                const int rc = inflate(&zin_, flush);
+                if (rc == Z_NEED_DICT || rc == Z_DATA_ERROR || rc == Z_MEM_ERROR || rc == Z_STREAM_ERROR) {
+                    fail(CloseCode::InvalidData, "invalid permessage-deflate data");
+                }
+                absorb(std::string_view(reinterpret_cast<const char*>(out.data()), out.size() - zin_.avail_out));
+            } while (zin_.avail_out == 0);
+        };
+
         while (open_.load()) {
             IoStatus st = IoStatus::Ok;
             const auto head = read_header(st);
@@ -314,7 +515,7 @@ public:
 
             const auto op = head->op;
             if (op == Opcode::Ping) {
-                const auto payload = read_payload(*head, st);
+                const auto payload = read_control(*head, st);
                 if (!payload) {
                     open_ = false;
                     return std::nullopt;
@@ -323,14 +524,14 @@ public:
                 continue;
             }
             if (op == Opcode::Pong) {
-                if (!read_payload(*head, st)) {
+                if (!read_control(*head, st)) {
                     open_ = false;
                     return std::nullopt;
                 }
                 continue;
             }
             if (op == Opcode::Close) {
-                const auto payload = read_payload(*head, st);
+                const auto payload = read_control(*head, st);
                 if (!payload) {
                     open_ = false;
                     return std::nullopt;
@@ -345,36 +546,34 @@ public:
                 if (!in_fragment) {
                     fail(CloseCode::Protocol, "unexpected continuation frame");
                 }
+                if (head->rsv1) {
+                    fail(CloseCode::Protocol, "RSV1 on a continuation frame");
+                }
             } else {
                 if (in_fragment) {
                     fail(CloseCode::Protocol, "data frame inside fragmented message");
                 }
                 msg.binary = op == Opcode::Binary;
+                compressed = head->rsv1;
                 in_fragment = !head->fin;
             }
-            if (msg.data.size() + head->len > k_max_message) {
+            // Compressed sizes don't bound the message; the decoded size is checked in absorb().
+            if (!compressed && msg.data.size() + head->len > k_max_message) {
                 fail(CloseCode::TooBig, "message too large");
             }
 
-            // Text is validated as its bytes arrive, so a bad byte closes 1007 without waiting for the rest of the frame.
-            const auto payload = read_payload(*head, st, [&](std::string_view bytes) {
-                if (msg.binary) {
-                    return;
-                }
-                const std::string chunk = utf8_pending + std::string(bytes);
-                const size_t cut = detail::utf8_cut(chunk);
-                const std::string_view view(chunk);
-                if (!detail::utf8_valid(view.substr(0, cut)) || !detail::utf8_tail_ok(view.substr(cut))) {
-                    fail(CloseCode::InvalidData, "invalid UTF-8 in text message");
-                }
-                utf8_pending = chunk.substr(cut);
-            });
-            if (!payload) {
+            const bool ok = compressed
+                                ? read_payload(*head, st, [&](std::string_view bytes) { inflate_into(bytes, Z_NO_FLUSH); })
+                                : read_payload(*head, st, [&](std::string_view bytes) { absorb(bytes); });
+            if (!ok) {
                 open_ = false;
                 return std::nullopt;
             }
-            msg.data += *payload;
             if (head->fin) {
+                if (compressed) {
+                    // RFC 7692 §7.2.2: the removed 00 00 FF FF is restored before the final flush.
+                    inflate_into(std::string_view("\0\0\xff\xff", 4), Z_SYNC_FLUSH);
+                }
                 if (!utf8_pending.empty()) {
                     fail(CloseCode::InvalidData, "truncated UTF-8 in text message");
                 }
@@ -411,6 +610,7 @@ private:
 
     struct Header {
         bool fin = false;
+        bool rsv1 = false;
         Opcode op = Opcode::Continuation;
         uint64_t len = 0;
         std::array<char, 4> mask{};
@@ -495,8 +695,12 @@ private:
         }
         const auto b0 = static_cast<uint8_t>(head[0]);
         const auto b1 = static_cast<uint8_t>(head[1]);
-        if ((b0 & 0x70) != 0) {
+        if ((b0 & 0x30) != 0) {
             fail(CloseCode::Protocol, "reserved bits set");
+        }
+        const bool rsv1 = (b0 & 0x40) != 0;
+        if (rsv1 && !deflate_) {
+            fail(CloseCode::Protocol, "RSV1 without permessage-deflate");
         }
         if ((b1 & 0x80) == 0) {
             fail(CloseCode::Protocol, "client frame not masked");
@@ -539,13 +743,14 @@ private:
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }
         }
-        if (control && (!h.fin || len > 125)) {
+        if (control && (!h.fin || len > 125 || rsv1)) {
             fail(CloseCode::Protocol, "invalid control frame");
         }
         if (len > k_max_message) {
             fail(CloseCode::TooBig, "frame too large");
         }
         h.len = len;
+        h.rsv1 = rsv1;
 
         if (!read_exact(h.mask.data(), h.mask.size(), st)) {
             return fail_mid_frame<Header>(st);
@@ -553,27 +758,36 @@ private:
         return h;
     }
 
-    // Reads and unmasks a payload. on_bytes sees each piece as it arrives, before the rest of the frame.
+    // Reads and unmasks a payload in pieces; on_bytes sees each piece before the rest of the frame arrives.
     template <typename OnBytes>
-    auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> std::optional<std::string> {
-        std::string payload(h.len, '\0');
-        size_t done = 0;
-        while (done < payload.size()) {
-            const size_t got = read_some(payload.data() + done, payload.size() - done, st);
+    auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> bool {
+        std::array<char, 16384> buf{};
+        uint64_t done = 0;
+        while (done < h.len) {
+            const auto want = static_cast<size_t>(std::min<uint64_t>(buf.size(), h.len - done));
+            const size_t got = read_some(buf.data(), want, st);
             if (got == 0) {
-                return fail_mid_frame<std::string>(st);
+                if (st == IoStatus::Timeout) {
+                    st = IoStatus::Closed; // a dead peer mid-frame, not an idle one
+                }
+                return false;
             }
-            for (size_t i = done; i < done + got; ++i) {
-                payload[i] = static_cast<char>(payload[i] ^ h.mask[i % 4]);
+            for (size_t i = 0; i < got; ++i) {
+                buf[i] = static_cast<char>(buf[i] ^ h.mask[(done + i) % 4]);
             }
-            on_bytes(std::string_view(payload).substr(done, got));
+            on_bytes(std::string_view(buf.data(), got));
             done += got;
         }
-        return payload;
+        return true;
     }
 
-    auto read_payload(const Header& h, IoStatus& st) -> std::optional<std::string> {
-        return read_payload(h, st, [](std::string_view) {});
+    // Control frames are at most 125 bytes, so they can be held whole.
+    auto read_control(const Header& h, IoStatus& st) -> std::optional<std::string> {
+        std::string out;
+        if (!read_payload(h, st, [&](std::string_view bytes) { out.append(bytes); })) {
+            return std::nullopt;
+        }
+        return out;
     }
 
     // A timeout after the frame has started is a dead peer, not an idle one.
@@ -590,7 +804,32 @@ private:
         if (!open_.load()) {
             return false;
         }
+        if (deflate_ && (op == Opcode::Text || op == Opcode::Binary)) {
+            return send_all(encode_frame(op, compress(payload), true, true));
+        }
         return send_all(encode_frame(op, payload));
+    }
+
+    // Caller holds write_mu_. RFC 7692 §7.2.1: a sync flush, with its 00 00 FF FF tail removed.
+    auto compress(std::string_view in) -> std::string {
+        if (server_no_ctx_) {
+            deflateReset(&zout_);
+        }
+        zout_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(in.data()));
+        zout_.avail_in = static_cast<uInt>(in.size());
+        std::string out;
+        std::array<unsigned char, 16384> buf{};
+        do {
+            zout_.next_out = buf.data();
+            zout_.avail_out = static_cast<uInt>(buf.size());
+            deflate(&zout_, Z_SYNC_FLUSH);
+            out.append(reinterpret_cast<const char*>(buf.data()), buf.size() - zout_.avail_out);
+        } while (zout_.avail_out == 0);
+        constexpr std::string_view kTail("\0\0\xff\xff", 4);
+        if (out.size() >= kTail.size() && out.compare(out.size() - kTail.size(), kTail.size(), kTail) == 0) {
+            out.resize(out.size() - kTail.size());
+        }
+        return out;
     }
 
     // Caller holds write_mu_.
@@ -614,6 +853,10 @@ private:
 
     int fd_;
     Slot slot_;
+    bool deflate_ = false;
+    bool server_no_ctx_ = false; // we reset our compressor after each message
+    z_stream zin_{};
+    z_stream zout_{};
     std::string inbuf_; // bytes read with the upgrade request, served before the socket
     std::chrono::steady_clock::time_point frame_deadline_{};
     std::atomic<bool> open_{true};
