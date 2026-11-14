@@ -1,19 +1,17 @@
 #pragma once
 
-#include <sodium.h>
-
+#include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
-#include <bit>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <format>
-#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sodium.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,15 +20,17 @@
 #include <unistd.h>
 #include <utility>
 
+#include "hash.hpp"
+
 // RFC 6455 WebSocket: handshake, frame codec, and a server-side connection.
 
 namespace web::ws {
 
 inline constexpr std::string_view k_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-inline constexpr size_t k_max_message = size_t{1} << 20; // 1 MiB per reassembled message
-inline constexpr int k_idle_timeout_ms = 30'000;          // ping after this much silence
-inline constexpr int k_max_connections = 256;             // process-wide cap on open sockets
-inline constexpr int k_send_timeout_ms = 5'000;           // a stalled peer can't hold the write lock forever
+inline constexpr size_t k_max_message = size_t{1} << 20;           // 1 MiB per reassembled message
+inline constexpr int k_idle_timeout_ms = 30'000;                   // ping after this much silence
+inline constexpr int k_max_connections = 256;                      // process-wide cap on open sockets
+inline constexpr int k_send_timeout_ms = 5'000;                    // a stalled peer can't hold the write lock forever
 inline constexpr auto k_frame_deadline = std::chrono::seconds(10); // bounds a slow-drip frame, not just one recv
 
 enum class Opcode : uint8_t {
@@ -60,73 +60,6 @@ struct Message {
 };
 
 namespace detail {
-
-inline auto sha1(std::string_view input) -> std::array<uint8_t, 20> {
-    std::array<uint32_t, 5> h{0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
-
-    std::string msg(input);
-    const uint64_t bits = static_cast<uint64_t>(input.size()) * 8;
-    msg += static_cast<char>(0x80);
-    while (msg.size() % 64 != 56) {
-        msg += '\0';
-    }
-    for (int i = 7; i >= 0; --i) {
-        msg += static_cast<char>((bits >> (i * 8)) & 0xFF);
-    }
-
-    for (size_t off = 0; off < msg.size(); off += 64) {
-        std::array<uint32_t, 80> w{};
-        for (size_t i = 0; i < 16; ++i) {
-            const auto* p = reinterpret_cast<const uint8_t*>(msg.data() + off + (i * 4));
-            w[i] = (uint32_t{p[0]} << 24) | (uint32_t{p[1]} << 16) | (uint32_t{p[2]} << 8) | uint32_t{p[3]};
-        }
-        for (size_t i = 16; i < 80; ++i) {
-            w[i] = std::rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
-        }
-
-        uint32_t a = h[0];
-        uint32_t b = h[1];
-        uint32_t c = h[2];
-        uint32_t d = h[3];
-        uint32_t e = h[4];
-        for (size_t i = 0; i < 80; ++i) {
-            uint32_t f = 0;
-            uint32_t k = 0;
-            if (i < 20) {
-                f = (b & c) | (~b & d);
-                k = 0x5A827999;
-            } else if (i < 40) {
-                f = b ^ c ^ d;
-                k = 0x6ED9EBA1;
-            } else if (i < 60) {
-                f = (b & c) | (b & d) | (c & d);
-                k = 0x8F1BBCDC;
-            } else {
-                f = b ^ c ^ d;
-                k = 0xCA62C1D6;
-            }
-            const uint32_t t = std::rotl(a, 5) + f + e + k + w[i];
-            e = d;
-            d = c;
-            c = std::rotl(b, 30);
-            b = a;
-            a = t;
-        }
-        h[0] += a;
-        h[1] += b;
-        h[2] += c;
-        h[3] += d;
-        h[4] += e;
-    }
-
-    std::array<uint8_t, 20> out{};
-    for (size_t i = 0; i < 5; ++i) {
-        for (size_t j = 0; j < 4; ++j) {
-            out[(i * 4) + j] = static_cast<uint8_t>(h[i] >> (24 - (j * 8)));
-        }
-    }
-    return out;
-}
 
 // Strict UTF-8 (RFC 3629): no overlongs, no surrogates, nothing above U+10FFFF.
 inline auto utf8_valid(std::string_view s) -> bool {
@@ -193,6 +126,41 @@ inline auto utf8_cut(std::string_view s) -> size_t {
     return s.size();
 }
 
+// True if an incomplete trailing sequence can still become valid UTF-8 (RFC 3629 table 3-7).
+// Rejects a bad lead byte or an out-of-range second byte now, instead of at the end of the message.
+inline auto utf8_tail_ok(std::string_view tail) -> bool {
+    if (tail.empty()) {
+        return true;
+    }
+    const auto lead = static_cast<uint8_t>(tail[0]);
+    uint8_t lo2 = 0x80;
+    uint8_t hi2 = 0xBF;
+    if (lead >= 0xC2 && lead <= 0xDF) {
+    } else if (lead == 0xE0) {
+        lo2 = 0xA0;
+    } else if (lead >= 0xE1 && lead <= 0xEC) {
+    } else if (lead == 0xED) {
+        hi2 = 0x9F;
+    } else if (lead >= 0xEE && lead <= 0xEF) {
+    } else if (lead == 0xF0) {
+        lo2 = 0x90;
+    } else if (lead >= 0xF1 && lead <= 0xF3) {
+    } else if (lead == 0xF4) {
+        hi2 = 0x8F;
+    } else {
+        return false;
+    }
+    for (size_t i = 1; i < tail.size(); ++i) {
+        const auto b = static_cast<uint8_t>(tail[i]);
+        const uint8_t lo = i == 1 ? lo2 : uint8_t{0x80};
+        const uint8_t hi = i == 1 ? hi2 : uint8_t{0xBF};
+        if (b < lo || b > hi) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Codes a peer may send. 1004, 1005, 1006 and 1015 are reserved and never on the wire.
 // 1012–1014 are registry additions after RFC 6455.
 inline auto close_code_valid(uint16_t code) -> bool {
@@ -204,7 +172,7 @@ inline auto close_code_valid(uint16_t code) -> bool {
 // Sec-WebSocket-Accept value for a client's Sec-WebSocket-Key.
 inline auto accept_key(std::string_view client_key) -> std::string {
     const std::string joined = std::string(client_key) + std::string(k_guid);
-    const auto digest = detail::sha1(joined);
+    const auto digest = hash::sha1(joined);
     std::string out(sodium_base64_ENCODED_LEN(digest.size(), sodium_base64_VARIANT_ORIGINAL), '\0');
     sodium_bin2base64(out.data(), out.size(), digest.data(), digest.size(), sodium_base64_VARIANT_ORIGINAL);
     out.resize(std::strlen(out.c_str()));
@@ -263,7 +231,9 @@ public:
         }
     }
 
-    [[nodiscard]] static auto in_use() -> int { return counter().load(); }
+    [[nodiscard]] static auto in_use() -> int {
+        return counter().load();
+    }
 
 private:
     Slot() = default;
@@ -288,8 +258,8 @@ public:
         return make(fd, std::move(*slot), idle_timeout_ms);
     }
     // The slot is released when the connection's fd is closed, however many references outlive the handler.
-    [[nodiscard]] static auto make(int fd, Slot slot, int idle_timeout_ms = k_idle_timeout_ms)
-        -> std::shared_ptr<Conn> {
+    [[nodiscard]] static auto make(int fd, Slot slot,
+                                   int idle_timeout_ms = k_idle_timeout_ms) -> std::shared_ptr<Conn> {
         if (idle_timeout_ms > 0) {
             timeval tv{idle_timeout_ms / 1000, (idle_timeout_ms % 1000) * 1000};
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -298,16 +268,22 @@ public:
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send_tv, sizeof(send_tv));
         return std::shared_ptr<Conn>(new Conn(fd, std::move(slot)));
     }
-    ~Conn() { ::close(fd_); }
+    ~Conn() {
+        ::close(fd_);
+    }
     Conn(const Conn&) = delete;
     auto operator=(const Conn&) -> Conn& = delete;
     Conn(Conn&&) = delete;
     auto operator=(Conn&&) -> Conn& = delete;
 
-    [[nodiscard]] auto open() const -> bool { return open_.load(); }
+    [[nodiscard]] auto open() const -> bool {
+        return open_.load();
+    }
 
     // Bytes that arrived after the upgrade request's headers; consumed before the socket is read.
-    void prime(std::string bytes) { inbuf_ = std::move(bytes); }
+    void prime(std::string bytes) {
+        inbuf_ = std::move(bytes);
+    }
 
     // Next data message, or nullopt once the peer closes or stops answering pings.
     // Throws Error after sending a close frame on protocol violations.
@@ -315,10 +291,10 @@ public:
         Message msg;
         bool in_fragment = false;
         bool ping_outstanding = false;
-        std::string utf8_pending; // trailing bytes of a text fragment split mid-codepoint
+        std::string utf8_pending; // trailing bytes of a text message split mid-codepoint
         while (open_.load()) {
             IoStatus st = IoStatus::Ok;
-            auto frame = read_frame(st);
+            const auto head = read_header(st);
             if (st == IoStatus::Timeout) {
                 if (ping_outstanding) {
                     close(CloseCode::GoingAway);
@@ -330,23 +306,37 @@ public:
                 ping_outstanding = true;
                 continue;
             }
-            if (!frame) {
+            if (!head) {
                 open_ = false;
                 return std::nullopt;
             }
             ping_outstanding = false;
 
-            const auto op = frame->op;
+            const auto op = head->op;
             if (op == Opcode::Ping) {
-                write(Opcode::Pong, frame->payload);
+                const auto payload = read_payload(*head, st);
+                if (!payload) {
+                    open_ = false;
+                    return std::nullopt;
+                }
+                write(Opcode::Pong, *payload);
                 continue;
             }
             if (op == Opcode::Pong) {
+                if (!read_payload(*head, st)) {
+                    open_ = false;
+                    return std::nullopt;
+                }
                 continue;
             }
             if (op == Opcode::Close) {
-                validate_close_payload(frame->payload);
-                write(Opcode::Close, frame->payload);
+                const auto payload = read_payload(*head, st);
+                if (!payload) {
+                    open_ = false;
+                    return std::nullopt;
+                }
+                validate_close_payload(*payload);
+                write(Opcode::Close, *payload);
                 open_ = false;
                 ::shutdown(fd_, SHUT_RDWR);
                 return std::nullopt;
@@ -360,22 +350,31 @@ public:
                     fail(CloseCode::Protocol, "data frame inside fragmented message");
                 }
                 msg.binary = op == Opcode::Binary;
-                in_fragment = !frame->fin;
+                in_fragment = !head->fin;
             }
-            if (msg.data.size() + frame->payload.size() > k_max_message) {
+            if (msg.data.size() + head->len > k_max_message) {
                 fail(CloseCode::TooBig, "message too large");
             }
-            msg.data += frame->payload;
-            if (!msg.binary) {
-                // Validate each fragment as it arrives; only a split codepoint carries over.
-                std::string chunk = utf8_pending + frame->payload;
+
+            // Text is validated as its bytes arrive, so a bad byte closes 1007 without waiting for the rest of the frame.
+            const auto payload = read_payload(*head, st, [&](std::string_view bytes) {
+                if (msg.binary) {
+                    return;
+                }
+                const std::string chunk = utf8_pending + std::string(bytes);
                 const size_t cut = detail::utf8_cut(chunk);
-                if (!detail::utf8_valid(std::string_view(chunk).substr(0, cut))) {
+                const std::string_view view(chunk);
+                if (!detail::utf8_valid(view.substr(0, cut)) || !detail::utf8_tail_ok(view.substr(cut))) {
                     fail(CloseCode::InvalidData, "invalid UTF-8 in text message");
                 }
                 utf8_pending = chunk.substr(cut);
+            });
+            if (!payload) {
+                open_ = false;
+                return std::nullopt;
             }
-            if (frame->fin) {
+            msg.data += *payload;
+            if (head->fin) {
                 if (!utf8_pending.empty()) {
                     fail(CloseCode::InvalidData, "truncated UTF-8 in text message");
                 }
@@ -386,8 +385,12 @@ public:
     }
 
     // Returns false if the connection is closed or the write failed.
-    auto send_text(std::string_view text) -> bool { return write(Opcode::Text, text); }
-    auto send_binary(std::string_view bytes) -> bool { return write(Opcode::Binary, bytes); }
+    auto send_text(std::string_view text) -> bool {
+        return write(Opcode::Text, text);
+    }
+    auto send_binary(std::string_view bytes) -> bool {
+        return write(Opcode::Binary, bytes);
+    }
 
     void close(CloseCode code = CloseCode::Normal) {
         const auto raw = static_cast<uint16_t>(code);
@@ -406,10 +409,11 @@ private:
 
     enum class IoStatus { Ok, Closed, Timeout };
 
-    struct Frame {
+    struct Header {
         bool fin = false;
         Opcode op = Opcode::Continuation;
-        std::string payload;
+        uint64_t len = 0;
+        std::array<char, 4> mask{};
     };
 
     [[noreturn]] void fail(CloseCode code, const char* why) {
@@ -424,8 +428,8 @@ private:
         if (payload.size() == 1) {
             fail(CloseCode::Protocol, "close payload of one byte");
         }
-        const auto code = static_cast<uint16_t>((static_cast<uint8_t>(payload[0]) << 8) |
-                                                static_cast<uint8_t>(payload[1]));
+        const auto code =
+            static_cast<uint16_t>((static_cast<uint8_t>(payload[0]) << 8) | static_cast<uint8_t>(payload[1]));
         if (!detail::close_code_valid(code)) {
             fail(CloseCode::Protocol, "invalid close code");
         }
@@ -434,43 +438,56 @@ private:
         }
     }
 
-    // Reads exactly n bytes. A timeout before any byte arrives reports Timeout; one mid-read is a close.
-    auto read_exact(char* buf, size_t n, IoStatus& st) -> bool {
-        size_t got = 0;
+    // Reads 1 to n bytes, or returns 0 with st set: Timeout if the socket timed out before any byte, else Closed.
+    auto read_some(char* buf, size_t n, IoStatus& st) -> size_t {
         if (!inbuf_.empty()) {
             const size_t take = std::min(n, inbuf_.size());
             std::memcpy(buf, inbuf_.data(), take);
             inbuf_.erase(0, take);
-            got = take;
+            return take;
         }
-        while (got < n) {
-            const ssize_t r = ::recv(fd_, buf + got, n - got, 0);
+        while (true) {
+            const ssize_t r = ::recv(fd_, buf, n, 0);
             if (r > 0) {
-                got += static_cast<size_t>(r);
                 const auto now = std::chrono::steady_clock::now();
                 if (frame_deadline_ == std::chrono::steady_clock::time_point::max()) {
                     frame_deadline_ = now + k_frame_deadline; // armed by the frame's first byte, not by idle time
                 }
                 if (now > frame_deadline_) {
                     st = IoStatus::Closed;
-                    return false;
+                    return 0;
                 }
-                continue;
+                return static_cast<size_t>(r);
             }
             if (r < 0 && errno == EINTR) {
                 continue;
             }
-            if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && got == 0 && n > 0 && st == IoStatus::Ok) {
+            if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && st == IoStatus::Ok) {
                 st = IoStatus::Timeout;
-                return false;
+                return 0;
             }
             st = IoStatus::Closed;
-            return false;
+            return 0;
+        }
+    }
+
+    // Reads exactly n bytes. A timeout before any byte arrives reports Timeout; one mid-read is a close.
+    auto read_exact(char* buf, size_t n, IoStatus& st) -> bool {
+        size_t got = 0;
+        while (got < n) {
+            const size_t r = read_some(buf + got, n - got, st);
+            if (r == 0) {
+                if (got > 0 && st == IoStatus::Timeout) {
+                    st = IoStatus::Closed;
+                }
+                return false;
+            }
+            got += r;
         }
         return true;
     }
 
-    auto read_frame(IoStatus& st) -> std::optional<Frame> {
+    auto read_header(IoStatus& st) -> std::optional<Header> {
         frame_deadline_ = std::chrono::steady_clock::time_point::max();
         std::array<char, 2> head{};
         if (!read_exact(head.data(), head.size(), st)) {
@@ -489,9 +506,9 @@ private:
         if ((raw_op >= 0x3 && raw_op <= 0x7) || raw_op >= 0xB) {
             fail(CloseCode::Protocol, "reserved opcode");
         }
-        Frame frame;
-        frame.fin = (b0 & 0x80) != 0;
-        frame.op = static_cast<Opcode>(raw_op);
+        Header h;
+        h.fin = (b0 & 0x80) != 0;
+        h.op = static_cast<Opcode>(raw_op);
         const bool control = (raw_op & 0x08) != 0;
 
         // RFC 6455 §5.2: the smallest length encoding is required, and the 64-bit high bit must be 0.
@@ -500,7 +517,7 @@ private:
         if (len_marker == 126) {
             std::array<char, 2> ext{};
             if (!read_exact(ext.data(), ext.size(), st)) {
-                return fail_mid_frame(st);
+                return fail_mid_frame<Header>(st);
             }
             len = (static_cast<uint64_t>(static_cast<uint8_t>(ext[0])) << 8) | static_cast<uint8_t>(ext[1]);
             if (len < 126) {
@@ -509,7 +526,7 @@ private:
         } else if (len_marker == 127) {
             std::array<char, 8> ext{};
             if (!read_exact(ext.data(), ext.size(), st)) {
-                return fail_mid_frame(st);
+                return fail_mid_frame<Header>(st);
             }
             if ((static_cast<uint8_t>(ext[0]) & 0x80) != 0) {
                 fail(CloseCode::Protocol, "payload length high bit set");
@@ -522,29 +539,46 @@ private:
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }
         }
-        if (control && (!frame.fin || len > 125)) {
+        if (control && (!h.fin || len > 125)) {
             fail(CloseCode::Protocol, "invalid control frame");
         }
         if (len > k_max_message) {
             fail(CloseCode::TooBig, "frame too large");
         }
+        h.len = len;
 
-        std::array<char, 4> mask{};
-        if (!read_exact(mask.data(), mask.size(), st)) {
-            return fail_mid_frame(st);
+        if (!read_exact(h.mask.data(), h.mask.size(), st)) {
+            return fail_mid_frame<Header>(st);
         }
-        frame.payload.resize(len);
-        if (len > 0 && !read_exact(frame.payload.data(), len, st)) {
-            return fail_mid_frame(st);
+        return h;
+    }
+
+    // Reads and unmasks a payload. on_bytes sees each piece as it arrives, before the rest of the frame.
+    template <typename OnBytes>
+    auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> std::optional<std::string> {
+        std::string payload(h.len, '\0');
+        size_t done = 0;
+        while (done < payload.size()) {
+            const size_t got = read_some(payload.data() + done, payload.size() - done, st);
+            if (got == 0) {
+                return fail_mid_frame<std::string>(st);
+            }
+            for (size_t i = done; i < done + got; ++i) {
+                payload[i] = static_cast<char>(payload[i] ^ h.mask[i % 4]);
+            }
+            on_bytes(std::string_view(payload).substr(done, got));
+            done += got;
         }
-        for (size_t i = 0; i < frame.payload.size(); ++i) {
-            frame.payload[i] = static_cast<char>(frame.payload[i] ^ mask[i % 4]);
-        }
-        return frame;
+        return payload;
+    }
+
+    auto read_payload(const Header& h, IoStatus& st) -> std::optional<std::string> {
+        return read_payload(h, st, [](std::string_view) {});
     }
 
     // A timeout after the frame has started is a dead peer, not an idle one.
-    static auto fail_mid_frame(IoStatus& st) -> std::optional<Frame> {
+    template <typename T>
+    static auto fail_mid_frame(IoStatus& st) -> std::optional<T> {
         if (st == IoStatus::Timeout) {
             st = IoStatus::Closed;
         }

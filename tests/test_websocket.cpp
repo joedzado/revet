@@ -1,14 +1,14 @@
-#include <catch2/catch_test_macros.hpp>
-#include <revet/web.hpp>
-#include <revet/websocket.hpp>
 #include <array>
 #include <atomic>
+#include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <csignal>
+#include <revet/web.hpp>
+#include <revet/websocket.hpp>
 #include <string>
-#include <thread>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -40,8 +40,8 @@ void send_raw(int fd, std::string_view bytes) {
 }
 
 // Client-to-server frame: always masked, with the given 4-byte key.
-auto client_frame(uint8_t first_byte, std::string_view payload, std::string_view key = std::string_view("\x01\x02\x03\x04", 4))
-    -> std::string {
+auto client_frame(uint8_t first_byte, std::string_view payload,
+                  std::string_view key = std::string_view("\x01\x02\x03\x04", 4)) -> std::string {
     std::string out;
     out += static_cast<char>(first_byte);
     const size_t n = payload.size();
@@ -93,8 +93,12 @@ auto ws_upgrade(std::string_view extra = {}) -> std::string {
 }
 
 struct ResetMw {
-    ResetMw() { web::clear_middlewares(); }
-    ~ResetMw() { web::clear_middlewares(); }
+    ResetMw() {
+        web::clear_middlewares();
+    }
+    ~ResetMw() {
+        web::clear_middlewares();
+    }
 };
 
 // server is the accepted socket (on_client owns it). fd is the peer.
@@ -379,7 +383,9 @@ TEST_CASE("Conn::send_binary writes an unmasked frame and fails after close") {
     auto [server_fd, client_fd] = make_socketpair();
     auto conn = web::ws::Conn::make(server_fd);
     REQUIRE(conn->send_binary("ab"));
-    REQUIRE(read_all(client_fd) == std::string("\x82\x02" "ab", 4));
+    REQUIRE(read_all(client_fd) == std::string("\x82\x02"
+                                               "ab",
+                                               4));
 
     conn->close();
     REQUIRE_FALSE(conn->send_text("late"));
@@ -482,7 +488,7 @@ TEST_CASE("Conn::recv reads bytes that arrived with the upgrade request first") 
 TEST_CASE("valid_key requires base64 of exactly 16 bytes") {
     REQUIRE(web::ws::valid_key("dGhlIHNhbXBsZSBub25jZQ=="));
     REQUIRE_FALSE(web::ws::valid_key("k"));
-    REQUIRE_FALSE(web::ws::valid_key("AAAA"));          // 3 bytes
+    REQUIRE_FALSE(web::ws::valid_key("AAAA")); // 3 bytes
     REQUIRE_FALSE(web::ws::valid_key("!!!!!!!!!!!!!!!!!!!!!!!!"));
 }
 
@@ -515,6 +521,43 @@ TEST_CASE("Conn::recv closes 1007 when a text message ends mid-codepoint") {
     REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEF", 4));
 
     ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv fails 1007 as soon as a split codepoint turns invalid") {
+    auto [server_fd, client_fd] = make_socketpair();
+    // F4 90 would encode U+110000, above the Unicode range; the second fragment must fail the message at once.
+    send_raw(client_fd, client_frame(0x01, "\xCE\xBA\xF4") + client_frame(0x80, "\x90"));
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEF", 4));
+
+    ::close(client_fd);
+}
+
+TEST_CASE("Conn::recv fails 1007 on a lead byte that can never start UTF-8") {
+    auto [server_fd, client_fd] = make_socketpair();
+    send_raw(client_fd, client_frame(0x01, "\xC0"));
+
+    auto conn = web::ws::Conn::make(server_fd);
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xEF", 4));
+
+    ::close(client_fd);
+}
+
+TEST_CASE("utf8_tail_ok accepts only prefixes that can still complete") {
+    using web::ws::detail::utf8_tail_ok;
+    REQUIRE(utf8_tail_ok(""));
+    REQUIRE(utf8_tail_ok("\xC3"));
+    REQUIRE(utf8_tail_ok("\xE0\xA0"));
+    REQUIRE_FALSE(utf8_tail_ok("\xE0\x9F"));
+    REQUIRE(utf8_tail_ok("\xED\x9F"));
+    REQUIRE_FALSE(utf8_tail_ok("\xED\xA0"));
+    REQUIRE(utf8_tail_ok("\xF4\x8F"));
+    REQUIRE_FALSE(utf8_tail_ok("\xF4\x90"));
+    REQUIRE_FALSE(utf8_tail_ok("\xC0"));
+    REQUIRE_FALSE(utf8_tail_ok("\xF5"));
 }
 
 TEST_CASE("Conn::close from another thread wakes a blocked recv") {
@@ -677,9 +720,9 @@ TEST_CASE("on_client rejects cross-origin and lookalike origins before 101") {
     route.ws = [&](const web::Request&, web::ws::Conn&) { ran.fetch_add(1); };
     std::vector<web::Route> routes{std::move(route)};
 
-    for (const char* origin : {"https://evil.example", "https://example.com.evil", "https://evil.example.com",
-                               "https://example.com/path", "https://user@example.com", "https://example.com:444",
-                               "null"}) {
+    for (const char* origin :
+         {"https://evil.example", "https://example.com.evil", "https://evil.example.com", "https://example.com/path",
+          "https://user@example.com", "https://example.com:444", "null"}) {
         Client client;
         send_raw(client.fd, ws_upgrade(std::string("Origin: ") + origin + "\r\n"));
         web::on_client(client.server, routes);
