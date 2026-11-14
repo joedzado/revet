@@ -209,5 +209,34 @@ class TestNonApiRoutesUnchanged(unittest.TestCase):
         self.assertNotIn("web::api::error", block)
 
 
+class TestDottedPaths(unittest.TestCase):
+    """Route files under dot directories and with dots in the name (/.well-known/assetlinks.json)."""
+
+    def test_well_known_path_gets_a_valid_namespace(self):
+        cpp = gen(
+            route_path=".well-known/assetlinks.json",
+            route_src="""
+                #include <revet/web.hpp>
+                static auto render_get(const web::Request&) -> web::Response {
+                    return web::Response{.body = "[]", .content_type = "application/json"};
+                }
+            """,
+        )
+        block = _user_block(cpp, "/.well-known/assetlinks.json")
+        self.assertIn("route__well_known_assetlinks_json::render_get", block)
+        self.assertNotIn("route_.well", cpp)
+
+    def test_dashed_names_still_work(self):
+        cpp = gen(
+            route_path=".well-known/apple-app-site-association",
+            route_src="""
+                #include <revet/web.hpp>
+                static auto render_get(const web::Request&) -> web::Response { return {}; }
+            """,
+        )
+        block = _user_block(cpp, "/.well-known/apple-app-site-association")
+        self.assertIn("apple_app_site_association::render_get", block)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -873,7 +873,7 @@ return web::api::error(web::status::not_found, "user not found");
 
 #### Authentication
 
-API routes do not get CSRF protection — they use token-based auth instead. Use `api_guards()` (not `route_guards()`) to tell codegen not to inject CSRF middleware.
+API routes (paths under `/api/`) do not get CSRF protection, even with `web::use(web::csrf::middleware)` registered globally — they use token-based auth instead, which a browser never attaches by itself. Do not authenticate `/api/` routes with cookies. Use `api_guards()` (not `route_guards()`) to tell codegen not to inject CSRF middleware.
 
 **Fixed-token bearer guard** (constant-time):
 

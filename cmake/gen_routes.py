@@ -73,7 +73,8 @@ def main():
                 ns_parts.append(f"_{m.group(1)}_")
             else:
                 route_parts.append(part)
-                ns_parts.append(part.replace("-", "_"))
+                # Dots and dashes occur in real paths (/.well-known/assetlinks.json); a C++ name cannot hold them.
+                ns_parts.append(re.sub(r"[^0-9A-Za-z_]", "_", part))
         route = "/" + "/".join(route_parts)
         ns = "_".join(ns_parts).replace("-", "_") or "index"
         return route, ns

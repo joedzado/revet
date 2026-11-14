@@ -79,7 +79,14 @@ inline auto unseal_cookie(std::string_view sealed) -> std::string {
 //     cookie, defeating the classic double-submit-cookie subdomain bypass.
 //   - Tampering with the cookie ciphertext fails AEAD verification → 403.
 //   - The compare against the form/header is constant-time.
+//
+// /api/* routes are exempt: they authenticate with a token in a header (api_guards()), which a
+// browser never attaches on its own, so a forged cross-site request carries nothing to abuse.
+// Do not authenticate /api/* routes with cookies.
 inline auto middleware(const Request& req, const Next& next) -> Response {
+    if (req.path.path == "/api" || req.path.path.starts_with("/api/")) {
+        return next();
+    }
     const std::string sealed_in   = req.cookies.get(k_cookie_name);
     std::string       raw_token   = unseal_cookie(sealed_in);
     const bool        need_rotate = raw_token.empty();

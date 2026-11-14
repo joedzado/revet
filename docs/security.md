@@ -44,7 +44,7 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 
 | Class | Status | Notes |
 |---|---|---|
-| CSRF | yes | AEAD-sealed cookie + raw token in form/header. Defeats subdomain cookie injection. |
+| CSRF | yes | AEAD-sealed cookie + raw token in form/header. Defeats subdomain cookie injection. `/api/*` is exempt: authenticate it with a header token, never a cookie. |
 | XSS via HTML DSL | yes | All text rendered via `html::*` is HTML-escaped by default. Use `html::raw(...)` only for trusted strings. |
 | SQL injection | yes | Generated queries (`gen_queries.py`) emit parameterized SQL exclusively. `db::sqlite::Handle::query/exec` only takes bound params. |
 | Timing oracles on token compare | yes | `web::crypto::secure_eq` uses `sodium_memcmp`. CSRF + `bearer_static` use it. Custom auth must too. |
