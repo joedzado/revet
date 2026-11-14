@@ -399,6 +399,7 @@ struct Request {
     std::vector<UploadedFile> files; // populated at parse time; use Context::current().files for post-guard paths
     bool body_too_large = false;
     std::string raw_body; // populated for Content-Type: application/json POST bodies
+    std::string peer_ip;  // socket peer address (IPv4/IPv6 text); empty when unknown. Not the end client behind a proxy.
 };
 
 struct Response {
@@ -846,6 +847,30 @@ inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decod
     }
     return out;
 }
+
+namespace detail {
+// Text form of the remote address of a connected socket; "" for non-IP sockets or on error.
+inline auto peer_ip(int fd) -> std::string {
+    sockaddr_storage ss{};
+    socklen_t len = sizeof(ss);
+    if (getpeername(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) {
+        return {};
+    }
+    std::array<char, INET6_ADDRSTRLEN> buf{};
+    if (ss.ss_family == AF_INET) {
+        const auto* a = reinterpret_cast<const sockaddr_in*>(&ss);
+        if (inet_ntop(AF_INET, &a->sin_addr, buf.data(), buf.size()) != nullptr) {
+            return buf.data();
+        }
+    } else if (ss.ss_family == AF_INET6) {
+        const auto* a = reinterpret_cast<const sockaddr_in6*>(&ss);
+        if (inet_ntop(AF_INET6, &a->sin6_addr, buf.data(), buf.size()) != nullptr) {
+            return buf.data();
+        }
+    }
+    return {};
+}
+} // namespace detail
 
 inline auto parse_request(int fd) -> Request {
     // Read until full header section (\r\n\r\n) or 64 KB guard
@@ -1364,6 +1389,7 @@ inline void listen(const std::vector<Route>& all_routes) {
             }
             ctx.files.clear();
             auto req = parse_request(client_fd);
+            req.peer_ip = detail::peer_ip(client_fd);
             if (req.path.path.empty()) {
                 close(client_fd);
                 return;

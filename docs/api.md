@@ -104,6 +104,24 @@ template<typename T> const T& principal();
 - `bearer(verify)` — custom predicate. **Inside `verify`, use `secure_eq`, not `==`.**
 - `bearer<T>(resolve)` — typed principal; the resolved `T` is stashed in the context, retrieved with `principal<T>()` in the handler.
 
+## Rate limiting (`<revet/rate_limit.hpp>` namespace `web::rate_limit`)
+
+```cpp
+static const auto login_limit = web::rate_limit::Limiter::make({.burst = 10, .per_second = 0.2});
+
+static auto route_guards() -> std::vector<web::Middleware> {
+    return { web::rate_limit::by_ip(login_limit) };
+}
+```
+
+- `Limiter::make({burst, per_second, max_keys})` — token bucket per key. `burst` requests at once, refilled at `per_second`. At most `max_keys` buckets are kept (default 100,000); the least recently used go first, and buckets idle long enough to be full again are dropped.
+- `by_ip(limiter)` — key is the client address. Requests whose peer address is unknown share one bucket.
+- `by_key(limiter, fn)` — key is `fn(req)`, e.g. an account name or user id. An empty key skips the limit. Stack it after `by_ip` to limit per account as well.
+- Refused requests get `429` with `Retry-After` (seconds). `/api/*` paths and callers that accept JSON get `{"error":"rate limit exceeded"}`; everyone else gets plain text.
+- `Request::peer_ip` is the socket peer. Behind a reverse proxy that is the proxy, so set `REVET_TRUSTED_PROXIES` (comma-separated addresses or CIDRs, e.g. `127.0.0.1,::1`). The `X-Forwarded-For` header is then believed only when the peer is on that list, and the client is the first address from the right that is not itself a trusted proxy. With the variable unset, the header is always ignored.
+- `client_ip(req)` returns the same address for logging or custom keys.
+- Buckets live in process memory: limits reset on restart and are not shared between processes.
+
 ## Logging (`<revet/log.hpp>`)
 
 ```cpp
