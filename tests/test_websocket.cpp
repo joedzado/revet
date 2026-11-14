@@ -218,8 +218,8 @@ TEST_CASE("Conn::recv rejects unmasked client frame with close 1002") {
 
 TEST_CASE("Conn::recv rejects messages over the size cap with close 1009") {
     auto [server_fd, client_fd] = make_socketpair();
-    // 64-bit length claiming 2 MiB; the cap check fires before any payload is read.
-    std::string header("\x82\xFF\x00\x00\x00\x00\x00\x20\x00\x00\x00\x00\x01\x02\x03\x04", 16);
+    // 64-bit length claiming 17 MiB; the cap check fires before any payload is read.
+    std::string header("\x82\xFF\x00\x00\x00\x00\x01\x10\x00\x00\x00\x00\x01\x02\x03\x04", 16);
     send_raw(client_fd, header);
 
     auto conn = web::ws::Conn::make(server_fd);

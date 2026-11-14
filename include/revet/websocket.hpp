@@ -27,7 +27,7 @@
 namespace web::ws {
 
 inline constexpr std::string_view k_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-inline constexpr size_t k_max_message = size_t{1} << 20;           // 1 MiB per reassembled message
+inline constexpr size_t k_max_message = size_t{1} << 24;           // 16 MiB per reassembled message
 inline constexpr int k_idle_timeout_ms = 30'000;                   // ping after this much silence
 inline constexpr int k_max_connections = 256;                      // process-wide cap on open sockets
 inline constexpr int k_send_timeout_ms = 5'000;                    // a stalled peer can't hold the write lock forever
