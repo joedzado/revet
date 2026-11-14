@@ -24,11 +24,12 @@ find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
 find_package(ctre REQUIRED)
+find_package(OpenSSL REQUIRED CONFIG)
 
 # ── Target: revet_core (Framework library) ──────────────────────────────────
-add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp)
+add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp src/webauthn.cpp)
 target_include_directories(revet_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
+target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre OpenSSL::Crypto)
 target_compile_options(revet_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 find_program(CLANG_TIDY_EXE NAMES "clang-tidy")

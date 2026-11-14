@@ -84,8 +84,9 @@ find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
 find_package(ctre REQUIRED)
+find_package(OpenSSL REQUIRED CONFIG)
 target_link_libraries(revet_core INTERFACE
-    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
+    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre OpenSSL::Crypto)
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)

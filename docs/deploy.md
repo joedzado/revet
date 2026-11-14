@@ -187,7 +187,7 @@ For schema migrations between deploys, run a separate migration tool (e.g. `goos
 
 ## Third-party license attribution
 
-Your `build/revet` binary statically links against `libsodium`, `libcurl`, `simdjson`, `ctre`, optionally `libsqlite3` and `libpq`, and vendors htmx. Several of those licenses (Apache-2.0, the curl license, the PostgreSQL License, ISC) require you to **preserve the upstream copyright notices** when you distribute the binary to a third party.
+Your `build/revet` binary statically links against `libsodium`, `libcurl`, `simdjson`, `ctre`, `openssl`, optionally `libsqlite3` and `libpq`, and vendors htmx. Several of those licenses (Apache-2.0, the curl license, the PostgreSQL License, ISC) require you to **preserve the upstream copyright notices** when you distribute the binary to a third party.
 
 `THIRD_PARTY_LICENSES` at the framework root aggregates the notices. Ship it alongside your binary:
 
@@ -207,7 +207,7 @@ For build-time-only tools (CMake, Ninja, Conan, Catch2, LLVM, Bun): their licens
 
 ## Static linking caveats
 
-`build/revet` links against `libsodium`, `libcurl`, `libsqlite3`, optionally `libpq`, plus the platform's `libc++` / `libstdc++`. Verify with:
+`build/revet` links against `libsodium`, `libcurl`, `openssl`, `libsqlite3`, optionally `libpq`, plus the platform's `libc++` / `libstdc++`. Verify with:
 
 ```bash
 otool -L build/revet     # macOS

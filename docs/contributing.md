@@ -7,7 +7,7 @@ How to set up, test, and ship changes against the framework itself (not an app b
 ```bash
 git clone https://github.com/joedzado/revet ~/revet
 cd ~/revet
-bash scripts/install_deps.sh        # libsodium, libcurl, libsqlite, libpq, conan, python3, cmake
+bash scripts/install_deps.sh        # libsodium, libcurl, libsqlite, libpq, conan, python3, cmake (Conan builds openssl)
 sudo scripts/revet-fw install       # populate ~/.revet/current and install /usr/local/bin/revet
 ```
 

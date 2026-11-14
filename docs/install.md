@@ -8,7 +8,7 @@
 | **CMake** | Configure + build. | 3.20 |
 | **Ninja** (optional) | Faster builds. revet auto-picks it if installed. | any |
 | **Python 3** | Codegen + CLI. | 3.10 |
-| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libsodium, libcurl, simdjson, ctre. | 2.0 |
+| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libsodium, libcurl, simdjson, ctre, openssl. | 2.0 |
 | **libsodium-dev** | AEAD for cookies + CSRF. Linked against the system version. | 1.0.18 |
 | **libcurl-dev** | Outbound HTTP client. | 7.x |
 | **libsqlite3-dev** | SQLite resource backend. | 3.x |

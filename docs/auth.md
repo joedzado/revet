@@ -72,3 +72,48 @@ const auto& who = web::api::principal<web::auth::tokens::Principal>();   // who.
 **Table.** `auth_sessions(id, user_id, token_hash, generation, label, created_at, last_used_at, expires_at, revoked_at)`; `user_id` cascades from `auth_users`, so `delete_user` removes a user's sessions. A refresh token reads `<session id>.<generation>.<secret>`.
 
 **Key.** The access token uses the same key as cookies. After rotating `REVET_COOKIE_KEY`, existing access tokens fail, and apps get a new one on their next refresh. Refresh tokens are hashed, not sealed, so they are unaffected.
+
+## WebAuthn core (`<revet/webauthn.hpp>`, `<revet/cbor.hpp>`, namespace `web::webauthn`, `web::cbor`)
+
+The checks behind passkeys: what a relying party must verify when an authenticator registers a credential or signs a login. Pure functions, with no database, no HTTP and no state; challenges and credential storage belong to the caller. The routes and tables that use these live in the passkeys section below.
+
+```cpp
+web::webauthn::Config cfg{
+    .rp_id = "app.example.com",
+    .origins = {"https://app.example.com",
+                "android:apk-key-hash:<base64url SHA-256 of your app's signing certificate>"}};
+
+// Registration. The app sends clientDataJSON and attestationObject; base64url-decode them first.
+auto reg = web::webauthn::verify_registration(cfg, challenge, client_data_json, attestation_object);
+// on success store reg->credential_id, reg->public_key, reg->sign_count
+
+// Login. clientDataJSON, authenticatorData, signature (also decoded).
+auto ok = web::webauthn::verify_assertion(cfg, challenge, stored_public_key, stored_sign_count,
+                                          client_data_json, authenticator_data, signature);
+// on success store ok->sign_count
+```
+
+Both return `std::expected<..., web::webauthn::Error>`; `error_name(e)` gives a stable string for logs.
+
+| Check | Error |
+|---|---|
+| `clientDataJSON` is an object with `type`, `challenge`, `origin` | `bad_client_data` |
+| `type` is `webauthn.create` (registration) or `webauthn.get` (login) | `wrong_type` |
+| challenge equals the one you issued (constant time); yours must be at least 16 bytes | `wrong_challenge` |
+| origin is exactly one of `cfg.origins`; `crossOrigin` is not true | `wrong_origin`, `cross_origin` |
+| attestation object and authenticator data parse; nothing left over | `bad_attestation`, `bad_auth_data` |
+| RP ID hash is the SHA-256 of `cfg.rp_id` | `wrong_rp_id` |
+| user-present flag; user-verified flag unless `require_user_verification = false` | `user_not_present`, `user_not_verified` |
+| backed-up flag only with backup-eligible | `bad_backup_flags` |
+| credential id present and at most 1023 bytes (registration) | `bad_credential_data` |
+| public key is ES256 on P-256 and a real point on the curve | `unsupported_algorithm`, `bad_public_key` |
+| ECDSA signature over `authenticatorData ‖ SHA-256(clientDataJSON)` (login) | `bad_signature` |
+| counter went up, unless it is 0 both times (login) | `sign_count_regressed` |
+
+- **Algorithm.** ES256 only (ECDSA, P-256, SHA-256): what iPhones, Android phones and most security keys produce. RS256 (some Windows Hello setups) is not supported.
+- **Attestation.** Any `fmt` is accepted and the statement is not validated, so a registration proves the credential belongs to this site, not which make of authenticator holds it. That is the right default for a consumer app.
+- **Android.** Android apps report their origin as `android:apk-key-hash:<hash>`. List that exact string in `origins`.
+- **Synced passkeys** (iCloud Keychain, Google Password Manager) report a counter of 0 every time. That passes; a counter that was non-zero and falls back to 0 does not.
+- **base64url.** `web::webauthn::base64url_encode` / `base64url_decode` use the unpadded form WebAuthn uses; decoding is strict.
+- **`web::cbor`.** `decode(bytes)` / `decode_prefix(bytes)` handle the CBOR subset WebAuthn uses and refuse the rest (tags, floats, indefinite lengths, duplicate map keys, more than 16 levels of nesting, invalid UTF-8, counts larger than the input) without allocating or recursing unboundedly.
+- **OpenSSL.** Signature checking uses OpenSSL (a Conan dependency, built from source the first time). The OpenSSL headers are included only from `src/webauthn.cpp`.

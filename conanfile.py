@@ -15,6 +15,7 @@ class CppWebConan(ConanFile):
         self.requires("libcurl/8.4.0")
         self.requires("simdjson/3.10.0")
         self.requires("ctre/3.8.1")
+        self.requires("openssl/3.6.5")
 
     def generate(self):
         deps = CMakeDeps(self)

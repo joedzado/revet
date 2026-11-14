@@ -20,7 +20,7 @@ This wipes `~/.revet/current/` and copies the source over. Re-run `revet dev` af
 
 ## `conan: command not found`
 
-Conan is the C++ package manager revet uses to install libsodium, libcurl, simdjson, ctre. Install it:
+Conan is the C++ package manager revet uses to install libsodium, libcurl, simdjson, ctre, openssl. Install it:
 
 ```bash
 pip3 install conan          # or: pip3 install --break-system-packages conan
@@ -121,3 +121,13 @@ curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | sh
 ```
 
 Newer `install.sh` versions detect this and offer to chown automatically.
+
+## Conan fails building OpenSSL: `limits.h: No such file or directory`
+
+Conan builds OpenSSL from source the first time. If a Homebrew GCC (or a `gcc`/`cc` wrapper on `PATH`) comes before Apple's compiler, OpenSSL's build picks it up and cannot find the system headers. Point the Conan step at clang:
+
+```bash
+CC=/usr/bin/clang CXX=/usr/bin/clang++ conan install . --build=missing
+```
+
+The result is cached, so this is a one-time cost.
