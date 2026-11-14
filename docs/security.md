@@ -16,6 +16,10 @@ Before pointing real traffic at a revet app, verify every item below.
 - [ ] **Error pages** don't leak internals. `web::on_error(status, handler)` lets you replace the default 500 body. Check no stack traces / SQL fragments leak.
 - [ ] **`THIRD_PARTY_LICENSES` ships with the binary.** Required by libcurl, simdjson, CTRE, libsodium, OpenSSL, libpq when redistributing. See [deploy.md → Third-party license attribution](deploy.md#third-party-license-attribution).
 - [ ] **`REVET_TRUSTED_PROXIES` lists your reverse proxy** (e.g. `127.0.0.1`) when using `web::rate_limit`. If it is unset, every client behind the proxy shares the proxy's address and one bucket; if it is too broad, clients can forge `X-Forwarded-For` and dodge limits.
+- [ ] **Passkey login is configured for the real domain**: `REVET_RP_ID` (the bare domain, chosen once: changing it orphans every passkey), `REVET_WEBAUTHN_ORIGINS` (exact `https://` origins, plus `android:apk-key-hash:` for the Android app), `REVET_RP_NAME`. The template falls back to `localhost` and logs a warning; that only works in development. See [auth.md](auth.md#passkeys-revetauthpasskeyshpp-revetauthpasskeys_httphpp-namespace-webauthpasskeys).
+- [ ] **`/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` are reachable over HTTPS** with no redirect, and the proxy passes `/.well-known/` through to the app. Set `apple_app_ids` and `android_apps` in `site_init.cpp`.
+- [ ] **Every public auth route has `web::auth::limits::anonymous()`** in its `api_guards()` / `route_guards()` and every signed-in one `signed_in()`. The template does this; new routes copied from elsewhere may not.
+- [ ] **Users have a second way to sign in.** Losing every passkey with no other method locks the account out; there is no recovery flow. Offer a second passkey on another device, or another identity, before launch.
 - [ ] **Reverse proxy strips client-supplied `X-Forwarded-*` headers** and re-sets them itself. Otherwise a client can forge `X-Forwarded-For` and your logs/rate-limiter believe a fake IP.
 
 ## Generating `REVET_COOKIE_KEY`
@@ -51,7 +55,12 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 | Cookie tampering | yes | State cookies and CSRF cookie are AEAD-sealed; tampering fails verification. |
 | Cookie theft via plain HTTP | opt-in | Enable via `secure_cookies(true)`. Off by default for dev. |
 | Rate limiting / brute force | opt-in | `web::rate_limit::by_ip` / `by_key` middleware; per process, in memory. See [api.md](api.md#rate-limiting-revetrate_limithpp-namespace-webrate_limit). |
-| Replay attacks on bearer tokens | no | Tokens are not time-bound or single-use unless the verifier checks revocation. |
+| Replay attacks on bearer tokens | partial | `bearer`/`bearer_static` tokens are not time-bound. `web::auth::tokens` access tokens expire (15 min); refresh tokens are single use, and presenting an old one revokes the session. |
+| Phishing, credential stuffing, password reuse | yes, with passkeys | A passkey is bound to the site's domain by the browser/OS and holds no shared secret. The server stores public keys only. |
+| Replayed or forged passkey answers | yes | Challenges are random, single use, expire in 5 minutes, and are tied to one ceremony. Origin, RP ID, signature and signature counter are verified. |
+| Stolen refresh token | partial | Rotation plus reuse detection ends the session when both thief and owner use it. Revocation takes effect at the next refresh, or at once with `tokens::guard_checked`. |
+| Account takeover by guessing | yes | `web::auth::limits` throttles per client address and per credential or session, and per user once signed in. Limits are per process, in memory. |
+| Account recovery | no | There is no recovery flow. A user who loses every passkey and has no other identity is locked out. |
 | Subresource integrity (SRI) | no | Bundled htmx is inlined into the binary; you serve it from `/_revet/`. External CDNs need SRI hashes from you. |
 | Audit logging | no | Application concern — no built-in audit log. |
 | Secret scanning in logs | no | The logger does not redact. Don't log `req.headers["authorization"]` or `req.cookies`. |

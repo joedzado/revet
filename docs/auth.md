@@ -181,3 +181,54 @@ Both platforms check that your app and your domain vouch for each other.
 
 - **Recovery.** Losing every passkey with no other login method locks the account out. The rules above keep users from deleting their last method, but a lost phone with iCloud Keychain off is still a lost account. Add a second method (another passkey on a second device, or Sign in with Apple/Google) before launch; the identity model already supports it.
 - **Rate limiting.** The public endpoints (`register_*`, `login_*`) accept anonymous requests. Put `web::rate_limit::by_ip` in their `api_guards()` before exposing them.
+
+## Session endpoints (`<revet/auth/session_http.hpp>`)
+
+What keeps a native app signed in and lets the user leave. Same shape as the passkey handlers: each takes the request and a callable that opens a write handle.
+
+| Route | Handler | Body | Returns |
+|---|---|---|---|
+| `POST /api/v1/auth/refresh` | `refresh` | `{refresh_token}` | `{tokens}` |
+| `POST /api/v1/auth/logout` | `logout` | | `{ok: true}`; ends this device's session |
+| `POST /api/v1/auth/logout-all` | `logout_all` | | `{ok: true, signed_out: n}` |
+| `GET /api/v1/auth/devices` | `devices` | | `{devices: [{session_id, label, created_at, last_used_at, current}]}` |
+| `POST /api/v1/auth/account/delete` | `delete_account` | | `{ok: true}`; removes the user, identities, sessions and passkeys |
+
+`refresh` is public; the rest sit behind `tokens::guard()`. A refused refresh is always 401 with one of `invalid_refresh_token`, `session_expired`, `session_revoked`; the app should send the user to sign in again, and treat `session_revoked` as possible token theft. Send each refresh once and save the reply before using it (see the note on retries under Tokens). Account deletion is final and is what the App Store and Play Store require an app to offer.
+
+## Rate limits (`<revet/auth/limits.hpp>`, `<revet/rate_limit.hpp>`)
+
+Anything public that checks a secret or creates rows needs a ceiling. `web::auth::limits` gives two ready-made guard lists:
+
+```cpp
+static auto api_guards() -> std::vector<web::Middleware> { return web::auth::limits::anonymous(); }  // public routes
+static auto api_guards() -> std::vector<web::Middleware> { return web::auth::limits::signed_in(); }  // token guard, then per user
+```
+
+| Limit | Applies to | Default |
+|---|---|---|
+| per client address | every anonymous route, one shared bucket | 20 requests, then 1 per 3 s |
+| per credential or session | the `credential_id` or `refresh_token` named in the JSON body, across addresses | 10 requests, then 1 per 30 s |
+| per user | signed-in routes | 60 requests, then 1 per second |
+
+Refused requests get `429` with `Retry-After`. Change the numbers with `web::auth::limits::config()` at startup. Limits live in process memory, so they reset on restart and are not shared between processes. Behind a reverse proxy set `REVET_TRUSTED_PROXIES` (see [api.md](api.md#rate-limiting-revetrate_limithpp-namespace-webrate_limit)) or every visitor counts as the proxy.
+
+## Browser pages (template)
+
+The template ships a passkey sign-in page and a passkey management page, for web users and as a working example.
+
+- **`/login`**: "Sign in with a passkey", and "Create an account with a passkey" with a name field. Replaces the demo username/password form.
+- **`/account/passkeys`**: lists the user's passkeys, with Add and Remove. Redirects to `/login` when signed out. Add and Remove swap the list in place with htmx.
+- **`app/scripts/passkey.js`**: about 110 lines, no libraries; it only converts between base64url and the `ArrayBuffer`s `navigator.credentials` wants, and posts the results.
+- **Cookie routes** under `/passkey/` (`login/options`, `login/finish`, `register/options`, `register/finish`) mirror the JSON API but start a cookie session instead of returning tokens. They are ordinary routes, so the global CSRF check applies; the page passes its token in `data-csrf`.
+- The cookie holds the user id in `Session.username`. Read it with `web::State<Session>`.
+
+A browser and a native app can share one account: a passkey registered in either works in both, provided the native app's origin is listed (see Setting up the native apps).
+
+## Putting it together
+
+1. In `site_init.cpp`: `web::auth::create_schema`, `tokens::create_schema`, `passkeys::create_schema` (the template does this), and set the passkey config.
+2. Set the environment: `REVET_COOKIE_KEY` (64 hex), `REVET_RP_ID`, `REVET_WEBAUTHN_ORIGINS`, `REVET_TRUSTED_PROXIES` when behind a proxy, `REVET_FORCE_SECURE_COOKIES=1`.
+3. Keep the routes under `app/routes/api/v1/auth/` with their guards. Add `api_guards()` with `tokens::guard()` (or `limits::signed_in()`) to your own `/api` routes, and read the caller with `web::api::principal<web::auth::tokens::Principal>()`.
+4. Run `tokens::purge_ended` now and then (a startup call or a daily job) to forget finished sessions.
+5. Work through the [security checklist](security.md).

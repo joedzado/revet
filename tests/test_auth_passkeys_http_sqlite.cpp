@@ -24,7 +24,9 @@ struct Fixture {
     db::sqlite::Pool pool;
     static auto unique_path() -> std::string {
         static std::atomic<int> seq{0};
-        return "/tmp/revet_auth_http_" + std::to_string(seq++) + ".db";
+        const auto p = "/tmp/revet_auth_http_" + std::to_string(seq++) + ".db";
+        for (const char* suffix : {"", "-wal", "-shm"}) std::remove((p + suffix).c_str()); // left by a crashed run
+        return p;
     }
     Fixture() : path(unique_path()), pool(path, 4) {
         W w(pool);
