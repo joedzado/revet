@@ -138,10 +138,27 @@ auto find_or_create_user(H& h, std::string_view provider, std::string_view subje
     return *owner;
 }
 
-// Give an existing user another way to sign in.
+// The *_within variants do the same work but open no transaction of their own, for callers that
+// need identity changes and their own rows to commit or roll back together. Wrap them in
+// a transaction (the handle's Transaction class) or they are not atomic.
+
+// Create a user with a chosen id and one identity. False if that identity already belongs to someone.
 template<typename H>
-auto link_identity(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> LinkResult {
-    detail::Tx<H> tx(h);
+auto create_user_within(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> bool {
+    if (find_user(h, provider, subject)) {
+        return false;
+    }
+    const auto now = detail::now();
+    h.exec("INSERT INTO auth_users (id, created_at) VALUES (?, ?)", std::string(user_id), now);
+    h.exec("INSERT INTO auth_identities (user_id, provider, subject, created_at) VALUES (?, ?, ?, ?)"
+           " ON CONFLICT (provider, subject) DO NOTHING",
+           std::string(user_id), std::string(provider), std::string(subject), now);
+    const auto owner = find_user(h, provider, subject);
+    return owner && *owner == user_id; // false: another request took the identity first; the caller rolls back
+}
+
+template<typename H>
+auto link_identity_within(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> LinkResult {
     if (!user_exists(h, user_id)) {
         return LinkResult::no_such_user;
     }
@@ -152,11 +169,34 @@ auto link_identity(H& h, std::string_view user_id, std::string_view provider, st
            " ON CONFLICT (provider, subject) DO NOTHING",
            std::string(user_id), std::string(provider), std::string(subject), detail::now());
     const auto owner = find_user(h, provider, subject);
-    tx.commit();
     if (!owner) {
         throw std::runtime_error("auth: identity vanished during link");
     }
     return *owner == user_id ? LinkResult::linked : LinkResult::taken; // lost a race to another user
+}
+
+template<typename H>
+auto unlink_identity_within(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> UnlinkResult {
+    const auto owner = find_user(h, provider, subject);
+    if (!owner || *owner != user_id) {
+        return UnlinkResult::not_found;
+    }
+    const auto count = h.template scalar<long long>("SELECT COUNT(*) FROM auth_identities WHERE user_id = ?",
+                                                    std::string(user_id)).value_or(0);
+    if (count <= 1) {
+        return UnlinkResult::last_identity;
+    }
+    h.exec("DELETE FROM auth_identities WHERE provider = ? AND subject = ?", std::string(provider), std::string(subject));
+    return UnlinkResult::unlinked;
+}
+
+// Give an existing user another way to sign in.
+template<typename H>
+auto link_identity(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> LinkResult {
+    detail::Tx<H> tx(h);
+    const auto result = link_identity_within(h, user_id, provider, subject);
+    tx.commit();
+    return result;
 }
 
 template<typename H>
@@ -174,18 +214,11 @@ template<typename H>
 template<typename H>
 auto unlink_identity(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> UnlinkResult {
     detail::Tx<H> tx(h);
-    const auto owner = find_user(h, provider, subject);
-    if (!owner || *owner != user_id) {
-        return UnlinkResult::not_found;
+    const auto result = unlink_identity_within(h, user_id, provider, subject);
+    if (result == UnlinkResult::unlinked) {
+        tx.commit();
     }
-    const auto count = h.template scalar<long long>("SELECT COUNT(*) FROM auth_identities WHERE user_id = ?",
-                                                    std::string(user_id)).value_or(0);
-    if (count <= 1) {
-        return UnlinkResult::last_identity;
-    }
-    h.exec("DELETE FROM auth_identities WHERE provider = ? AND subject = ?", std::string(provider), std::string(subject));
-    tx.commit();
-    return UnlinkResult::unlinked;
+    return result;
 }
 
 // Delete a user and everything that points at them. Other auth tables reference auth_users with
