@@ -4,7 +4,7 @@ When something goes wrong, in roughly the order it tends to go wrong.
 
 ## "My framework change isn't taking effect"
 
-Symptom: you edited `~/revet/cmake/gen_routes.py` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
+Symptom: you edited `~/revet/cmake/codegen/gen_routes.cpp` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
 
 Cause: `revet dev` reads the framework from `~/.revet/current/`, which is populated by `revet-fw install` at install time. Editing the source repo does not redeploy.
 

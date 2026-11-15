@@ -16,7 +16,7 @@ pool_size = 4
 
 # ── File Uploads ──────────────────────────────────────────────────────────────
 # Declares the "files" uploads bucket.
-# gen_uploads.py creates both dirs at configure time:
+# gen_uploads creates both dirs at configure time:
 #   incoming  — mode 0700 (tmp landing zone, not web-accessible)
 #   validated — mode 0750 (final home after guard passes)
 [uploads.files]
