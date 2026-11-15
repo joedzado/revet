@@ -1156,7 +1156,7 @@ python3 scripts/check_deps.py    # check dependencies
 revet/
 ├── include/revet/       ← Framework public headers
 ├── src/                 ← Framework implementation
-├── cmake/               ← Code generation scripts (gen_routes.py, etc.)
+├── cmake/codegen/       ← Code generation tool (C++, revet_codegen_tool)
 ├── template/            ← User project template (scaffolded by `revet new`)
 ├── demo/                ← Full-featured demo app
 ├── scripts/
@@ -1170,19 +1170,21 @@ revet/
 
 ### Codegen pipeline
 
-| Script | Input | Output |
+Generators run in the C++ tool `revet_codegen_tool` (source in `cmake/codegen/`). Full reference: [docs/codegen.md](docs/codegen.md).
+
+| Generator | Input | Output |
 |---|---|---|
-| `gen_routes.py` | `app/routes/**/*.cpp` | `routes.hpp`, `routes.cpp` |
-| `gen_resources.py` | `revet.toml` | `resources.hpp` |
-| `gen_queries.py` | `app/queries/*.sql` | `queries.hpp` |
-| `gen_styles.py` | `app/styles/*.css` | `styles.hpp` |
-| `gen_components.py` | `app/components/*.cpp`, `app/layouts/*.cpp` | `components.hpp` |
-| `gen_json_models.py` | `models/*.hpp` | `models.hpp` |
-| `gen_states.py` | `app/states/*.hpp` | `states.hpp` |
-| `gen_toggles.py` | `app/states/*.hpp` | `toggles.hpp` |
-| `gen_forms.py` | `app/forms/*.hpp` | `forms.hpp` |
-| `gen_api.py` | `app/apis/*.hpp` | `apis.hpp` |
-| `gen_i18n.py` | `locale/*.csv` | `i18n.hpp` |
+| `gen_routes` | `app/routes/**/*.cpp` | `routes.hpp`, `routes.cpp` |
+| `gen_resources` | `revet.toml` | `resources.hpp` |
+| `gen_queries` | `app/queries/*.sql` | `queries.hpp` |
+| `gen_styles` | `app/styles/*.css` | `styles.hpp` |
+| `gen_components` | `app/components/*.cpp`, `app/layouts/*.cpp` | `components.hpp` |
+| `gen_json_models` | `app/**/*.hpp` | `models.hpp` |
+| `gen_states` | `app/states/*.hpp` | `states.hpp` |
+| `gen_toggles` | `app/states/*.hpp` | `toggles.hpp` |
+| `gen_forms` | `app/forms/*.hpp` | `forms.hpp` |
+| `gen_api` | `app/apis/*.hpp` | `apis.hpp` |
+| `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` |
 
 All outputs land in `build/generated/`.
 

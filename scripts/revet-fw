@@ -51,7 +51,7 @@ def cmd_install():
         "include/revet/web.hpp", "include/revet/html.hpp", "include/revet/css.hpp",
         "include/revet/htmx.hpp", "include/revet/ui.hpp", "include/revet/csrf.hpp",
         "include/revet/i18n.hpp", "include/revet/form.hpp",
-        "cmake/codegen.py", "cmake/gen_states.py", "cmake/gen_forms.py",
+        "cmake/codegen/main.cpp", "cmake/codegen/gen_states.cpp", "cmake/codegen/gen_forms.cpp",
         "template/app/routes/index.cpp", "template/app/forms/user.hpp",
     ]
     missing = [h for h in required if not (target / h).exists()]
@@ -84,18 +84,10 @@ def cmd_test():
     subprocess.run(["cmake", *gen, "-B", "build", "-S", ".", "-DCMAKE_BUILD_TYPE=Debug", "-DREVET_ASAN=ON", "-DREVET_BUILD_SAMPLE=ON"], check=True)
     subprocess.run(["cmake", "--build", "build", "-j", str(cpus)], check=True)
 
-    # Run Python tests (codegen scripts)
+    # Run Python tests (optimistic.js only; codegen is C++ and covered by the cmake build above)
     info("Running Python tests...")
     subprocess.run(
-        ["python3", "-m", "unittest",
-         "tests.test_gen_api",
-         "tests.test_gen_queries",
-         "tests.test_gen_json_models",
-         "tests.test_gen_resources",
-         "tests.test_gen_components",
-         "tests.test_gen_states",
-         "tests.test_optimistic_js",
-         "-v"],
+        ["python3", "-m", "unittest", "tests.test_optimistic_js", "-v"],
         check=True,
     )
 

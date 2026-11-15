@@ -95,17 +95,23 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     set(GEN_DIR ${CMAKE_BINARY_DIR}/generated)
     file(MAKE_DIRECTORY ${GEN_DIR})
 
+    # Codegen tool (C++, from framework) — built once per project, run per generator.
+    file(GLOB CODEGEN_SOURCES CONFIGURE_DEPENDS ${FRAMEWORK_DIR}/cmake/codegen/*.cpp)
+    add_executable(revet_codegen_tool ${CODEGEN_SOURCES})
+    target_compile_features(revet_codegen_tool PRIVATE cxx_std_23)
+    set_target_properties(revet_codegen_tool PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+
     # Codegen helpers (from framework)
-    function(add_codegen NAME SCRIPT_NAME OUTPUTS)
-        set(SCRIPT ${FRAMEWORK_DIR}/cmake/${SCRIPT_NAME}.py)
-        file(GLOB_RECURSE DEPS
+    function(add_codegen NAME GENERATOR OUTPUTS)
+        file(GLOB_RECURSE DEPS CONFIGURE_DEPENDS
             "${CMAKE_SOURCE_DIR}/app/**"
             "${CMAKE_SOURCE_DIR}/revet.toml"
         )
         add_custom_command(
             OUTPUT ${OUTPUTS}
-            COMMAND python3 ${SCRIPT} ${CMAKE_SOURCE_DIR}
-            DEPENDS ${SCRIPT} ${DEPS}
+            COMMAND revet_codegen_tool ${GENERATOR} ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
+            DEPENDS revet_codegen_tool ${DEPS}
             COMMENT "Running codegen: ${NAME}"
             VERBATIM
         )
@@ -125,14 +131,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     add_codegen(Dependencies gen_dependencies "${GEN_DIR}/dependencies.cmake")
 
     # I18n — always runs; produces empty namespace if no locale/strings.csv
-    file(GLOB LOCALE_FILES "${CMAKE_SOURCE_DIR}/app/locale/*.csv")
-    add_custom_command(
-        OUTPUT  ${GEN_DIR}/i18n.hpp
-        COMMAND python3 ${FRAMEWORK_DIR}/cmake/gen_i18n.py ${CMAKE_SOURCE_DIR}
-        DEPENDS ${FRAMEWORK_DIR}/cmake/gen_i18n.py ${LOCALE_FILES}
-        COMMENT "Running codegen: I18n"
-        VERBATIM
-    )
+    add_codegen(I18n gen_i18n "${GEN_DIR}/i18n.hpp")
 
     set(GENERATED_SOURCES
         ${GEN_DIR}/json_models.hpp
