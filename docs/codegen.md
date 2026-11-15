@@ -1,55 +1,40 @@
-# Codegen pipeline reference
+# Codegen
 
-`revet build` runs 15 generators from the C++ tool `revet_codegen_tool` at CMake configure/build time. Each scans some part of `app/` (or `revet.toml`) and emits a header (or several) into `build/generated/`. The user's `main.cpp` and `routes.cpp` include these headers.
+Codegen turns `app/` and `revet.toml` into C++ headers in `build/generated/`. It runs at build time through `revet_codegen_tool`, built from `cmake/codegen/`.
 
-Source of truth: `template/CMakeLists.txt` (the `Codegen & Build` block). Tool source: `cmake/codegen/` (`main.cpp` dispatches by generator name; one `gen_*.cpp` per area; `common.*` and `node.*` hold shared helpers).
-
-Invocation: `revet_codegen_tool <generator> <project-root> <framework-root>`.
+- Invocation: `revet_codegen_tool <generator> <project-root> <framework-root>`
+- `main.cpp` dispatches by generator name; `gen_*.cpp` holds each generator; `common.*` and `node.*` are shared helpers.
+- CMake wiring: `template/CMakeLists.txt`, `Codegen & Build` block.
 
 ## Generators
 
-| Generator | Inputs | Outputs | What it does |
+| Generator | Inputs | Outputs | Purpose |
 |---|---|---|---|
-| `gen_json_models` | `app/**/*.hpp`, `app/apis/*.hpp` | `models.hpp` | For every struct marked `[[revet::model]]`, emits namespace-qualified `from_json<T>` / `to_json<T>` template specializations. Used by `gen_api`'s outbound code and by `gen_routes`'s API wrappers. |
-| `gen_states` | `app/states/*.hpp` referenced from routes | `states.hpp` | For every type used as `web::State<T>` or `web::Flash<T>`, emits `pack(T)`/`unpack(T)` and `pack_plain`/`unpack_plain` (encrypted vs unencrypted cookie codecs), plus typed-cookie helpers. |
-| `gen_forms` | `app/forms/*.hpp` (`[[revet::form]]`) | `forms.hpp` | Scans form struct definitions, generates render helpers + POST handlers that decode form-encoded bodies into the struct. |
-| `gen_components` | `app/components/*.cpp`, `app/layouts/*.cpp` (`[[revet::export]]`) | `components.hpp` | Forward-declares exported component / layout functions so any route file can use them without including the source. |
-| `gen_routes` | `app/routes/**/*.cpp` | `routes.cpp`, `routes.hpp` | The big one. Walks the file tree, infers each route's path from its filename, detects `render_get`/`render_post`/`render_sse`, classifies sync vs async (`web::Task<...>`), detects API typed bodies/returns, emits a `web::Route` for each. Also emits `urls::` constants, pulls in `apis.hpp` if present, and patches `build/compile_commands.json`. |
-| `gen_resources` | `revet.toml [resources.*]` | `resources.hpp`, `db_backends.cmake` | One static `db::sqlite::Pool` / `db::postgres::Pool` per declared resource. Default name `users_db` is also re-exported as `resources::db()` for convenience. |
-| `gen_queries` | `app/queries/*.sql` | `queries.hpp` | Parses SQL files split by `-- @revet:name:` markers, generates a typed `queries::<file>::<name>(db, params)` for each. Picks return-row struct from `-- @revet:model: TypeName`. Sync + async variants. |
-| `gen_api` | `app/apis/*.hpp` (`[[revet::external]]`) | `apis.hpp` | For every function-declaration annotated with `[[revet::external("METHOD URL")]]`, generates an inline coroutine definition that performs the HTTP call, throws `http::Error` on non-2xx, and JSON-deserializes the response. |
-| `gen_styles` | `app/styles/*.css` | `styles.hpp` | Emits CSS class/id constants from selectors, and embeds the CSS text. |
-| `gen_toggles` | `app/states/*.hpp` (`[[revet::toggle]]`) | `toggles.hpp` | For every cookie-backed UI toggle (dark mode, sidebar collapse, etc.), generates a toggle-flip route + readers. |
-| `gen_uploads` | `revet.toml [uploads.*]` | `uploads.hpp` | One `uploads::<bucket>::allow(req, validator)` function per declared bucket. Validators check magic bytes, atomically move accepted files from incoming → validated. |
-| `gen_dependencies` | `revet.toml [build.dependencies]` | `dependencies.cmake` | Generates `target_link_libraries(revet PRIVATE ...)` calls for the user's Conan deps. Wired via `include(${GEN_DIR}/dependencies.cmake OPTIONAL)`. |
-| `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` | Loads each locale's strings into a `constexpr` map keyed by `i18n::<symbol>`. Always runs; emits an empty namespace if no CSVs. |
-| `gen_htmx` | `static/htmx.min.js` + `revet.toml [htmx].version` | `htmx_asset.hpp` | Inlines the bundled HTMX into a `constexpr std::string_view`. Mounted at `/_revet/htmx.js`. |
-| `gen_optimistic` | `static/optimistic.ts` (compiled with `bun`) | `optimistic_asset.hpp` | Optimistic-update runtime, same pattern as htmx. Skipped if `bun` isn't installed. |
+| `gen_json_models` | `app/**/*.hpp` | `models.hpp` | `from_json`/`to_json` for `[[revet::model]]` structs |
+| `gen_states` | `app/states/*.hpp` | `states.hpp` | Cookie codecs for `web::State<T>` / `web::Flash<T>` |
+| `gen_forms` | `app/forms/*.hpp` | `forms.hpp` | Render helpers and POST decoders for `[[revet::form]]` |
+| `gen_components` | `app/components/*.cpp`, `app/layouts/*.cpp` | `components.hpp` | Declarations for `[[revet::export]]` functions |
+| `gen_routes` | `app/routes/**/*.cpp` | `routes.cpp`, `routes.hpp` | Routes from file paths; sync/async and SSE detection; `urls::`; patches `build/compile_commands.json` |
+| `gen_resources` | `revet.toml [resources.*]` | `resources.hpp`, `db_backends.cmake` | Static SQLite/Postgres pool per resource |
+| `gen_queries` | `app/queries/*.sql` | `queries.hpp` | Typed `queries::<file>::<name>()` from `-- @revet:name:` blocks |
+| `gen_api` | `app/apis/*.hpp` | `apis.hpp` | Coroutines for `[[revet::external("METHOD URL")]]` |
+| `gen_styles` | `app/styles/*.css` | `styles.hpp` | Class and id constants; embedded CSS |
+| `gen_toggles` | `app/states/*.hpp` | `toggles.hpp` | Flip routes and readers for `[[revet::toggle]]` |
+| `gen_uploads` | `revet.toml [uploads.*]` | `uploads.hpp` | `uploads::<bucket>::allow(req, validator)` |
+| `gen_dependencies` | `revet.toml [build.dependencies]` | `dependencies.cmake` | `target_link_libraries` for Conan deps |
+| `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` | `i18n::<key>` strings per locale |
+| `gen_htmx` | `static/htmx.min.js`, `revet.toml [htmx].version` | `htmx_asset.hpp` | Bundled htmx as a `string_view`, served at `/_revet/htmx.js` |
+| `gen_optimistic` | `static/optimistic.ts` | `optimistic_asset.hpp` | Optimistic-update runtime, compiled with `bun`; skipped if `bun` is missing |
 
-`gen_htmx` and `gen_optimistic` are implemented in `cmake/codegen/gen_assets.cpp`.
+`gen_htmx` and `gen_optimistic` live in `gen_assets.cpp`.
 
-## Order
+## Ordering
 
-CMake runs codegen targets in parallel where it can. The only edges that matter today:
+- `gen_routes` needs `apis.hpp` from `gen_api`.
+- `gen_json_models` runs before `gen_api`; `apis.hpp` includes `models.hpp`.
 
-- `gen_routes` consumes `apis.hpp` (generated by `gen_api`) and `urls::` (its own output). The user's route source files reference both.
-- `gen_optimistic` and `gen_htmx` produce assets that `gen_routes` mentions in its built-in static-asset routes — but since those mentions go through generated `routes.cpp`, CMake naturally orders them by file dependency.
-- `gen_json_models` should emit before `gen_api` so the API codegen has model template specializations to call. The current CMake setup lists them as separate `add_codegen` targets — they run in parallel, but `apis.hpp` `#include "models.hpp"` enforces the build-time ordering.
+## Adding a generator
 
-## Adding a new generator
-
-1. Add `cmake/codegen/gen_<thing>.cpp` with `int gen_<thing>(const revet::codegen::Ctx& ctx)`:
-   - Use `ctx.proj` as the project root; write to `build/generated/<thing>.hpp` via the helpers in `common.hpp` (write-only-if-changed, `setup`, `file_header`).
-   - Throw `GenError` for user-facing errors; `main.cpp` prints them and exits 1.
-2. Register it in the `generators()` table in `cmake/codegen/main.cpp`.
-3. In `template/CMakeLists.txt`, add:
-   ```cmake
-   add_codegen(Thing gen_thing "${GEN_DIR}/thing.hpp")
-   ```
-   and list `${GEN_DIR}/thing.hpp` in `GENERATED_SOURCES`.
-4. Add a golden check: run the generator on a sample project and diff against the expected output.
-5. Update this table.
-
-## Why C++
-
-The generators are built with the framework, so there is no runtime dependency on Python for codegen. Each generator scans files across the project (`[[revet::external]]` in one header, `[[revet::model]]` in another) and cross-references them; the C++ port uses a small std-only regex/JSON/TOML subset instead of macros or constexpr reflection, which can't do that scan.
+1. Add `cmake/codegen/gen_<name>.cpp` with `int gen_<name>(const revet::codegen::Ctx&)`. Write output with the `common.hpp` helpers. Throw `GenError` for user errors.
+2. Register it in `generators()` in `main.cpp`.
+3. Add an `add_codegen(Name gen_<name> "${GEN_DIR}/<name>.hpp")` line in `template/CMakeLists.txt` and list the output in `GENERATED_SOURCES`.
