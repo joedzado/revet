@@ -45,7 +45,7 @@ if(REVET_ASAN)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
-find_package(Catch2 3 REQUIRED)
+find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
     include(CTest)
     file(GLOB test_sources "${CMAKE_SOURCE_DIR}/tests/*.cpp")

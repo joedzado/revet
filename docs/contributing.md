@@ -15,7 +15,7 @@ Verify:
 
 ```bash
 revet --version          # → 0.1.5 (or whatever VERSION says)
-scripts/revet-fw test    # full suite — should be all green
+ctest --test-dir build    # full suite — should be all green
 ```
 
 ## Dev loop
@@ -34,7 +34,7 @@ If you're iterating very heavily on framework code, point a test app's `CMakeLis
 
 ```bash
 scripts/revet-fw clean             # blow away build dir
-scripts/revet-fw test              # run both C++ (catch2) and Python (unittest) suites
+cmake --build build && ctest --test-dir build   # run the C++ (Catch2) suite
 ```
 
 Run a single C++ test:
