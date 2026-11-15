@@ -1,0 +1,85 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --sw:         272px;
+  --hh:         56px;
+  --r:          6px;
+  --shadow-sm:  0 8px 24px rgba(0,0,0,.12);
+  --shadow-lg:  0 20px 60px rgba(0,0,0,.22);
+  --shadow-bd:  rgba(0,0,0,.5);
+  --mono:       'JetBrains Mono', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    --bg:         #060b14;
+    --surface:    #0c1220;
+    --surface2:   #111927;
+    --border:     #1c2a3a;
+    --text:       #e0e8f4;
+    --muted:      #7086a0;
+    --accent:     #38bdf8;
+    --accent-dim: #0ea5e9;
+    --accent-fg:  #001220;
+    --code-bg:    #040810;
+    --code-fg:    #7dd3fc;
+    --ok:         #4ade80;
+    --ok-bg:      #042011;
+    --ok-bd:      #166534;
+    --err:        #fca5a5;
+    --err-bg:     #3b0808;
+    --err-bd:     #991b1b;
+    --focus-ring: rgba(56,189,248,.15);
+  }
+}
+
+body {
+  --bg:         #f4f1eb;
+  --surface:    #eae7e0;
+  --surface2:   #dedad2;
+  --border:     #cdc9bf;
+  --text:       #1b1916;
+  --muted:      #6c6860;
+  --accent:     #2563eb;
+  --accent-dim: #1d4ed8;
+  --accent-fg:  #fff;
+  --code-bg:    #e4e0d8;
+  --code-fg:    #1e293b;
+  --ok:         #166534;
+  --ok-bg:      #dcfce7;
+  --ok-bd:      #86efac;
+  --err:        #991b1b;
+  --err-bg:     #fee2e2;
+  --err-bd:     #fca5a5;
+  --focus-ring: rgba(37,99,235,.2);
+  
+  font-family: 'IBM Plex Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+#sidebar {
+  position: fixed; top: 0; left: 0;
+  width: var(--sw); height: 100vh;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  z-index: 200;
+  transform: translateX(calc(-1 * var(--sw)));
+  overflow: hidden;
+  transition: transform 0.2s ease-in-out;
+}
+
+
+.btn-icon {
+  background: none; border: none; padding: 4px 8px;
+  cursor: pointer; font-size: 1.1rem; color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r);
+  transition: background 0.1s;
+}

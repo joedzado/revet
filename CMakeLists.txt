@@ -61,6 +61,12 @@ if(REVET_ASAN)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+include(CTest)
+# Codegen: golden outputs for a fixture app plus bad-input cases (tests/codegen/run.cmake).
+add_test(NAME codegen
+    COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:revet_codegen_tool> -DFRAMEWORK=${CMAKE_SOURCE_DIR}
+            -DWORK=${CMAKE_BINARY_DIR}/codegen_test -P ${CMAKE_SOURCE_DIR}/tests/codegen/run.cmake)
+
 find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
     include(CTest)

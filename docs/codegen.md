@@ -5,6 +5,9 @@ Codegen turns `app/` and `revet.toml` into C++ headers in `build/generated/`. It
 - Invocation: `revet_codegen_tool <generator> <project-root> <framework-root>`
 - `main.cpp` dispatches by generator name; `gen_*.cpp` holds each generator; `common.*` and `node.*` are shared helpers.
 - CMake wiring: `template/CMakeLists.txt`, `Codegen & Build` block.
+- The tool is built once with the framework and installed to `<framework>/prebuilt/bin` (`install.sh`). App builds run that binary. With no prebuilt tool (framework used from a source checkout) the app's configure step compiles it once.
+- `<framework>/prebuilt/lib` holds the vendored static libs (libsodium, simdjson), so app builds compile neither.
+- Patterns are CTRE, checked at compile time. In CTRE `.` matches newlines; use `[^\n]` to stay on one line.
 
 ## Generators
 
@@ -40,3 +43,14 @@ Codegen turns `app/` and `revet.toml` into C++ headers in `build/generated/`. It
 1. Add `cmake/codegen/gen_<name>.cpp` with `int gen_<name>(const revet::codegen::Ctx&)`. Write output with the `common.hpp` helpers. Throw `GenError` for user errors.
 2. Register it in `generators()` in `main.cpp`.
 3. Add an `add_codegen(Name gen_<name> "${GEN_DIR}/<name>.hpp")` line in `template/CMakeLists.txt` and list the output in `GENERATED_SOURCES`.
+4. Cover it in `tests/codegen/fixture`, then refresh the expected output (below).
+
+## Tests
+
+`ctest -R codegen` runs every generator on `tests/codegen/fixture` and compares the result with `tests/codegen/expected`. It also checks that each input in `tests/codegen/errors/` fails with the message in its `expect.txt`.
+
+After an intended output change, rewrite the expected files and review the diff:
+
+```sh
+cmake -DTOOL=build/tools/revet_codegen_tool -DFRAMEWORK=$PWD -DWORK=/tmp/codegen_test -DUPDATE=1 -P tests/codegen/run.cmake
+```
