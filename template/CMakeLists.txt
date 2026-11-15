@@ -16,7 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/build/data)
 
 # ── Framework location ────────────────────────────────────────────────────────
-set(FRAMEWORK_DIR "/Users/joedzado/.revet/current")
+set(FRAMEWORK_DIR "{{framework_dir}}")
 set(PROJ_DIR "${CMAKE_SOURCE_DIR}")
 
 # ── Framework core library ────────────────────────────────────────────────────
