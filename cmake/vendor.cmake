@@ -17,13 +17,19 @@ add_library(simdjson::simdjson ALIAS simdjson_vendor)
 
 # libsodium 1.0.22 — official release tarball, built with its configure script.
 set(REVET_SODIUM_PREFIX "${CMAKE_BINARY_DIR}/vendor/libsodium")
+# libsodium's configure does not know the macOS SDK; pass it explicitly.
+set(REVET_SODIUM_FLAGS "")
+if(APPLE)
+    execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE REVET_SDK_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(REVET_SODIUM_FLAGS "-isysroot ${REVET_SDK_PATH}")
+endif()
 include(ExternalProject)
 ExternalProject_Add(libsodium_build
     URL "${REVET_VENDOR_DIR}/libsodium/libsodium-1.0.22.tar.gz"
     URL_HASH SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
     PREFIX "${REVET_SODIUM_PREFIX}"
     BUILD_IN_SOURCE TRUE
-    CONFIGURE_COMMAND ./configure --prefix=${REVET_SODIUM_PREFIX} --disable-shared --enable-static CC=${CMAKE_C_COMPILER}
+    CONFIGURE_COMMAND ./configure --prefix=${REVET_SODIUM_PREFIX} --disable-shared --enable-static CC=${CMAKE_C_COMPILER} "CFLAGS=${REVET_SODIUM_FLAGS}" "LDFLAGS=${REVET_SODIUM_FLAGS}"
     BUILD_COMMAND make
     INSTALL_COMMAND make install
     BUILD_BYPRODUCTS "${REVET_SODIUM_PREFIX}/lib/libsodium.a"
