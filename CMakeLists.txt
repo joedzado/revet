@@ -18,12 +18,10 @@ if(CCACHE_EXE)
     endif()
 endif()
 
-# ── Conan-provided dependencies ──────────────────────────────────────────────
+# ── Dependencies: vendored (libsodium, simdjson, ctre) + system/Conan (curl) ──
+include(${CMAKE_SOURCE_DIR}/cmake/vendor.cmake)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
-find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
-find_package(simdjson REQUIRED)
-find_package(ctre REQUIRED)
 
 # ── Target: revet_core (Framework library) ──────────────────────────────────
 add_library(revet_core src/http_client.cpp src/json.cpp)

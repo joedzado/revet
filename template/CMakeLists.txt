@@ -79,14 +79,12 @@ endif()
 # ── External Dependencies (generated from revet.toml [build.dependencies]) ──
 # Note: Dependency linking happens after include(dependencies.cmake) in the site block below
 
-# ── All deps resolved via Conan (build/conan/ populated by revet CLI) ─────────
+# ── Deps: vendored (libsodium, simdjson, ctre) + system/Conan (curl) ─────────
+include(${FRAMEWORK_DIR}/cmake/vendor.cmake)
 # Conan installs Release packages; map Debug cmake builds to use them too
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
-find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
-find_package(simdjson REQUIRED)
-find_package(ctre REQUIRED)
 target_link_libraries(revet_core INTERFACE
     libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
 
