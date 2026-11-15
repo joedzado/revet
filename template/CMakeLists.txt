@@ -79,7 +79,7 @@ endif()
 # ── All deps resolved via Conan (build/conan/ populated by revet CLI) ─────────
 # Conan installs Release packages; map Debug cmake builds to use them too
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/conan")
 find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
@@ -89,7 +89,8 @@ target_link_libraries(revet_core INTERFACE
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)
-    set(GEN_DIR ${CMAKE_BINARY_DIR}/generated)
+    # Codegen output is target-independent; cross builds (build/<target>) share it.
+    set(GEN_DIR ${CMAKE_SOURCE_DIR}/build/generated)
     file(MAKE_DIRECTORY ${GEN_DIR})
 
     # Codegen needs Python 3.12+ (tomllib, PEP 701 f-strings). REVET_PYTHON picks the interpreter;
@@ -163,7 +164,15 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GEN_DIR}/i18n.hpp
     )
 
-    include(${GEN_DIR}/dependencies.cmake OPTIONAL)
+    # Generate at configure time: the build-time codegen above runs after this
+    # configure on a fresh build dir, and find_package needs the Conan files that
+    # revet build has just installed.
+    execute_process(COMMAND python3 ${FRAMEWORK_DIR}/cmake/gen_dependencies.py ${CMAKE_SOURCE_DIR}
+                    RESULT_VARIABLE _gen_deps_rc)
+    if(NOT _gen_deps_rc EQUAL 0)
+        message(FATAL_ERROR "gen_dependencies.py failed (${_gen_deps_rc})")
+    endif()
+    include(${GEN_DIR}/dependencies.cmake)
 
     # Every .cpp in src/ is compiled, plus components and layouts. src/main.cpp is optional:
     # without it the framework's default entry point is used.
@@ -194,11 +203,16 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GENERATED_SOURCES}
         ${framework_impl_sources}
     )
+    # revet.toml `binary` sets the file name. The cmake target stays `revet`.
+    set_target_properties(revet PROPERTIES OUTPUT_NAME "{{binary}}")
     target_include_directories(revet PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/app/routes ${GEN_DIR})
     target_link_libraries(revet PRIVATE revet_core)
     target_compile_options(revet PRIVATE -Wno-unknown-attributes)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_compile_options(revet PRIVATE -march=native -flto)
+        if(NOT CMAKE_CROSSCOMPILING)
+            target_compile_options(revet PRIVATE -march=native)
+        endif()
+        target_compile_options(revet PRIVATE -flto)
         target_link_options(revet PRIVATE -flto)
     endif()
 

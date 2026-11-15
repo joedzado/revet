@@ -196,7 +196,7 @@ Async handlers (required for DB/HTTP calls):
 static auto render_get(const web::Request& req) -> web::Task<web::Response> {
     auto users = co_await queries::users::all(db);
     co_return layout_main(req, "Users", html::ul{
-        html::nodes(users, [](const User& u) { return html::li{ u.name }; })
+        html::list(users, [](const User& u) { return html::li{ u.name }; })
     });
 }
 ```
@@ -230,7 +230,7 @@ logged_in ? html::p{ "Welcome" } : html::Node{}
 **List from data:**
 ```cpp
 html::ul{
-    html::nodes(users, [](const User& u) { return html::li{ u.name }; })
+    html::list(users, [](const User& u) { return html::li{ u.name }; })
 }
 ```
 
@@ -1122,6 +1122,16 @@ auto result = co_await web::run_on_io([&] { return blocking_call(); });
 ```
 
 SSE routes run in a detached thread — not tied to either pool — so long-lived connections don't exhaust pool slots.
+
+WebSocket routes use the same thread model. Declare `void render_ws(const web::Request& req, web::ws::Conn& conn)`; codegen registers it on upgrade requests (`GET` + `Upgrade: websocket` + `Connection: upgrade` + a valid key). `conn.recv()` returns the next text/binary message (`std::nullopt` on close), and pings are answered for you. Idle connections get a ping after 30 s and close with 1001 if unanswered. Messages over 1 MiB close with 1009; invalid UTF-8 closes with 1007. At most 256 WebSocket connections run at once; more get 503.
+
+`conn` is valid only inside `render_ws`, on its thread. To push from another thread (for example, an HTTP push endpoint), keep `conn.weak_from_this()` and lock it for each send:
+
+```cpp
+if (auto c = weak.lock(); c && c->send_binary(frame)) { /* delivered */ }
+```
+
+Upgrades are refused with 403 when a browser `Origin` host does not match `Host`; proxies must preserve `Host`. Requests with no `Origin` header (devices, CLIs) are not checked and rely on the route's guards.
 
 Codegen detects `-> web::Task<web::Response>` and registers the route as `async_get` instead of `get`.
 

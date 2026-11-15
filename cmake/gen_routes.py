@@ -375,10 +375,20 @@ def main():
         if re.search(r"render_sse\s*\(", src):
             cpp.append(f"        r.sse = [](const web::Request& req, web::SSEWriter& sse) {{")
             needed, state_vars, flashes_meta = extract_state_vars("render_sse", src)
-            if needed:
+            if needed or flashes_meta:
                 cpp.append("            auto& ctx = web::Context::current();")
             _emit_state_loading(cpp, flashes_meta)
             cpp.append(f"            route_{ns}::render_sse({_handler_args(state_vars, ', sse')});")
+            cpp.append(f"        }};")
+
+        # WebSocket handler: render_ws(req[, states...], conn) → void
+        if re.search(r"render_ws\s*\(", src):
+            cpp.append(f"        r.ws = [](const web::Request& req, web::ws::Conn& conn) {{")
+            needed, state_vars, flashes_meta = extract_state_vars("render_ws", src)
+            if needed or flashes_meta:
+                cpp.append("            auto& ctx = web::Context::current();")
+            _emit_state_loading(cpp, flashes_meta)
+            cpp.append(f"            route_{ns}::render_ws({_handler_args(state_vars, ', conn')});")
             cpp.append(f"        }};")
 
         if re.search(r"\bapi_guards\s*\(\s*\)", src):

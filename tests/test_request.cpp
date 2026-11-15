@@ -25,6 +25,7 @@ static auto parse(const char* raw) -> web::Request {
 TEST_CASE("parse_request — GET", "[request]") {
     const auto r = parse("GET / HTTP/1.1\r\n\r\n");
     CHECK(r.method == web::Method::GET);
+    CHECK(r.http_version == "HTTP/1.1");
     CHECK(std::string_view(r.path) == "/");
 }
 
@@ -148,6 +149,64 @@ TEST_CASE("parse_size — sizes with binary units", "[request]") {
 }
 
 // ── known bugs (hidden from default run, tag [known-bug]) ────────────────────
+
+TEST_CASE("parse_request — body is cut to Content-Length", "[request]") {
+    const auto r = parse("POST / HTTP/1.1\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: 3\r\n\r\n"
+                         "abcdef");
+    CHECK(r.raw_body == "abc");
+}
+
+TEST_CASE("parse_request — explicit zero length drops buffered bytes", "[request]") {
+    const auto r = parse("POST / HTTP/1.1\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: 0\r\n\r\n"
+                         "hello");
+    CHECK(std::string_view(r.path) == "/");
+    CHECK(r.raw_body.empty());
+    CHECK(!r.body_too_large);
+}
+
+TEST_CASE("parse_request — PUT json body", "[request]") {
+    const auto r = parse("PUT /items/7 HTTP/1.1\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: 7\r\n\r\n"
+                         "{\"a\":1}");
+    CHECK(r.method == web::Method::PUT);
+    CHECK(r.raw_body == "{\"a\":1}");
+}
+
+TEST_CASE("parse_request — oversized body is not parsed", "[request]") {
+    web::config::max_body_bytes(8);
+    const auto r = parse("POST / HTTP/1.1\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: 100\r\n\r\n"
+                         "{\"a\":1}");
+    web::config::max_body_bytes(web::config::DEFAULT_MAX_BODY_BYTES);
+    CHECK(r.body_too_large);
+    CHECK(r.raw_body.empty());
+    CHECK(r.form.data.empty());
+    CHECK(std::string_view(r.path) == "/");
+}
+
+TEST_CASE("parse_request — rejects smuggled lengths and folded headers", "[request]") {
+    auto dropped = [](const char* raw) {
+        const auto r = parse(raw);
+        CHECK(r.path.path.empty());
+        CHECK(r.raw_body.empty());
+        CHECK(r.form.data.empty());
+    };
+    dropped("POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello");
+    dropped("POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello");
+    dropped("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n");
+    dropped("POST / HTTP/1.1\r\nContent-Length: 5abc\r\n\r\nhello");
+    dropped("POST / HTTP/1.1\r\nContent-Length: +5\r\n\r\nhello");
+    dropped("POST / HTTP/1.1\r\nContent-Length: 5 0\r\n\r\nhello");
+    dropped("GET / HTTP/1.1\r\nHost: example.com\r\nHost: evil.com\r\n\r\n");
+    dropped("POST / HTTP/1.1\r\nContent-Length: 1\r\n 5\r\n\r\nhello");
+    dropped("GET / HTTP/1.1\r\nHost: example.com");
+}
 
 TEST_CASE("parse_request handles Cookie header > 8192 bytes", "[request]") {
     std::string big_value(9000, 'a');

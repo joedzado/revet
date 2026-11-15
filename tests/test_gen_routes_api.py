@@ -209,5 +209,33 @@ class TestNonApiRoutesUnchanged(unittest.TestCase):
         self.assertNotIn("web::api::error", block)
 
 
+class TestWebSocketHandler(unittest.TestCase):
+    """render_ws(req, conn) registers r.ws; routes without it get no ws handler."""
+
+    SRC = """\
+#include <revet/web.hpp>
+namespace route_ws {
+static auto render_ws(const web::Request& req, web::ws::Conn& conn) -> void {
+    conn.send_text("hi");
+}
+}
+"""
+
+    def test_render_ws_emits_ws_handler(self):
+        cpp = gen(route_path="ws", route_src=self.SRC)
+        block = _user_block(cpp, "/ws")
+        self.assertIn("r.ws = [](const web::Request& req, web::ws::Conn& conn)", block)
+        self.assertIn("route_ws::render_ws(req, conn);", block)
+
+    def test_plain_get_route_has_no_ws_handler(self):
+        cpp = gen(route_path="plain", route_src="""\
+#include <revet/web.hpp>
+namespace route_plain {
+static auto render_get(const web::Request& req) -> web::Response { return {}; }
+}
+""")
+        self.assertNotIn("r.ws", _user_block(cpp, "/plain"))
+
+
 if __name__ == "__main__":
     unittest.main()

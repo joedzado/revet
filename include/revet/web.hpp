@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <charconv>
 #include <cstring>
 #include <filesystem>
 #include <flat_map>
@@ -23,12 +24,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <typeindex>
 #include <vector>
 
 #include "crypto.hpp"
 #include "css_utils.hpp"
 #include "task.hpp"
+#include "websocket.hpp"
 
 #include <cerrno>
 #include <expected>
@@ -36,6 +39,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <csignal>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -151,8 +155,22 @@ inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
 }
 } // namespace detail
 
+// Parses an integer CLI value in [lo, hi]; exits with a message on anything else.
+inline auto parse_arg(std::string_view flag, const char* value, long long lo, long long hi) -> long long {
+    long long out = 0;
+    const char* end = value + std::strlen(value);
+    const auto [ptr, ec] = std::from_chars(value, end, out);
+    if (ec != std::errc{} || ptr != end || out < lo || out > hi) {
+        std::println(stderr, "{}: expected an integer in [{}, {}], got '{}'", flag, lo, hi, value);
+        std::exit(2);
+    }
+    return out;
+}
+
 inline void init(int argc, char** argv) {
     auto& cfg = detail::server_config();
+    constexpr long long k_max_threads = 4096;
+    constexpr long long k_max_port = 65535;
     if (const char* binds = std::getenv("REVET_BIND")) {
         cfg.binds = detail::parse_binds(binds);
     }
@@ -167,13 +185,13 @@ inline void init(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
         if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            cfg.port = std::stoi(argv[++i]);
+            cfg.port = static_cast<int>(parse_arg(arg, argv[++i], 1, k_max_port));
         } else if (arg == "--bind" && i + 1 < argc) {
             cfg.binds = detail::parse_binds(argv[++i]);
         } else if (arg == "--request-threads" && i + 1 < argc) {
-            cfg.request_threads = std::stoi(argv[++i]);
+            cfg.request_threads = static_cast<int>(parse_arg(arg, argv[++i], 0, k_max_threads));
         } else if (arg == "--io-threads" && i + 1 < argc) {
-            cfg.io_threads = std::stoi(argv[++i]);
+            cfg.io_threads = static_cast<int>(parse_arg(arg, argv[++i], 0, k_max_threads));
         } else if (arg == "--data-dir" && i + 1 < argc) {
             config::data_dir(argv[++i]);
         } else if (arg == "--max-body" && i + 1 < argc) {
@@ -376,7 +394,6 @@ struct Url {
     }
 };
 
-
 enum class FileType : std::uint8_t { jpeg, png, gif, webp, pdf, zip, unknown };
 
 struct UploadedFile {
@@ -390,6 +407,7 @@ struct UploadedFile {
 
 struct Request {
     Method method = Method::GET;
+    std::string http_version;
     Url path;
     ParamMap query;
     ParamMap form;
@@ -398,7 +416,7 @@ struct Request {
     ParamMap params;
     std::vector<UploadedFile> files; // populated at parse time; use Context::current().files for post-guard paths
     bool body_too_large = false;
-    std::string raw_body; // populated for Content-Type: application/json POST bodies
+    std::string raw_body; // populated for Content-Type: application/json bodies (POST, PUT, PATCH, DELETE)
 };
 
 struct Response {
@@ -429,6 +447,16 @@ struct Context {
     static auto current() -> Context& {
         thread_local Context ctx;
         return ctx;
+    }
+    // Drops everything a previous request left on this thread.
+    void reset() {
+        states.clear();
+        if (!upload_tmp.empty()) {
+            std::error_code ec;
+            std::filesystem::remove_all(upload_tmp, ec);
+            upload_tmp.clear();
+        }
+        files.clear();
     }
 };
 
@@ -847,7 +875,8 @@ inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decod
     return out;
 }
 
-inline auto parse_request(int fd) -> Request {
+// `leftover`, when given, receives any bytes read past the header section (WebSocket upgrades need them).
+inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     // Read until full header section (\r\n\r\n) or 64 KB guard
     std::string raw;
     raw.reserve(4096);
@@ -864,8 +893,13 @@ inline auto parse_request(int fd) -> Request {
             }
         }
     }
-    if (raw.empty()) {
+    if (raw.empty() || raw.find("\r\n\r\n") == std::string::npos) {
         return {};
+    }
+    if (leftover != nullptr) {
+        if (const auto header_end = raw.find("\r\n\r\n"); header_end != std::string::npos) {
+            leftover->assign(raw, header_end + 4);
+        }
     }
 
     std::string_view const req_str(raw);
@@ -903,6 +937,10 @@ inline auto parse_request(int fd) -> Request {
         return {};
     }
     std::string_view const full_path = first_line.substr(m_end + 1, p_end - (m_end + 1));
+    req.http_version = std::string(first_line.substr(p_end + 1));
+    while (!req.http_version.empty() && (req.http_version.back() == ' ' || req.http_version.back() == '\t')) {
+        req.http_version.pop_back();
+    }
 
     if (size_t const q_idx = full_path.find('?'); q_idx != std::string_view::npos) {
         req.path = Url(std::string(full_path.substr(0, q_idx)));
@@ -914,6 +952,14 @@ inline auto parse_request(int fd) -> Request {
     // Parse Headers & Cookies
     size_t head_start = first_line_end + 2;
     size_t content_length = 0;
+    int content_length_count = 0;
+    bool content_length_bad = false;
+    bool saw_transfer_encoding = false;
+    bool duplicate_routing_header = false;
+    auto routing_header = [](std::string_view key) {
+        return key == "host" || key == "origin" || key == "upgrade" || key == "connection" ||
+               key == "sec-websocket-key" || key == "sec-websocket-version";
+    };
     while (true) {
         size_t const line_end = req_str.find("\r\n", head_start);
         if (line_end == std::string_view::npos || line_end == head_start) {
@@ -921,6 +967,10 @@ inline auto parse_request(int fd) -> Request {
         }
 
         std::string_view const line = req_str.substr(head_start, line_end - head_start);
+        // A folded line can hide a second Host or Content-Length. This server does not unfold.
+        if (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            return {};
+        }
         if (size_t const sep = line.find(':'); sep != std::string_view::npos) {
             std::string key(line.substr(0, sep));
             std::string val(line.substr(sep + 1));
@@ -941,28 +991,50 @@ inline auto parse_request(int fd) -> Request {
             std::ranges::transform(lkey, lkey.begin(),
                                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
+            if (routing_header(lkey) && req.headers.data.contains(lkey)) {
+                duplicate_routing_header = true;
+            }
             req.headers.data[lkey] = val;
             if (lkey == "cookie") {
                 // std::println(stderr, "Cookies: {}", val);
                 req.cookies = parse_params(val, ';', false);
             }
             if (lkey == "content-length") {
-                try {
-                    content_length = std::stoul(val);
-                } catch (...) {
-                    content_length = 0;
-                }
-                if (content_length > config::max_body_bytes()) {
+                ++content_length_count;
+                unsigned long long n = 0;
+                const char* const begin = val.data();
+                const char* const end = val.data() + val.size();
+                const auto [ptr, ec] = std::from_chars(begin, end, n);
+                // Trailing junk ("5abc", "5 0") is a length two parsers can disagree on.
+                if (ec == std::errc::result_out_of_range && ptr == end) {
                     req.body_too_large = true;
                     content_length = 0;
+                } else if (ec != std::errc{} || ptr != end) {
+                    content_length_bad = true;
+                } else if (n > config::max_body_bytes()) {
+                    req.body_too_large = true;
+                    content_length = 0;
+                } else {
+                    content_length = static_cast<size_t>(n);
                 }
+            } else if (lkey == "transfer-encoding") {
+                saw_transfer_encoding = true;
             }
         }
         head_start = line_end + 2;
     }
 
-    // Body for POST
-    if (req.method == Method::POST) {
+    // Chunked bodies are not implemented. Parsing them as the raw body, or accepting two lengths, is smuggling.
+    if (content_length_bad || content_length_count > 1 || saw_transfer_encoding || duplicate_routing_header) {
+        return {};
+    }
+    if (req.body_too_large) {
+        return req;
+    }
+
+    // Body for the methods that carry one
+    if (req.method == Method::POST || req.method == Method::PUT || req.method == Method::PATCH ||
+        req.method == Method::DEL) {
         size_t const header_end = req_str.find("\r\n\r\n");
         if (header_end != std::string_view::npos) {
             std::string body(req_str.substr(header_end + 4));
@@ -975,6 +1047,9 @@ inline auto parse_request(int fd) -> Request {
                     }
                     body.append(bbuf.data(), static_cast<size_t>(n));
                 }
+            }
+            if (content_length_count > 0 && body.size() > content_length) {
+                body.resize(content_length);
             }
 
             const auto ct = req.headers.get("content-type");
@@ -1095,6 +1170,7 @@ struct SSEWriter {
 using Handler = std::function<Response(const Request&)>;
 using AsyncHandler = std::function<Task<Response>(const Request&)>;
 using SSEHandler = std::function<void(const Request&, SSEWriter&)>;
+using WSHandler = std::function<void(const Request&, ws::Conn&)>;
 using Next = std::function<Response()>;
 using Middleware = std::function<Response(const Request&, const Next&)>;
 
@@ -1270,6 +1346,7 @@ struct Route {
     AsyncHandler async_del;
     AsyncHandler async_patch;
     std::vector<Middleware> guards;
+    WSHandler ws;
 };
 
 namespace detail {
@@ -1296,7 +1373,7 @@ inline auto open_listener(const std::string& address, int port) -> std::expected
     return fd;
 }
 
-// Runs an SSE route's global middleware and guards. A response means don't stream.
+// Runs global middleware and route guards. A response means do not take over the socket.
 inline auto sse_gate(const Request& req, const std::vector<Middleware>& guards) -> std::optional<Response> {
     bool reached = false;
     const auto sentinel = [&reached](const Request&) -> Response {
@@ -1311,7 +1388,278 @@ inline auto sse_gate(const Request& req, const std::vector<Middleware>& guards) 
 }
 } // namespace detail
 
+inline auto ascii_lower(std::string_view s) -> std::string {
+    std::string out(s);
+    std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
+// RFC 6455 §4.2.1: Connection is a token list that must include "upgrade".
+inline auto is_ws_upgrade(const Request& req) -> bool {
+    if (req.method != Method::GET || ascii_lower(req.headers.get("upgrade")) != "websocket") {
+        return false;
+    }
+    const std::string connection = ascii_lower(req.headers.get("connection"));
+    std::string_view list = connection;
+    bool has_upgrade_token = false;
+    while (!list.empty()) {
+        const auto comma = list.find(',');
+        auto token = list.substr(0, comma);
+        while (!token.empty() && token.front() == ' ') {
+            token.remove_prefix(1);
+        }
+        while (!token.empty() && token.back() == ' ') {
+            token.remove_suffix(1);
+        }
+        has_upgrade_token = has_upgrade_token || token == "upgrade";
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        list.remove_prefix(comma + 1);
+    }
+    return has_upgrade_token && ws::valid_key(req.headers.get("sec-websocket-key"));
+}
+
+// Browsers send Origin on WebSocket upgrades; a cross-site page must not open one with the user's cookies.
+// Origin's host must equal Host. Scheme and case are ignored: hosts are case-insensitive and TLS is terminated
+// upstream. Proxies must preserve Host. Requests without Origin (devices, CLIs) pass; auth is the route's guard.
+inline auto ws_origin_allowed(const Request& req) -> bool {
+    const auto origin = req.headers.get("origin");
+    if (origin.empty()) {
+        return true;
+    }
+    const auto scheme_end = origin.find("://");
+    if (scheme_end == std::string::npos) {
+        return false;
+    }
+    const auto origin_host = ascii_lower(std::string_view(origin).substr(scheme_end + 3));
+    const auto host = req.headers.get("host");
+    return !host.empty() && origin_host == ascii_lower(host);
+}
+
+
+// One accepted connection. Tests call this with a socketpair; listen() is the poll loop.
+inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
+    Context::current().reset();
+    std::string leftover;
+    auto req = parse_request(client_fd, &leftover);
+    if (req.path.path.empty()) {
+        close(client_fd);
+        return;
+    }
+
+    if (req.body_too_large) {
+        Response resp;
+        if (auto handler = detail::error_handler_for(status::payload_too_large)) {
+            resp = handler(req);
+        } else {
+            resp = to_response(std::string("413 Payload Too Large"));
+            resp.status = status::payload_too_large;
+        }
+        send_response(client_fd, resp);
+        close(client_fd);
+        return;
+    }
+
+    auto it = std::ranges::find_if(
+        all_routes, [&req](const Route& r) { return match_route(r.path, req.path.path, req.params); });
+
+    if (it == all_routes.end()) {
+        Response resp;
+        if (auto handler = detail::error_handler_for(status::not_found)) {
+            resp = handler(req);
+        } else {
+            resp = to_response(std::string("404 Not Found"));
+            resp.status = status::not_found;
+        }
+        send_response(client_fd, resp);
+        close(client_fd);
+        return;
+    }
+
+    // WebSocket is checked first: a route may declare both, and an upgrade must not reach SSE.
+    // Guards and global middleware run before the 101, so a refused upgrade stays HTTP.
+    if (it->ws && is_ws_upgrade(req)) {
+        // RFC 6455 §4.1 requires HTTP/1.1 and Host. Content-Length on an upgrade is a pipelined request.
+        if (req.http_version != "HTTP/1.1" || req.headers.get("host").empty() ||
+            req.headers.data.contains("content-length")) {
+            send_response(client_fd, Response{.body = "Bad Request", .status = status::bad_request});
+            close(client_fd);
+            return;
+        }
+        if (!ws_origin_allowed(req)) {
+            send_response(client_fd, Response{.body = "Forbidden", .status = status::forbidden});
+            close(client_fd);
+            return;
+        }
+        if (req.headers.get("sec-websocket-version") != "13") {
+            Response resp = to_response(std::string("Unsupported WebSocket version"));
+            resp.status = Status{426, "Upgrade Required"};
+            resp.headers.data["Sec-WebSocket-Version"] = "13";
+            send_response(client_fd, resp);
+            close(client_fd);
+            return;
+        }
+        // Cap is checked before any thread or guard work, so floods can't exhaust threads.
+        auto slot = ws::Slot::acquire();
+        if (!slot) {
+            send_response(client_fd, Response{.body = "Too many WebSocket connections",
+                                              .status = status::service_unavailable});
+            close(client_fd);
+            return;
+        }
+        try {
+            std::thread([client_fd, slot = std::move(*slot), leftover = std::move(leftover),
+                         ws_fn = it->ws, guards = it->guards, req]() mutable {
+                std::optional<Response> refused;
+                try {
+                    refused = detail::sse_gate(req, guards);
+                } catch (const std::exception& e) {
+                    std::println(stderr, "WebSocket middleware error: {}", e.what());
+                    refused = to_response(std::string("500 Internal Server Error"));
+                    refused->status = status::internal_error;
+                }
+                if (refused) {
+                    send_response(client_fd, *refused);
+                    close(client_fd);
+                    return;
+                }
+                // Conn owns fd from here: it closes when the last reference drops.
+                auto conn = ws::Conn::make(client_fd, std::move(slot));
+                conn->prime(std::move(leftover));
+                const auto deflate = ws::negotiate_deflate(req.headers.get("sec-websocket-extensions"));
+                const std::string extensions =
+                    deflate.enabled ? std::format("Sec-WebSocket-Extensions: {}\r\n", deflate.response) : "";
+                const std::string handshake = std::format(
+                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Accept: {}\r\n"
+                    "{}"
+                    "\r\n",
+                    ws::accept_key(req.headers.get("sec-websocket-key")), extensions);
+                size_t sent = 0;
+                while (sent < handshake.size()) {
+                    const ssize_t n = ::send(client_fd, handshake.data() + sent, handshake.size() - sent, 0);
+                    if (n < 0 && errno == EINTR) {
+                        continue;
+                    }
+                    if (n <= 0) {
+                        return;
+                    }
+                    sent += static_cast<size_t>(n);
+                }
+                conn->set_deflate(deflate);
+                try {
+                    ws_fn(req, *conn);
+                } catch (const std::exception& e) {
+                    std::println(stderr, "WebSocket handler error: {}", e.what());
+                }
+                conn->close();
+            }).detach();
+        } catch (const std::system_error& e) {
+            std::println(stderr, "WebSocket thread: {}", e.what());
+            close(client_fd);
+        }
+        return;
+    }
+
+    // SSE — detached thread so pool isn't held for connection duration
+    if (req.method == Method::GET && it->sse) {
+        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() {
+            std::optional<Response> refused;
+            try {
+                refused = detail::sse_gate(req, guards);
+            } catch (const std::exception& e) {
+                std::println(stderr, "SSE middleware error: {}", e.what());
+                refused = to_response(std::string("500 Internal Server Error"));
+                refused->status = status::internal_error;
+            }
+            if (refused) {
+                send_response(client_fd, *refused);
+            } else {
+                const std::string_view sse_head = "HTTP/1.1 200 OK\r\n"
+                                                  "Content-Type: text/event-stream\r\n"
+                                                  "Cache-Control: no-cache\r\n"
+                                                  "Connection: keep-alive\r\n"
+                                                  "X-Accel-Buffering: no\r\n"
+                                                  "\r\n";
+                ::send(client_fd, sse_head.data(), sse_head.size(), 0);
+                SSEWriter writer{client_fd};
+                try {
+                    sse_fn(req, writer);
+                } catch (const std::exception& e) {
+                    std::println(stderr, "SSE handler error: {}", e.what());
+                }
+            }
+            close(client_fd);
+        }).detach();
+        return;
+    }
+
+    // Async handlers — pool thread is freed immediately after start()
+    const AsyncHandler* async_h = nullptr;
+    if (req.method == Method::GET && it->async_get) {
+        async_h = &it->async_get;
+    } else if (req.method == Method::POST && it->async_post) {
+        async_h = &it->async_post;
+    } else if (req.method == Method::PUT && it->async_put) {
+        async_h = &it->async_put;
+    } else if (req.method == Method::DEL && it->async_del) {
+        async_h = &it->async_del;
+    } else if (req.method == Method::PATCH && it->async_patch) {
+        async_h = &it->async_patch;
+    }
+
+    if (async_h) {
+        dispatch_async(std::make_shared<const Request>(std::move(req)), *async_h, it->guards,
+                       [client_fd](const Response& resp) {
+                           send_response(client_fd, resp);
+                           close(client_fd);
+                       });
+        return;
+    }
+
+    // Sync handlers
+    Response resp;
+    try {
+        if (req.method == Method::GET && it->get) {
+            resp = dispatch(req, it->get, it->guards);
+        } else if (req.method == Method::POST && it->post) {
+            resp = dispatch(req, it->post, it->guards);
+        } else if (req.method == Method::PUT && it->put) {
+            resp = dispatch(req, it->put, it->guards);
+        } else if (req.method == Method::DEL && it->del) {
+            resp = dispatch(req, it->del, it->guards);
+        } else if (req.method == Method::PATCH && it->patch) {
+            resp = dispatch(req, it->patch, it->guards);
+        } else {
+            if (auto handler = detail::error_handler_for(status::method_not_allowed)) {
+                resp = handler(req);
+            } else {
+                resp = to_response(std::string("405 Method Not Allowed"));
+                resp.status = status::method_not_allowed;
+            }
+        }
+    } catch (const std::exception& e) {
+        std::println(stderr, "Error handling request: {}", e.what());
+        if (auto handler = detail::error_handler_for(status::internal_error)) {
+            resp = handler(req);
+        } else {
+            resp = to_response(std::string("500 Internal Server Error"));
+            resp.status = status::internal_error;
+        }
+    }
+    send_response(client_fd, resp);
+    close(client_fd);
+}
+
 inline void listen(const std::vector<Route>& all_routes) {
+    // A client that disconnects mid-response (closing a tab on an SSE stream,
+    // say) would otherwise kill the server with SIGPIPE on its next write;
+    // with it ignored, send() just returns EPIPE.
+    std::signal(SIGPIPE, SIG_IGN);
+
     const auto& cfg = detail::server_config();
     // Found now rather than on the first login.
     if (crypto::key_required() && std::getenv("REVET_COOKIE_KEY") == nullptr) {
@@ -1354,139 +1702,7 @@ inline void listen(const std::vector<Route>& all_routes) {
             continue;
         }
 
-        detail::request_pool()->submit([client_fd, &all_routes]() {
-            auto& ctx = Context::current();
-            ctx.states.clear();
-            if (!ctx.upload_tmp.empty()) {
-                std::error_code ec;
-                std::filesystem::remove_all(ctx.upload_tmp, ec);
-                ctx.upload_tmp.clear();
-            }
-            ctx.files.clear();
-            auto req = parse_request(client_fd);
-            if (req.path.path.empty()) {
-                close(client_fd);
-                return;
-            }
-
-            if (req.body_too_large) {
-                Response resp;
-                if (auto handler = detail::error_handler_for(status::payload_too_large)) {
-                    resp = handler(req);
-                } else {
-                    resp = to_response(std::string("413 Payload Too Large"));
-                    resp.status = status::payload_too_large;
-                }
-                send_response(client_fd, resp);
-                close(client_fd);
-                return;
-            }
-
-            auto it = std::ranges::find_if(
-                all_routes, [&req](const Route& r) { return match_route(r.path, req.path.path, req.params); });
-
-            if (it == all_routes.end()) {
-                Response resp;
-                if (auto handler = detail::error_handler_for(status::not_found)) {
-                    resp = handler(req);
-                } else {
-                    resp = to_response(std::string("404 Not Found"));
-                    resp.status = status::not_found;
-                }
-                send_response(client_fd, resp);
-                close(client_fd);
-                return;
-            }
-
-            // SSE — detached thread so pool isn't held for connection duration
-            if (req.method == Method::GET && it->sse) {
-                std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() {
-                    std::optional<Response> refused;
-                    try {
-                        refused = detail::sse_gate(req, guards);
-                    } catch (const std::exception& e) {
-                        std::println(stderr, "SSE middleware error: {}", e.what());
-                        refused = to_response(std::string("500 Internal Server Error"));
-                        refused->status = status::internal_error;
-                    }
-                    if (refused) {
-                        send_response(client_fd, *refused);
-                    } else {
-                        const std::string_view sse_head = "HTTP/1.1 200 OK\r\n"
-                                                          "Content-Type: text/event-stream\r\n"
-                                                          "Cache-Control: no-cache\r\n"
-                                                          "Connection: keep-alive\r\n"
-                                                          "X-Accel-Buffering: no\r\n"
-                                                          "\r\n";
-                        ::send(client_fd, sse_head.data(), sse_head.size(), 0);
-                        SSEWriter writer{client_fd};
-                        try {
-                            sse_fn(req, writer);
-                        } catch (const std::exception& e) {
-                            std::println(stderr, "SSE handler error: {}", e.what());
-                        }
-                    }
-                    close(client_fd);
-                }).detach();
-                return;
-            }
-
-            // Async handlers — pool thread is freed immediately after start()
-            const AsyncHandler* async_h = nullptr;
-            if (req.method == Method::GET && it->async_get) {
-                async_h = &it->async_get;
-            } else if (req.method == Method::POST && it->async_post) {
-                async_h = &it->async_post;
-            } else if (req.method == Method::PUT && it->async_put) {
-                async_h = &it->async_put;
-            } else if (req.method == Method::DEL && it->async_del) {
-                async_h = &it->async_del;
-            } else if (req.method == Method::PATCH && it->async_patch) {
-                async_h = &it->async_patch;
-            }
-
-            if (async_h) {
-                dispatch_async(std::make_shared<const Request>(std::move(req)), *async_h, it->guards,
-                               [client_fd](const Response& resp) {
-                                   send_response(client_fd, resp);
-                                   close(client_fd);
-                               });
-                return;
-            }
-
-            // Sync handlers
-            Response resp;
-            try {
-                if (req.method == Method::GET && it->get) {
-                    resp = dispatch(req, it->get, it->guards);
-                } else if (req.method == Method::POST && it->post) {
-                    resp = dispatch(req, it->post, it->guards);
-                } else if (req.method == Method::PUT && it->put) {
-                    resp = dispatch(req, it->put, it->guards);
-                } else if (req.method == Method::DEL && it->del) {
-                    resp = dispatch(req, it->del, it->guards);
-                } else if (req.method == Method::PATCH && it->patch) {
-                    resp = dispatch(req, it->patch, it->guards);
-                } else {
-                    if (auto handler = detail::error_handler_for(status::method_not_allowed)) {
-                        resp = handler(req);
-                    } else {
-                        resp = to_response(std::string("405 Method Not Allowed"));
-                        resp.status = status::method_not_allowed;
-                    }
-                }
-            } catch (const std::exception& e) {
-                std::println(stderr, "Error handling request: {}", e.what());
-                if (auto handler = detail::error_handler_for(status::internal_error)) {
-                    resp = handler(req);
-                } else {
-                    resp = to_response(std::string("500 Internal Server Error"));
-                    resp.status = status::internal_error;
-                }
-            }
-            send_response(client_fd, resp);
-            close(client_fd);
-        });
+        detail::request_pool()->submit([client_fd, &all_routes]() { on_client(client_fd, all_routes); });
         }
     }
 }
