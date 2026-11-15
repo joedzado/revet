@@ -1,8 +1,21 @@
 cmake_minimum_required(VERSION 3.20)
-project({{name}} C CXX)
+project({{name}} CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ── ccache (opt-in: -DREVET_CCACHE=ON) ────────────────────────────────────────
+# Measured: a clean rebuild takes about half the time, but every edit-rebuild is ~0.3 s
+# slower, so it is off by default.
+option(REVET_CCACHE "Compile through ccache" OFF)
+find_program(CCACHE_EXE NAMES ccache)
+if(REVET_CCACHE AND CCACHE_EXE AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    # The sloppiness settings are what ccache needs to cache with a precompiled header.
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_COMMAND} -E env
+        CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime ${CCACHE_EXE})
+else()
+    set(REVET_CCACHE OFF)
+endif()
 
 # ── Runtime Data Directory ────────────────────────────────────────────────────
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/build/data)
@@ -82,9 +95,9 @@ include(${FRAMEWORK_DIR}/cmake/vendor.cmake)
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
 find_package(CURL REQUIRED)
-find_package(ZLIB REQUIRED)  # websocket permessage-deflate, rails_encryption
+# zlib (websocket permessage-deflate, rails_encryption) arrives through CURL::libcurl.
 target_link_libraries(revet_core INTERFACE
-    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB)
+    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)
@@ -92,12 +105,37 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     set(GEN_DIR ${CMAKE_SOURCE_DIR}/build/generated)
     file(MAKE_DIRECTORY ${GEN_DIR})
 
-    # Codegen tool (C++, from framework) — built once per project, run per generator.
-    file(GLOB CODEGEN_SOURCES CONFIGURE_DEPENDS ${FRAMEWORK_DIR}/cmake/codegen/*.cpp)
-    add_executable(revet_codegen_tool ${CODEGEN_SOURCES})
-    target_compile_features(revet_codegen_tool PRIVATE cxx_std_23)
-    set_target_properties(revet_codegen_tool PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+    # Codegen tool (C++). Normally prebuilt with the framework (<framework>/prebuilt/bin).
+    # Without that (framework used from a source checkout) it is compiled once here, at
+    # configure time, and again only when a codegen source is newer than the binary.
+    set(REVET_CODEGEN_BIN ${FRAMEWORK_DIR}/prebuilt/bin/revet_codegen_tool)
+    if(NOT EXISTS ${REVET_CODEGEN_BIN})
+        file(GLOB CODEGEN_SOURCES CONFIGURE_DEPENDS
+            ${FRAMEWORK_DIR}/cmake/codegen/*.cpp ${FRAMEWORK_DIR}/cmake/codegen/*.hpp)
+        set(REVET_CODEGEN_BIN ${CMAKE_BINARY_DIR}/tools/revet_codegen_tool)
+        set(_codegen_stale OFF)
+        foreach(_src ${CODEGEN_SOURCES})
+            if(${_src} IS_NEWER_THAN ${REVET_CODEGEN_BIN})
+                set(_codegen_stale ON)
+            endif()
+        endforeach()
+        if(_codegen_stale)
+            message(STATUS "Building revet_codegen_tool (no prebuilt tool in ${FRAMEWORK_DIR}/prebuilt)")
+            file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+            # Apple clang needs the SDK passed explicitly when run outside the generator.
+            set(_sysroot_args "")
+            if(CMAKE_OSX_SYSROOT)
+                set(_sysroot_args -isysroot ${CMAKE_OSX_SYSROOT})
+            endif()
+            set(_codegen_cpp ${CODEGEN_SOURCES})
+            list(FILTER _codegen_cpp INCLUDE REGEX "\\.cpp$")
+            execute_process(COMMAND ${CMAKE_CXX_COMPILER} ${_sysroot_args} -std=c++23 -O0 -I${FRAMEWORK_DIR}/vendor/ctre/include ${_codegen_cpp} -o ${REVET_CODEGEN_BIN}
+                            RESULT_VARIABLE _codegen_build_rc)
+            if(NOT _codegen_build_rc EQUAL 0)
+                message(FATAL_ERROR "revet_codegen_tool failed to build (${_codegen_build_rc})")
+            endif()
+        endif()
+    endif()
 
     # Codegen helpers (from framework)
     function(add_codegen NAME GENERATOR OUTPUTS)
@@ -107,14 +145,14 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         )
         add_custom_command(
             OUTPUT ${OUTPUTS}
-            COMMAND revet_codegen_tool ${GENERATOR} ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
-            DEPENDS revet_codegen_tool ${DEPS}
+            COMMAND ${REVET_CODEGEN_BIN} ${GENERATOR} ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
+            DEPENDS ${REVET_CODEGEN_BIN} ${DEPS}
             COMMENT "Running codegen: ${NAME}"
             VERBATIM
         )
     endfunction()
 
-    add_codegen(JsonModels gen_json_models "${GEN_DIR}/json_models.hpp")
+    add_codegen(JsonModels gen_json_models "${GEN_DIR}/models.hpp")
     add_codegen(States    gen_states    "${GEN_DIR}/states.hpp")
     add_codegen(Forms     gen_forms     "${GEN_DIR}/forms.hpp")
     add_codegen(Components gen_components "${GEN_DIR}/components.hpp")
@@ -132,7 +170,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     add_codegen(I18n gen_i18n "${GEN_DIR}/i18n.hpp")
 
     set(GENERATED_SOURCES
-        ${GEN_DIR}/json_models.hpp
+        ${GEN_DIR}/models.hpp
         ${GEN_DIR}/states.hpp
         ${GEN_DIR}/forms.hpp
         ${GEN_DIR}/components.hpp
@@ -149,17 +187,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GEN_DIR}/i18n.hpp
     )
 
-    # dependencies.cmake is included at configure time, so the codegen tool must exist
-    # before the build runs. Built here only when missing; the build-time target rebuilds it.
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
-    set(REVET_CODEGEN_BIN ${CMAKE_BINARY_DIR}/tools/revet_codegen_tool)
-    if(NOT EXISTS ${REVET_CODEGEN_BIN})
-        execute_process(COMMAND ${CMAKE_CXX_COMPILER} -std=c++23 -O1 ${CODEGEN_SOURCES} -o ${REVET_CODEGEN_BIN}
-                        RESULT_VARIABLE _codegen_build_rc)
-        if(NOT _codegen_build_rc EQUAL 0)
-            message(FATAL_ERROR "revet_codegen_tool failed to build (${_codegen_build_rc})")
-        endif()
-    endif()
     # Generate at configure time: Conan files from `revet build` must already exist for find_package.
     execute_process(COMMAND ${REVET_CODEGEN_BIN} gen_dependencies ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
                     RESULT_VARIABLE _gen_deps_rc)
@@ -185,9 +212,15 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         "${CMAKE_SOURCE_DIR}/app/routes/site_init.cpp"
     )
 
-    # Framework implementation sources (non-header .cpp files shipped with framework)
-    file(GLOB framework_impl_sources "${FRAMEWORK_DIR}/src/*.cpp")
-    list(FILTER framework_impl_sources EXCLUDE REGEX "/main\\.cpp$")
+    # Framework implementation (src/*.cpp): prebuilt with the framework when available,
+    # otherwise compiled into the app.
+    set(framework_impl_sources "")
+    set(framework_impl_lib ${FRAMEWORK_DIR}/prebuilt/lib/librevet_core.a)
+    if(CMAKE_CROSSCOMPILING OR NOT EXISTS ${framework_impl_lib})
+        set(framework_impl_lib "")
+        file(GLOB framework_impl_sources "${FRAMEWORK_DIR}/src/*.cpp")
+        list(FILTER framework_impl_sources EXCLUDE REGEX "/main\\.cpp$")
+    endif()
 
     add_executable(revet
         ${app_main}
@@ -200,14 +233,26 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     # revet.toml `binary` sets the file name. The cmake target stays `revet`.
     set_target_properties(revet PROPERTIES OUTPUT_NAME "{{binary}}")
     target_include_directories(revet PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/app/routes ${GEN_DIR})
-    target_link_libraries(revet PRIVATE revet_core)
+    target_link_libraries(revet PRIVATE revet_core ${framework_impl_lib})
+    # web.hpp is about a second of parsing in every translation unit. (Adding upload.hpp,
+    # htmx.hpp, db.hpp and <format> was measured and did not help.)
+    target_precompile_headers(revet PRIVATE <revet/web.hpp>)
+    if(REVET_CCACHE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(revet PRIVATE -Xclang -fno-pch-timestamp)
+    endif()
     target_compile_options(revet PRIVATE -Wno-unknown-attributes)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
         if(NOT CMAKE_CROSSCOMPILING)
             target_compile_options(revet PRIVATE -march=native)
         endif()
-        target_compile_options(revet PRIVATE -flto)
-        target_link_options(revet PRIVATE -flto)
+        if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            # ThinLTO with a cache: an edit re-optimizes only the modules it touched.
+            target_compile_options(revet PRIVATE -flto=thin)
+            target_link_options(revet PRIVATE -flto=thin -Wl,-cache_path_lto,${CMAKE_BINARY_DIR}/lto-cache)
+        else()
+            target_compile_options(revet PRIVATE -flto)
+            target_link_options(revet PRIVATE -flto)
+        endif()
     endif()
 
     find_package(Threads REQUIRED)

@@ -65,6 +65,8 @@ for d in cmake src static template include vendor CMakeLists.txt conanfile.py LI
         cp "$SRC_DIR/$d" "$PREFIX/$d"
     fi
 done
+# Codegen tool and vendored static libs, built once here and reused by every app build.
+cmake --install "$BUILD_DIR" --prefix "$PREFIX/prebuilt" >/dev/null
 cp "$SRC_DIR/bin/revet" "$PREFIX/revet"
 chmod +x "$PREFIX/revet"
 

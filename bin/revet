@@ -298,7 +298,8 @@ def _deps_hash(user_deps: dict) -> str:
 
 def _conan_needs_update(user_deps: dict, conan_dir: Path) -> bool:
     marker = conan_dir / ".revet_deps_hash"
-    if not (conan_dir / "ctre-config.cmake").exists():
+    # Any file Conan always writes; a missing one means the install never finished.
+    if not (conan_dir / "conan_toolchain.cmake").exists():
         return True
     if not marker.exists():
         return True
@@ -949,8 +950,12 @@ def _cmake_build(release=False, asan=False, debug=False, target=None):
             result.stderr += f"Then: revet clean && revet dev\n"
 
     if not release and not profile and result.returncode == 0 and shutil.which("dsymutil"):
-        subprocess.run(["dsymutil", f"{BUILD_DIR}/revet"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # ~0.2 s; skipped when the binary did not change (dSYM already newer).
+        binary = Path(f"{BUILD_DIR}/revet")
+        dwarf = Path(f"{BUILD_DIR}/revet.dSYM/Contents/Resources/DWARF/revet")
+        if binary.exists() and not (dwarf.exists() and dwarf.stat().st_mtime >= binary.stat().st_mtime):
+            subprocess.run(["dsymutil", str(binary)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result
 
 # ── routes ────────────────────────────────────────────────────────────────────

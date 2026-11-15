@@ -19,7 +19,21 @@ if(CCACHE_EXE)
 endif()
 
 # ── Dependencies: vendored (libsodium, simdjson, ctre) + system/Conan (curl) ──
+set(REVET_BUILDING_FRAMEWORK ON)
 include(${CMAKE_SOURCE_DIR}/cmake/vendor.cmake)
+
+# ── Codegen tool: built once here; app builds reuse it from <framework>/prebuilt ──
+file(GLOB CODEGEN_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/cmake/codegen/*.cpp)
+add_executable(revet_codegen_tool ${CODEGEN_SOURCES})
+target_link_libraries(revet_codegen_tool PRIVATE ctre::ctre)
+set_target_properties(revet_codegen_tool PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+
+# `cmake --install build --prefix <framework>/prebuilt` (install.sh does this) gives app
+# builds the tool and the vendored static libs, so they compile none of them.
+install(TARGETS revet_codegen_tool RUNTIME DESTINATION bin)
+install(TARGETS simdjson_vendor ARCHIVE DESTINATION lib)
+install(FILES ${REVET_SODIUM_PREFIX}/lib/libsodium.a DESTINATION lib)
+install(DIRECTORY ${REVET_SODIUM_PREFIX}/include/ DESTINATION include)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -29,6 +43,7 @@ add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp
 target_include_directories(revet_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB)
 target_compile_options(revet_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
+install(TARGETS revet_core ARCHIVE DESTINATION lib)  # prebuilt/lib: apps link it instead of compiling src/*.cpp
 
 find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
 if(CLANG_TIDY_EXE)
