@@ -131,3 +131,5 @@ CC=/usr/bin/clang CXX=/usr/bin/clang++ conan install . --build=missing
 ```
 
 The result is cached, so this is a one-time cost.
+
+The same applies to libsodium. Built with GCC, its ARM AES-256-GCM code compiles to nothing (it needs clang), so `crypto_aead_aes256gcm_is_available()` returns 0 even on a CPU with AES, and anything using AES-GCM (Rails encrypted columns) fails with "this CPU has no hardware AES". Rebuild it with clang: `CC=/usr/bin/clang CXX=/usr/bin/clang++ conan install . --build='libsodium/*'`.
