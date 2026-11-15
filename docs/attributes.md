@@ -14,7 +14,7 @@ struct [[revet::model]] User {
 };
 ```
 
-**Scanned by:** `gen_json_models.py` (anywhere under `app/**` plus `app/apis/*.hpp`).
+**Scanned by:** `gen_json_models` (anywhere under `app/**` plus `app/apis/*.hpp`).
 
 **Emits:** `revet::json::from_json<User>(Document&)` and `to_json<User>(const User&)` template specializations into `models.hpp`. Honors `std::optional` (absent or `null` → `nullopt`), `std::vector<T>` at field positions, nested `[[revet::model]]` types.
 
@@ -29,7 +29,7 @@ namespace usgs_gov {
 }
 ```
 
-**Scanned by:** `gen_api.py` (only `app/apis/*.hpp`).
+**Scanned by:** `gen_api` (only `app/apis/*.hpp`).
 
 **Emits:** an inline coroutine definition into `apis.hpp` that:
 
@@ -47,7 +47,7 @@ The function declaration in the header is what `gen_api` reads; the codegen prod
 struct [[revet::toggle]] DarkMode { bool enabled = false; };
 ```
 
-**Scanned by:** `gen_toggles.py` (`app/states/*.hpp`).
+**Scanned by:** `gen_toggles` (`app/states/*.hpp`).
 
 **Emits:** into `toggles.hpp`:
 
@@ -66,7 +66,7 @@ struct [[revet::form]] ContactForm {
 };
 ```
 
-**Scanned by:** `gen_forms.py` (`app/forms/*.hpp`).
+**Scanned by:** `gen_forms` (`app/forms/*.hpp`).
 
 **Emits:** form helpers into `forms.hpp` — typed `decode<ContactForm>(req)`, render utilities, etc. Used in conjunction with `app/routes/<x>.cpp` that has a `render_post(const ContactForm&)`.
 
@@ -77,7 +77,7 @@ struct [[revet::form]] ContactForm {
 [[revet::export]] auto button(std::string_view label) -> html::Node { ... }
 ```
 
-**Scanned by:** `gen_components.py` (`app/components/*.cpp`, `app/layouts/*.cpp`).
+**Scanned by:** `gen_components` (`app/components/*.cpp`, `app/layouts/*.cpp`).
 
 **Emits:** a forward declaration into `components.hpp` so any route file can call the function without including the source. Resolves at link time.
 

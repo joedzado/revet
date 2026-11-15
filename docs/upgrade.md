@@ -56,6 +56,6 @@ revet clean && revet dev
 
 ## Downgrading
 
-Today the install script tracks `main` — there are no released versions to pin to (see [contributing.md → Release process](./contributing.md#release-process)). Downgrade is "git checkout an older revision of the framework, re-run `scripts/revet-fw install`."
+Today the install script tracks `main` — there are no released versions to pin to (see [contributing.md → Release process](./contributing.md#release-process)). Downgrade is "git checkout an older revision of the framework, re-run `scripts/install.sh`."
 
 When tagged releases exist, `install.sh --version vX.Y.Z` will be the supported path.

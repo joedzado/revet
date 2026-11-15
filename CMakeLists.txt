@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(revet CXX)
+project(revet C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -18,12 +18,10 @@ if(CCACHE_EXE)
     endif()
 endif()
 
-# ── Conan-provided dependencies ──────────────────────────────────────────────
+# ── Dependencies: vendored (libsodium, simdjson, ctre) + system/Conan (curl) ──
+include(${CMAKE_SOURCE_DIR}/cmake/vendor.cmake)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
-find_package(libsodium REQUIRED)
 find_package(CURL REQUIRED)
-find_package(simdjson REQUIRED)
-find_package(ctre REQUIRED)
 find_package(ZLIB REQUIRED)
 
 # ── Target: revet_core (Framework library) ──────────────────────────────────
@@ -48,7 +46,7 @@ if(REVET_ASAN)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
-find_package(Catch2 3 REQUIRED)
+find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
     include(CTest)
     file(GLOB test_sources "${CMAKE_SOURCE_DIR}/tests/*.cpp")

@@ -96,7 +96,7 @@ This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++
 git clone https://github.com/joedzado/revet.git
 cd revet
 ./scripts/install_deps.sh        # install system deps
-sudo ./scripts/revet-fw install  # deploy to ~/.revet/current/, symlink revet to /usr/local/bin
+./install.sh  # deploy to ~/.revet/current/, symlink revet to /usr/local/bin
 ```
 </details>
 
@@ -1176,7 +1176,7 @@ TEST_CASE("Basic test") {
 }
 ```
 
-Run via `revet build` (if Catch2 available) or the framework test suite (`./scripts/revet-fw test`).
+Run via `revet build` (if Catch2 available) or the framework test suite (`./ctest --test-dir build`).
 
 ## Quick Reference
 
@@ -1210,11 +1210,11 @@ Run via `revet build` (if Catch2 available) or the framework test suite (`./scri
 ```bash
 cd ~/revet
 
-./scripts/revet-fw test    # run framework tests with ASan
-sudo ./scripts/revet-fw install  # deploy to ~/.revet/current/
-./scripts/revet-fw tidy    # lint with fixes
-./scripts/revet-fw format  # format code
-./scripts/revet-fw clean   # remove build artifacts
+./ctest --test-dir build    # run framework tests with ASan
+./install.sh  # deploy to ~/.revet/current/
+(removed)
+(removed)
+./rm -rf build   # remove build artifacts
 python3 scripts/check_deps.py    # check dependencies
 ```
 
@@ -1224,11 +1224,10 @@ python3 scripts/check_deps.py    # check dependencies
 revet/
 ├── include/revet/       ← Framework public headers
 ├── src/                 ← Framework implementation
-├── cmake/               ← Code generation scripts (gen_routes.py, etc.)
+├── cmake/codegen/       ← Code generation tool (C++, revet_codegen_tool)
 ├── template/            ← User project template (scaffolded by `revet new`)
 ├── demo/                ← Full-featured demo app
 ├── scripts/
-│   ├── revet-fw         ← Framework developer tool
 │   ├── check_deps.py    ← Dependency validator
 │   └── install_deps.sh  ← Auto-installer
 ├── bin/revet            ← User-facing CLI
@@ -1238,19 +1237,21 @@ revet/
 
 ### Codegen pipeline
 
-| Script | Input | Output |
+Generators run in the C++ tool `revet_codegen_tool` (source in `cmake/codegen/`). Full reference: [docs/codegen.md](docs/codegen.md).
+
+| Generator | Input | Output |
 |---|---|---|
-| `gen_routes.py` | `app/routes/**/*.cpp` | `routes.hpp`, `routes.cpp` |
-| `gen_resources.py` | `revet.toml` | `resources.hpp` |
-| `gen_queries.py` | `app/queries/*.sql` | `queries.hpp` |
-| `gen_styles.py` | `app/styles/*.css` | `styles.hpp` |
-| `gen_components.py` | `app/components/*.cpp`, `app/layouts/*.cpp` | `components.hpp` |
-| `gen_json_models.py` | `models/*.hpp` | `models.hpp` |
-| `gen_states.py` | `app/states/*.hpp` | `states.hpp` |
-| `gen_toggles.py` | `app/states/*.hpp` | `toggles.hpp` |
-| `gen_forms.py` | `app/forms/*.hpp` | `forms.hpp` |
-| `gen_api.py` | `app/apis/*.hpp` | `apis.hpp` |
-| `gen_i18n.py` | `locale/*.csv` | `i18n.hpp` |
+| `gen_routes` | `app/routes/**/*.cpp` | `routes.hpp`, `routes.cpp` |
+| `gen_resources` | `revet.toml` | `resources.hpp` |
+| `gen_queries` | `app/queries/*.sql` | `queries.hpp` |
+| `gen_styles` | `app/styles/*.css` | `styles.hpp` |
+| `gen_components` | `app/components/*.cpp`, `app/layouts/*.cpp` | `components.hpp` |
+| `gen_json_models` | `app/**/*.hpp` | `models.hpp` |
+| `gen_states` | `app/states/*.hpp` | `states.hpp` |
+| `gen_toggles` | `app/states/*.hpp` | `toggles.hpp` |
+| `gen_forms` | `app/forms/*.hpp` | `forms.hpp` |
+| `gen_api` | `app/apis/*.hpp` | `apis.hpp` |
+| `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` |
 
 All outputs land in `build/generated/`.
 
@@ -1265,8 +1266,8 @@ All outputs land in `build/generated/`.
 1. Fork and clone
 2. Install dependencies: `./scripts/install_deps.sh`
 3. Create a feature branch: `git checkout -b feature/my-feature`
-4. Make changes and run tests: `./scripts/revet-fw test`
-5. Ensure code quality: `./scripts/revet-fw tidy && ./scripts/revet-fw format`
+4. Make changes and run tests: `./ctest --test-dir build`
+5. Ensure code quality: `(removed)
 6. Submit a pull request
 
 ## Acknowledgments

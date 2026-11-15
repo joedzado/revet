@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project({{name}} CXX)
+project({{name}} C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -76,16 +76,15 @@ endif()
 # ── External Dependencies (generated from revet.toml [build.dependencies]) ──
 # Note: Dependency linking happens after include(dependencies.cmake) in the site block below
 
-# ── All deps resolved via Conan (build/conan/ populated by revet CLI) ─────────
+# ── Deps: vendored (libsodium, simdjson, ctre) + system/Conan (curl) ─────────
+include(${FRAMEWORK_DIR}/cmake/vendor.cmake)
 # Conan installs Release packages; map Debug cmake builds to use them too
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/conan")
-find_package(libsodium REQUIRED)
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
 find_package(CURL REQUIRED)
-find_package(simdjson REQUIRED)
-find_package(ctre REQUIRED)
+find_package(ZLIB REQUIRED)  # websocket permessage-deflate, rails_encryption
 target_link_libraries(revet_core INTERFACE
-    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
+    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB)
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)
@@ -93,30 +92,23 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     set(GEN_DIR ${CMAKE_SOURCE_DIR}/build/generated)
     file(MAKE_DIRECTORY ${GEN_DIR})
 
-    # Codegen needs Python 3.12+ (tomllib, PEP 701 f-strings). REVET_PYTHON picks the interpreter;
-    # otherwise the newest python3 on PATH, so a login shell's /usr/bin/python3 3.9 is not used by accident.
-    if(DEFINED ENV{REVET_PYTHON})
-        set(Python3_EXECUTABLE "$ENV{REVET_PYTHON}")
-    endif()
-    set(Python3_FIND_STRATEGY VERSION)
-    # ssh and launchd shells often lack Homebrew on PATH.
-    list(APPEND CMAKE_PROGRAM_PATH /opt/homebrew/bin /usr/local/bin)
-    find_package(Python3 3.12 COMPONENTS Interpreter)
-    if(NOT Python3_FOUND)
-        message(FATAL_ERROR "Revet codegen needs Python 3.12 or newer. Install it, or set REVET_PYTHON=/path/to/python3.12")
-    endif()
+    # Codegen tool (C++, from framework) — built once per project, run per generator.
+    file(GLOB CODEGEN_SOURCES CONFIGURE_DEPENDS ${FRAMEWORK_DIR}/cmake/codegen/*.cpp)
+    add_executable(revet_codegen_tool ${CODEGEN_SOURCES})
+    target_compile_features(revet_codegen_tool PRIVATE cxx_std_23)
+    set_target_properties(revet_codegen_tool PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
 
     # Codegen helpers (from framework)
-    function(add_codegen NAME SCRIPT_NAME OUTPUTS)
-        set(SCRIPT ${FRAMEWORK_DIR}/cmake/${SCRIPT_NAME}.py)
-        file(GLOB_RECURSE DEPS
+    function(add_codegen NAME GENERATOR OUTPUTS)
+        file(GLOB_RECURSE DEPS CONFIGURE_DEPENDS
             "${CMAKE_SOURCE_DIR}/app/**"
             "${CMAKE_SOURCE_DIR}/revet.toml"
         )
         add_custom_command(
             OUTPUT ${OUTPUTS}
-            COMMAND ${Python3_EXECUTABLE} ${SCRIPT} ${CMAKE_SOURCE_DIR}
-            DEPENDS ${SCRIPT} ${DEPS}
+            COMMAND revet_codegen_tool ${GENERATOR} ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
+            DEPENDS revet_codegen_tool ${DEPS}
             COMMENT "Running codegen: ${NAME}"
             VERBATIM
         )
@@ -137,14 +129,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
     add_codegen(Dependencies gen_dependencies "${GEN_DIR}/dependencies.cmake")
 
     # I18n — always runs; produces empty namespace if no locale/strings.csv
-    file(GLOB LOCALE_FILES "${CMAKE_SOURCE_DIR}/app/locale/*.csv")
-    add_custom_command(
-        OUTPUT  ${GEN_DIR}/i18n.hpp
-        COMMAND ${Python3_EXECUTABLE} ${FRAMEWORK_DIR}/cmake/gen_i18n.py ${CMAKE_SOURCE_DIR}
-        DEPENDS ${FRAMEWORK_DIR}/cmake/gen_i18n.py ${LOCALE_FILES}
-        COMMENT "Running codegen: I18n"
-        VERBATIM
-    )
+    add_codegen(I18n gen_i18n "${GEN_DIR}/i18n.hpp")
 
     set(GENERATED_SOURCES
         ${GEN_DIR}/json_models.hpp
@@ -164,13 +149,22 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         ${GEN_DIR}/i18n.hpp
     )
 
-    # Generate at configure time: the build-time codegen above runs after this
-    # configure on a fresh build dir, and find_package needs the Conan files that
-    # revet build has just installed.
-    execute_process(COMMAND python3 ${FRAMEWORK_DIR}/cmake/gen_dependencies.py ${CMAKE_SOURCE_DIR}
+    # dependencies.cmake is included at configure time, so the codegen tool must exist
+    # before the build runs. Built here only when missing; the build-time target rebuilds it.
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+    set(REVET_CODEGEN_BIN ${CMAKE_BINARY_DIR}/tools/revet_codegen_tool)
+    if(NOT EXISTS ${REVET_CODEGEN_BIN})
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} -std=c++23 -O1 ${CODEGEN_SOURCES} -o ${REVET_CODEGEN_BIN}
+                        RESULT_VARIABLE _codegen_build_rc)
+        if(NOT _codegen_build_rc EQUAL 0)
+            message(FATAL_ERROR "revet_codegen_tool failed to build (${_codegen_build_rc})")
+        endif()
+    endif()
+    # Generate at configure time: Conan files from `revet build` must already exist for find_package.
+    execute_process(COMMAND ${REVET_CODEGEN_BIN} gen_dependencies ${CMAKE_SOURCE_DIR} ${FRAMEWORK_DIR}
                     RESULT_VARIABLE _gen_deps_rc)
     if(NOT _gen_deps_rc EQUAL 0)
-        message(FATAL_ERROR "gen_dependencies.py failed (${_gen_deps_rc})")
+        message(FATAL_ERROR "gen_dependencies failed (${_gen_deps_rc})")
     endif()
     include(${GEN_DIR}/dependencies.cmake)
 

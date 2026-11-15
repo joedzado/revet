@@ -21,7 +21,7 @@ Topical docs that don't fit in the project README's tour.
 
 ## Reference
 
-- [codegen.md](codegen.md) — every script in `cmake/gen_*.py`
+- [codegen.md](codegen.md) — every generator in `cmake/codegen/`
 - [attributes.md](attributes.md) — `[[revet::*]]` markers
 - [api.md](api.md) — runtime types and helpers
 

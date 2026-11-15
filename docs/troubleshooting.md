@@ -4,14 +4,14 @@ When something goes wrong, in roughly the order it tends to go wrong.
 
 ## "My framework change isn't taking effect"
 
-Symptom: you edited `~/revet/cmake/gen_routes.py` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
+Symptom: you edited `~/revet/cmake/codegen/gen_routes.cpp` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
 
-Cause: `revet dev` reads the framework from `~/.revet/current/`, which is populated by `revet-fw install` at install time. Editing the source repo does not redeploy.
+Cause: `revet dev` reads the framework from `~/.revet/current/`, which is populated by `install.sh` at install time. Editing the source repo does not redeploy.
 
 Fix:
 
 ```bash
-sudo ~/revet/scripts/revet-fw install
+~/revet/install.sh
 ```
 
 This wipes `~/.revet/current/` and copies the source over. Re-run `revet dev` afterwards.
@@ -111,7 +111,7 @@ Symptom:
 fatal: could not create work tree dir '/Users/you/.revet/src': Permission denied
 ```
 
-Cause: `~/.revet/` is owned by root from a prior `sudo revet-fw install`. The user-facing `install.sh` runs as your user and cannot write into it. `sudo curl ... | sh` does not help — only `curl` runs as root; the `sh` after the pipe runs as you.
+Cause: `~/.revet/` is owned by root from a prior `./install.sh`. The user-facing `install.sh` runs as your user and cannot write into it. `sudo curl ... | sh` does not help — only `curl` runs as root; the `sh` after the pipe runs as you.
 
 Fix:
 

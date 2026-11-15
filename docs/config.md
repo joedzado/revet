@@ -44,7 +44,7 @@ url  = "env:DATABASE_URL"   # `env:NAME` reads the value from environment
 [htmx]
 # version = "2.0.4"        # default tracks the framework's bundled htmx
 
-# Per-toggle defaults (gen_toggles.py)
+# Per-toggle defaults (gen_toggles)
 [toggles]
 # default_dark_mode = true
 ```

@@ -31,9 +31,9 @@ static auto render_get(const auto& req) {
         html::p{i18n::getting_involved_body} +
         ui::toggle("getting-started", i18n::toggle_dev_commands,
             html::pre{
-R"sh(./scripts/revet-fw run      # start the server
-./scripts/revet-fw test     # build with ASAN + run all tests
-./scripts/revet-fw install  # deploy to ~/.revet/current/  (requires sudo))sh"
+R"sh(revet dev      # start the server
+./ctest --test-dir build     # build with ASAN + run all tests
+./scripts/install.sh  # deploy to ~/.revet/current/  (requires sudo))sh"
             }
         );
 

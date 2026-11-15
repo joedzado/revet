@@ -62,7 +62,7 @@ What `install.sh` does:
 
 1. Clones the repo to `~/.revet/src/`.
 2. Runs `scripts/install_deps.sh` to install missing dev dependencies for your OS.
-3. Runs `scripts/revet-fw install`, which:
+3. Runs `scripts/install.sh`, which:
    - Copies the framework into `~/.revet/current/`.
    - Symlinks `/usr/local/bin/revet → ~/.revet/current/bin/revet` (needs sudo for the symlink).
 
@@ -92,6 +92,6 @@ The framework owns nothing else outside those two paths. Conan's package cache (
 
 ## Why is `~/.revet/current/` root-owned?
 
-`install.sh` runs `scripts/revet-fw install` under `sudo` to drop the symlink into `/usr/local/bin/`, and the symlink + the install dir end up owned by root. This is fine for end users (read-only stable install, like Homebrew or Node).
+`install.sh` runs `scripts/install.sh` under `sudo` to drop the symlink into `/usr/local/bin/`, and the symlink + the install dir end up owned by root. This is fine for end users (read-only stable install, like Homebrew or Node).
 
 If you're hacking on the framework itself, you'll want to point at your source repo instead — see [contributing.md](./contributing.md).
