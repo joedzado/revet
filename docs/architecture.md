@@ -107,11 +107,11 @@ Live as `static` inside generated `resources::_pools::_pool_<name>()`. Created a
 ├─ demo/                 # showcase site that exercises every feature
 ├─ tests/                # framework tests (catch2 + Python unittest)
 ├─ docs/                 # this directory
-└─ scripts/revet-fw      # framework dev/install commands
+└─ scripts/install.sh      # framework dev/install commands
 ```
 
 When you build:
-- Framework's own CMakeLists is for hacking on the framework (`revet-fw test`).
+- Framework's own CMakeLists is for hacking on the framework (`install.sh test`).
 - `template/CMakeLists.txt` is what gets copied per-project by `revet build`.
 - `demo/CMakeLists.txt` is the demo's own copy.
 
@@ -119,11 +119,11 @@ If you change build behavior, edit `template/CMakeLists.txt`. The demo's copy re
 
 ## Distribution & install
 
-`scripts/revet-fw install` does two things:
+`scripts/install.sh` does two things:
 
 1. Copies the source tree to `~/.revet/current/` so the CLI can find it from `FRAMEWORK_DIR = "/Users/joedzado/.revet/current"` (baked into the per-project CMakeLists).
 2. Symlinks `~/.revet/current/bin/revet` to `/usr/local/bin/revet`.
 
 The CLI (`bin/revet`) reads `VERSION` from its parent directory, so it correctly reports the *installed* version even if you have an unsynced source repo elsewhere.
 
-End-users install via the curl-pipe-to-sh installer (`install.sh`); contributors who hack the framework re-run `revet-fw install` after edits.
+End-users install via the curl-pipe-to-sh installer (`install.sh`); contributors who hack the framework re-run `install.sh` after edits.

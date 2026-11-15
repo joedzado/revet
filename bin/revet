@@ -3,7 +3,7 @@ import sys
 
 """revet — user-facing CLI for revet projects.
 
-Deployed to ~/.revet/current/revet via: sudo ./scripts/revet-fw install
+Deployed to ~/.revet/current/revet via: ./install.sh
 Symlinked to /usr/local/bin/revet for global access.
 
 Usage from project directory:
@@ -1135,7 +1135,7 @@ def dev(port, lldb=False, profile=False, asan=False, debug=False, logging=None):
 def new_project(name, empty=False):
     framework = FRAMEWORK_DIR
     if not framework.exists():
-        err("framework not installed — run `sudo ./scripts/revet-fw install` from the revet repo first")
+        err("framework not installed — run `./install.sh` from the revet repo first")
         sys.exit(1)
 
     dest = Path.cwd() / name
@@ -1214,7 +1214,7 @@ def upgrade(force=False):
     """Update project to current framework version and regenerate CMakeLists.txt."""
     framework = FRAMEWORK_DIR
     if not framework.exists():
-        err("framework not installed — run `sudo ./scripts/revet-fw install` from the revet repo first")
+        err("framework not installed — run `./install.sh` from the revet repo first")
         sys.exit(1)
 
     project = Path.cwd()

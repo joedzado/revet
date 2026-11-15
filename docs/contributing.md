@@ -8,7 +8,7 @@ How to set up, test, and ship changes against the framework itself (not an app b
 git clone https://github.com/joedzado/revet ~/revet
 cd ~/revet
 bash scripts/install_deps.sh        # libsodium, libcurl, libsqlite, libpq, conan, python3, cmake
-sudo scripts/revet-fw install       # populate ~/.revet/current and install /usr/local/bin/revet
+./install.sh       # populate ~/.revet/current and install /usr/local/bin/revet
 ```
 
 Verify:
@@ -23,7 +23,7 @@ ctest --test-dir build    # full suite — should be all green
 Edits to framework source (`include/revet/`, `src/`, `cmake/codegen/gen_*.cpp`, etc.) do **not** appear in `revet dev` of a test app until you re-run:
 
 ```bash
-sudo scripts/revet-fw install
+./install.sh
 ```
 
 That copies the source tree to `~/.revet/current/`. There is no live-reload across this boundary.
@@ -33,7 +33,7 @@ If you're iterating very heavily on framework code, point a test app's `CMakeLis
 ## Tests
 
 ```bash
-scripts/revet-fw clean             # blow away build dir
+rm -rf build             # blow away build dir
 cmake --build build && ctest --test-dir build   # run the C++ (Catch2) suite
 ```
 
@@ -54,7 +54,7 @@ python3 -m unittest tests.test_gen_api.TestExternalAttributeParsing -v
 ASan + UBSan build:
 
 ```bash
-scripts/revet-fw clean
+rm -rf build
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug -DREVET_ASAN=ON
 cmake --build build
 ctest --test-dir build --output-on-failure

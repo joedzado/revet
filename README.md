@@ -96,7 +96,7 @@ This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++
 git clone https://github.com/joedzado/revet.git
 cd revet
 ./scripts/install_deps.sh        # install system deps
-sudo ./scripts/revet-fw install  # deploy to ~/.revet/current/, symlink revet to /usr/local/bin
+./install.sh  # deploy to ~/.revet/current/, symlink revet to /usr/local/bin
 ```
 </details>
 
@@ -1108,7 +1108,7 @@ TEST_CASE("Basic test") {
 }
 ```
 
-Run via `revet build` (if Catch2 available) or the framework test suite (`./scripts/revet-fw test`).
+Run via `revet build` (if Catch2 available) or the framework test suite (`./ctest --test-dir build`).
 
 ## Quick Reference
 
@@ -1142,11 +1142,11 @@ Run via `revet build` (if Catch2 available) or the framework test suite (`./scri
 ```bash
 cd ~/revet
 
-./scripts/revet-fw test    # run framework tests with ASan
-sudo ./scripts/revet-fw install  # deploy to ~/.revet/current/
-./scripts/revet-fw tidy    # lint with fixes
-./scripts/revet-fw format  # format code
-./scripts/revet-fw clean   # remove build artifacts
+./ctest --test-dir build    # run framework tests with ASan
+./install.sh  # deploy to ~/.revet/current/
+(removed)
+(removed)
+./rm -rf build   # remove build artifacts
 python3 scripts/check_deps.py    # check dependencies
 ```
 
@@ -1160,7 +1160,6 @@ revet/
 ├── template/            ← User project template (scaffolded by `revet new`)
 ├── demo/                ← Full-featured demo app
 ├── scripts/
-│   ├── revet-fw         ← Framework developer tool
 │   ├── check_deps.py    ← Dependency validator
 │   └── install_deps.sh  ← Auto-installer
 ├── bin/revet            ← User-facing CLI
@@ -1199,8 +1198,8 @@ All outputs land in `build/generated/`.
 1. Fork and clone
 2. Install dependencies: `./scripts/install_deps.sh`
 3. Create a feature branch: `git checkout -b feature/my-feature`
-4. Make changes and run tests: `./scripts/revet-fw test`
-5. Ensure code quality: `./scripts/revet-fw tidy && ./scripts/revet-fw format`
+4. Make changes and run tests: `./ctest --test-dir build`
+5. Ensure code quality: `(removed)
 6. Submit a pull request
 
 ## Acknowledgments
