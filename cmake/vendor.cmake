@@ -33,3 +33,7 @@ add_dependencies(libsodium_vendor libsodium_build)
 target_include_directories(libsodium_vendor SYSTEM INTERFACE "${REVET_SODIUM_PREFIX}/include")
 target_link_libraries(libsodium_vendor INTERFACE "${REVET_SODIUM_PREFIX}/lib/libsodium.a")
 add_library(libsodium::libsodium ALIAS libsodium_vendor)
+
+# FTXUI 7.0.3 — terminal UI (used by the revet CLI). examples/ and doc/ are not vendored.
+set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory("${REVET_VENDOR_DIR}/ftxui" "${CMAKE_BINARY_DIR}/vendor/ftxui" EXCLUDE_FROM_ALL)
