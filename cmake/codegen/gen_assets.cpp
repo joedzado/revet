@@ -42,19 +42,16 @@ int gen_htmx(const Ctx& ctx) {
     std::string version = "2.0.9";
     fs::path toml = ctx.proj / "revet.toml";
     if (file_exists(toml)) {
-        static const Re section_re(R"RE(\s*\[htmx\])RE");
-        static const Re version_re(R"RE(\s*version\s*=\s*"([^"]+)")RE");
         bool in_htmx = false;
         for (const auto& line : splitlines(read_text(toml))) {
-            Match m;
-            if (match_prefix(line, m, section_re)) {
+            if (ctre::starts_with<R"RE(\s*\[htmx\])RE">(line)) {
                 in_htmx = true;
                 continue;
             }
             if (in_htmx) {
                 if (starts_with(strip(line), "[")) break;
-                if (match_prefix(line, m, version_re)) {
-                    version = m[1].str();
+                if (auto m = ctre::starts_with<R"RE(\s*version\s*=\s*"([^"]+)")RE">(line)) {
+                    version = m.get<1>().to_string();
                     break;
                 }
             }

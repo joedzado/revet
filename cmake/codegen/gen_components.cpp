@@ -22,15 +22,7 @@ Lines split_ws(const std::string& s) {
     return out;
 }
 
-const Re& export_re() {
-    static const Re re(R"RE(\[\[revet::export\]\])RE");
-    return re;
-}
-
-const Re& state_arg_re() {
-    static const Re re(R"RE(web::(State|Flash)<(\w+)>)RE");
-    return re;
-}
+constexpr std::string_view export_attr = "[[revet::export]]";
 
 }  // namespace
 
@@ -70,8 +62,8 @@ int gen_components(const Ctx& ctx) {
 
     for (const auto& cpp_file : cpp_files) {
         std::string content = read_text(cpp_file);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), export_re()); it != std::sregex_iterator(); ++it) {
-            size_t start = static_cast<size_t>(it->position(0) + it->length(0));
+        for (size_t at = content.find(export_attr); at != std::string::npos; at = content.find(export_attr, at + export_attr.size())) {
+            size_t start = at + export_attr.size();
             size_t paren_open = content.find('(', start);
             if (paren_open == std::string::npos) continue;
 
@@ -92,10 +84,9 @@ int gen_components(const Ctx& ctx) {
                 std::string arg = strip(raw);
                 if (arg.empty()) continue;
                 std::string arg_base = strip(arg.substr(0, arg.find('=')));
-                Match sm;
-                if (std::regex_search(arg_base, sm, state_arg_re())) {
-                    std::string mode = sm[1].str();
-                    std::string tname = sm[2].str();
+                if (auto sm = ctre::search<R"RE(web::(State|Flash)<(\w+)>)RE">(arg_base)) {
+                    std::string mode = sm.get<1>().to_string();
+                    std::string tname = sm.get<2>().to_string();
                     header_args.push_back(cat(arg_base, " = web::", mode, "<", tname, ">::current()"));
                     deps.emplace_back(mode, tname);
                 } else {

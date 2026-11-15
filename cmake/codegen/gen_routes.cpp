@@ -11,22 +11,6 @@
 namespace revet::codegen {
 namespace {
 
-// ── Regexes ─────────────────────────────────────────────────────────────────
-
-const Re& model_attr_re() {
-    static const Re re(R"RE((?:\[\[\s*revet::model[^\]]*\]\]\s*struct|struct\s*\[\[\s*revet::model[^\]]*\]\])\s+(\w+))RE");
-    return re;
-}
-const Re& state_flash_re() {
-    static const Re re(R"RE(web::(State|Flash)<(\w+)>)RE");
-    return re;
-}
-const Re& toggle_re() {
-    static const Re re(
-        R"RE(\[\[[\s\S]*?revet::toggle\(\s*"([^"]+)"\s*,\s*(true|false)\s*\)[\s\S]*?\]\]\s*bool\s+(\w+))RE");
-    return re;
-}
-
 // ── Path → route / namespace ────────────────────────────────────────────────
 
 struct Entry {
@@ -44,14 +28,12 @@ std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
     if (dot != std::string::npos && dot != 0) last = last.substr(0, dot);  // with_suffix("")
     if (parts.back() == "index") parts.pop_back();
 
-    static const Re bracket_re(R"RE(\[(.+)\])RE");
     std::vector<std::string> route_parts;
     std::vector<std::string> ns_parts;
     for (const auto& part : parts) {
-        Match m;
-        if (match_full(part, m, bracket_re)) {
-            route_parts.push_back(":" + m[1].str());
-            ns_parts.push_back("_" + m[1].str() + "_");
+        if (auto m = ctre::match<R"RE(\[([^\n]+)\])RE">(part)) {  // [id].cpp -> :id
+            route_parts.push_back(":" + m.get<1>().to_string());
+            ns_parts.push_back("_" + m.get<1>().to_string() + "_");
         } else {
             route_parts.push_back(part);
             std::string p = part;
@@ -70,8 +52,10 @@ std::set<std::string> scan_model_names(const fs::path& models_dir) {
     std::set<std::string> names;
     for (const auto& f : glob(models_dir, ".hpp")) {
         std::string content = read_text(f);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), model_attr_re()); it != std::sregex_iterator(); ++it) {
-            names.insert((*it)[1].str());
+        for (auto m : ctre::search_all<
+                 R"RE((?:\[\[\s*revet::model[^\]]*\]\]\s*struct|struct\s*\[\[\s*revet::model[^\]]*\]\])\s+(\w+))RE">(
+                 std::string_view(content))) {
+            names.insert(m.get<1>().to_string());
         }
     }
     return names;
@@ -87,15 +71,11 @@ struct StateInfo {
 
 StateInfo extract_state_vars(const std::string& func_name, const std::string& src) {
     StateInfo info;
-    std::string args;
-    Match head;
-    Re head_re(cat(func_name, R"(\s*\(([\s\S]*?)\))"));
-    if (std::regex_search(src, head, head_re)) args = head[1].str();
+    std::string_view args;
+    if (auto head = search_after<R"RE(\s*\(([\s\S]*?)\))RE">(src, func_name)) args = head.get<1>().to_view();
 
     std::set<std::pair<std::string, std::string>> needed;
-    for (auto it = std::sregex_iterator(args.begin(), args.end(), state_flash_re()); it != std::sregex_iterator(); ++it) {
-        needed.insert({(*it)[1].str(), (*it)[2].str()});
-    }
+    for (auto m : find_state_types(args)) needed.insert({m.get<1>().to_string(), m.get<2>().to_string()});
     info.needed = !needed.empty();
     for (const auto& [mode, type] : needed) {
         std::string var = "state_" + type;
@@ -128,25 +108,21 @@ struct ApiDetect {
 
 ApiDetect api_detect(const std::string& func_name, const std::string& src, const std::set<std::string>& names) {
     ApiDetect d;
-    Match pm;
-    Re param_re(cat(func_name, R"(\s*\(\s*const\s+([\w:]+)\s*&)"));
-    if (std::regex_search(src, pm, param_re)) {
-        std::string raw = pm[1].str();
+    if (auto pm = search_after<R"RE(\s*\(\s*const\s+([\w:]+)\s*&)RE">(src, func_name)) {
+        std::string raw = pm.get<1>().to_string();
         size_t sep = raw.rfind("::");
         if (sep != std::string::npos) raw = raw.substr(sep + 2);
         if (names.count(raw)) d.param_type = raw;
     }
 
-    Re async_re(cat(func_name, R"(\s*\([^)]*\)\s*->\s*(?:web::)?Task\s*<)"));
-    d.is_async = std::regex_search(src, async_re);
+    d.is_async = bool(search_after<R"RE(\s*\([^)]*\)\s*->\s*(?:web::)?Task\s*<)RE">(src, func_name));
 
-    Match rm;
-    Re ret_re(cat(func_name, R"(\s*\([^)]*\)\s*->\s*(?:(?:web::)?Task\s*<\s*)?(std::vector\s*<\s*(\w+)\s*>|(\w+)))"));
-    if (std::regex_search(src, rm, ret_re)) {
-        if (rm[2].matched && names.count(rm[2].str())) {
-            d.return_type = "std::vector<" + rm[2].str() + ">";
-        } else if (rm[3].matched && names.count(rm[3].str())) {
-            d.return_type = rm[3].str();
+    if (auto rm = search_after<
+            R"RE(\s*\([^)]*\)\s*->\s*(?:(?:web::)?Task\s*<\s*)?(std::vector\s*<\s*(\w+)\s*>|(\w+)))RE">(src, func_name)) {
+        if (rm.get<2>() && names.count(rm.get<2>().to_string())) {
+            d.return_type = "std::vector<" + rm.get<2>().to_string() + ">";
+        } else if (rm.get<3>() && names.count(rm.get<3>().to_string())) {
+            d.return_type = rm.get<3>().to_string();
         }
     }
     return d;
@@ -260,7 +236,7 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
         std::string stem = src_file.stem().string();
         entry.set("file", str_node(src_abs.string()));
         if (const Node* cmd_node = ref_copy.find("command")) {
-            std::string cmd = std::regex_replace(cmd_node->s, Re(R"(-o\s+\S+)"), "-o " + stem + ".o");
+            std::string cmd = replace_all<R"RE(-o\s+\S+)RE">(cmd_node->s, "-o " + stem + ".o");
             std::string extra = " " + join(include_flags, " ") + " -Wno-unused-function";
             size_t sp = cmd.rfind(' ');
             std::string prefix = sp == std::string::npos ? "" : cmd.substr(0, sp);
@@ -336,20 +312,16 @@ int gen_routes(const Ctx& ctx) {
     const std::string toggle_handler_t = tmpl(ctx, "routes_toggle_handler.tmpl");
 
     Lines hpp_url_entries;
-    static const Re param_re(R"RE(:(\w+))RE");
-    static const Re param_any_re(R"RE(:\w+)RE");
     for (const auto& e : entries) {
         Lines params;
-        for (auto it = std::sregex_iterator(e.route.begin(), e.route.end(), param_re); it != std::sregex_iterator(); ++it) {
-            params.push_back((*it)[1].str());
-        }
+        for (auto m : ctre::search_all<R"RE(:(\w+))RE">(std::string_view(e.route))) params.push_back(m.get<1>().to_string());
         if (!params.empty()) {
             std::string param_args;
             for (size_t i = 0; i < params.size(); ++i) {
                 if (i) param_args += ", ";
                 param_args += "std::string_view " + params[i];
             }
-            std::string fmt_route = std::regex_replace(e.route, param_any_re, "{}");
+            std::string fmt_route = replace_all<R"RE(:\w+)RE">(e.route, "{}");
             // Python: args are url-encoded with sanitize::url_encode when building a URL.
             Lines wrapped;
             for (const auto& p : params) wrapped.push_back("sanitize::url_encode(" + p + ")");
@@ -404,8 +376,8 @@ int gen_routes(const Ctx& ctx) {
     std::vector<std::pair<std::string, std::string>> toggle_routes;  // (route, name)
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), toggle_re()); it != std::sregex_iterator(); ++it) {
-            toggle_routes.emplace_back((*it)[1].str(), (*it)[3].str());
+        for (auto m : find_toggles(std::string_view(content))) {
+            toggle_routes.emplace_back(m.get<1>().to_string(), m.get<3>().to_string());
         }
     }
     for (const auto& [route, name] : toggle_routes) {
@@ -473,7 +445,7 @@ int gen_routes(const Ctx& ctx) {
             {"get", "get"}, {"post", "post"}, {"put", "put"}, {"delete", "del"}, {"patch", "patch"}};
         for (const auto& [method, field] : method_field) {
             std::string func = "render_" + method;
-            if (!std::regex_search(src, Re(func + R"(\s*\()"))) continue;
+            if (!search_after<R"RE(\s*\()RE">(src, func)) continue;
 
             if (is_api) {
                 emit_api_handler(cpp, e.ns, method, field, src, model_names);
@@ -481,9 +453,11 @@ int gen_routes(const Ctx& ctx) {
             }
 
             StateInfo st = extract_state_vars(func, src);
-            bool is_async =
-                std::regex_search(src, Re(R"(Task\s*<\s*(?:web::)?Response\s*>\s+)" + func + R"(\s*\()")) ||
-                std::regex_search(src, Re(func + R"(\s*\([^)]*\)\s*->\s*web::Task\s*<\s*(?:web::)?Response\s*>)"));
+            // `Task<Response> func(` or `func(...) -> web::Task<Response>`
+            bool is_async = bool(search_after<R"RE(\s*\([^)]*\)\s*->\s*web::Task\s*<\s*(?:web::)?Response\s*>)RE">(src, func));
+            for (auto m : ctre::search_all<R"RE(Task\s*<\s*(?:web::)?Response\s*>\s+(\w+)\s*\()RE">(std::string_view(src))) {
+                if (m.get<1>().to_view() == func) is_async = true;
+            }
 
             if (is_async) {
                 cpp.push_back(cat("        r.async_", field, " = [](const web::Request& req) -> web::Task<web::Response> {"));
@@ -509,7 +483,7 @@ int gen_routes(const Ctx& ctx) {
             }
         }
 
-        if (std::regex_search(src, Re(R"(render_sse\s*\()"))) {
+        if (ctre::search<R"RE(render_sse\s*\()RE">(src)) {
             cpp.push_back("        r.sse = [](const web::Request& req, web::SSEWriter& sse) {");
             StateInfo st = extract_state_vars("render_sse", src);
             if (st.needed || !st.flashes.empty()) cpp.push_back("            auto& ctx = web::Context::current();");
@@ -519,7 +493,7 @@ int gen_routes(const Ctx& ctx) {
         }
 
         // WebSocket handler: render_ws(req[, states...], conn) → void
-        if (std::regex_search(src, Re(R"(render_ws\s*\()"))) {
+        if (ctre::search<R"RE(render_ws\s*\()RE">(src)) {
             cpp.push_back("        r.ws = [](const web::Request& req, web::ws::Conn& conn) {");
             StateInfo st = extract_state_vars("render_ws", src);
             if (st.needed || !st.flashes.empty()) cpp.push_back("            auto& ctx = web::Context::current();");
@@ -528,9 +502,9 @@ int gen_routes(const Ctx& ctx) {
             cpp.push_back("        };");
         }
 
-        if (std::regex_search(src, Re(R"(\bapi_guards\s*\(\s*\))"))) {
+        if (ctre::search<R"RE(\bapi_guards\s*\(\s*\))RE">(src)) {
             cpp.push_back(cat("        r.guards = route_", e.ns, "::api_guards();"));
-        } else if (std::regex_search(src, Re(R"(\broute_guards\s*\(\s*\))"))) {
+        } else if (ctre::search<R"RE(\broute_guards\s*\(\s*\))RE">(src)) {
             cpp.push_back(cat("        r.guards = route_", e.ns, "::route_guards();"));
         }
 

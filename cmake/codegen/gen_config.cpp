@@ -213,15 +213,11 @@ int gen_dependencies(const Ctx& ctx) {
 
     // Line-based on purpose: matches the original parser's behaviour exactly.
     std::vector<std::pair<std::string, std::string>> deps;  // key -> conan ref (insertion order)
-    static const Re section_re(R"RE(\[build\.dependencies\])RE");
-    static const Re with_ref_re(R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE");
-    static const Re bare_re(R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=)RE");
     if (file_exists(toml)) {
         bool in_deps = false;
         for (const auto& line : splitlines(read_text(toml))) {
             std::string stripped = strip(line);
-            Match m;
-            if (match_prefix(stripped, m, section_re)) {
+            if (starts_with(stripped, "[build.dependencies]")) {
                 in_deps = true;
                 continue;
             }
@@ -229,11 +225,11 @@ int gen_dependencies(const Ctx& ctx) {
             if (starts_with(stripped, "[")) break;
             std::string key;
             std::string ref;
-            if (match_prefix(stripped, m, with_ref_re)) {
-                key = m[1].str();
-                ref = m[2].str();
-            } else if (match_prefix(stripped, m, bare_re)) {
-                key = m[1].str();
+            if (auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(stripped)) {
+                key = m.get<1>().to_string();
+                ref = m.get<2>().to_string();
+            } else if (auto b = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=)RE">(stripped)) {
+                key = b.get<1>().to_string();
                 ref = key;
             } else {
                 continue;
@@ -254,15 +250,15 @@ int gen_dependencies(const Ctx& ctx) {
     // '<CMakeName>-release-<arch>-data.cmake' sets '<conan_name>_PACKAGE_FOLDER_RELEASE'.
     // Example: conan package 'libwebp' ships CMake package 'WebP'.
     std::map<std::string, std::string> cmake_names;
-    static const Re folder_re(R"RE(set\((\w+)_PACKAGE_FOLDER_RELEASE)RE");
     fs::path conan_dir = ctx.proj / "build" / "conan";
     if (fs::is_directory(conan_dir)) {
         for (const auto& f : glob(conan_dir, "-data.cmake")) {
             std::string name = f.filename().string();
             if (starts_with(name, "module-") || name.find("-release-") == std::string::npos) continue;
-            Match m;
             std::string text = read_text(f);
-            if (std::regex_search(text, m, folder_re)) cmake_names[m[1].str()] = name.substr(0, name.find("-release-"));
+            if (auto m = ctre::search<R"RE(set\((\w+)_PACKAGE_FOLDER_RELEASE)RE">(text)) {
+                cmake_names[m.get<1>().to_string()] = name.substr(0, name.find("-release-"));
+            }
         }
     }
 
@@ -288,7 +284,6 @@ int gen_dependencies(const Ctx& ctx) {
 
 int gen_toggles(const Ctx& ctx) {
     fs::path out = setup(ctx, "toggles.hpp");
-    static const Re pattern(R"RE(\[\[[\s\S]*?revet::toggle\(\s*"([^"]+)"\s*,\s*(true|false)\s*\)[\s\S]*?\]\]\s*bool\s+(\w+))RE");
 
     struct Toggle {
         std::string name;
@@ -297,8 +292,8 @@ int gen_toggles(const Ctx& ctx) {
     std::vector<Toggle> toggles;
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), pattern); it != std::sregex_iterator(); ++it) {
-            toggles.push_back({(*it)[3].str(), (*it)[2].str() == "true"});
+        for (auto m : find_toggles(std::string_view(content))) {
+            toggles.push_back({m.get<3>().to_string(), m.get<2>().to_view() == "true"});
         }
     }
 

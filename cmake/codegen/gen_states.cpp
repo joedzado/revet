@@ -8,19 +8,6 @@
 namespace revet::codegen {
 namespace {
 
-const Re& flash_re() {
-    static const Re re(R"RE(web::(State|Flash)<(\w+)>)RE");
-    return re;
-}
-const Re& write_re() {
-    static const Re re(R"RE(\.(?:state|flash)\((\w+)\s*\{)RE");
-    return re;
-}
-const Re& template_re() {
-    static const Re re(R"RE((?:has|clear)<(\w+)>)RE");
-    return re;
-}
-
 bool is_str_type(const std::string& t) { return t == "std::string" || t == "std::string_view"; }
 
 bool is_num_type(const std::string& t) {
@@ -68,15 +55,15 @@ std::string drop_default(const std::string& line) {
 }
 
 std::vector<Field> struct_fields(const std::string& body) {
-    static const Re field_re(R"RE(([\w:<>]+)\s+(\w+)$)RE");
     std::vector<Field> fields;
     std::string piece;
     auto handle = [&](const std::string& raw) {
         std::string line = strip(raw);
         if (line.empty()) return;
         line = drop_default(line);
-        Match m;
-        if (std::regex_search(line, m, field_re)) fields.push_back({m[1].str(), m[2].str()});
+        if (auto m = ctre::search<R"RE(([\w:<>]+)\s+(\w+)$)RE">(line)) {
+            fields.push_back({m.get<1>().to_string(), m.get<2>().to_string()});
+        }
     };
     for (char c : body) {
         if (c == ';') {
@@ -105,12 +92,11 @@ int gen_states(const Ctx& ctx) {
     std::set<std::string> types;
     for (const auto& f : files) {
         std::string content = read_text(f);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), flash_re()); it != std::sregex_iterator(); ++it)
-            types.insert((*it)[2].str());
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), write_re()); it != std::sregex_iterator(); ++it)
-            types.insert((*it)[1].str());
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), template_re()); it != std::sregex_iterator(); ++it)
-            types.insert((*it)[1].str());
+        const std::string_view view = content;
+        // web::State<T> / web::Flash<T> arguments, ctx.state(T{...}) / ctx.flash(T{...}) writes, has<T> / clear<T>.
+        for (auto m : find_state_types(view)) types.insert(m.get<2>().to_string());
+        for (auto m : ctre::search_all<R"RE(\.(?:state|flash)\((\w+)\s*\{)RE">(view)) types.insert(m.get<1>().to_string());
+        for (auto m : ctre::search_all<R"RE((?:has|clear)<(\w+)>)RE">(view)) types.insert(m.get<1>().to_string());
     }
 
     if (types.empty()) {
@@ -152,11 +138,15 @@ int gen_states(const Ctx& ctx) {
     std::map<std::string, std::vector<Field>> struct_defs;
     for (const auto& f : search) {
         std::string content = read_text(f);
-        for (const auto& t : types) {
-            if (struct_defs.count(t)) continue;
-            Re def(cat("(?:struct|class)\\s+(?:\\[\\[.*?\\]\\]\\s*)?", t, "\\s*\\{([^}]+)\\};"));
-            Match m;
-            if (std::regex_search(content, m, def)) struct_defs[t] = struct_fields(m[1].str());
+        // `struct T { fields };` (optionally `struct [[attr]] T`). First definition of each type wins.
+        const std::string_view view = content;
+        for (auto head : ctre::search_all<R"RE((?:struct|class)\s+(?:\[\[[^\n]*?\]\]\s*)?(\w+)\s*\{)RE">(view)) {
+            std::string name = head.get<1>().to_string();
+            if (!types.count(name) || struct_defs.count(name)) continue;
+            std::string_view rest = view.substr(offset_in(view, head.to_view()) + head.size());
+            if (auto body = ctre::starts_with<R"RE(([^}]+)\};)RE">(rest)) {
+                struct_defs[name] = struct_fields(body.get<1>().to_string());
+            }
         }
     }
 

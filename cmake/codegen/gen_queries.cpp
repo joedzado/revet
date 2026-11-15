@@ -107,17 +107,16 @@ std::string cpp_type(const std::string& t, const std::string& file, const std::s
 
 // For `WITH a AS (...), b AS (...) <stmt>`, the first verb of <stmt> outside parentheses.
 std::optional<std::string> main_verb_after_with(const std::string& sql) {
-    static const Re tok_re(R"RE([()]|\b(select|insert|update|delete)\b)RE", std::regex::icase);
-    std::string scrubbed = process_sql(sql, nullptr);
+    const std::string scrubbed = lower(process_sql(sql, nullptr));
     int depth = 0;
-    for (auto it = std::sregex_iterator(scrubbed.begin(), scrubbed.end(), tok_re); it != std::sregex_iterator(); ++it) {
-        std::string tok = (*it)[0].str();
+    for (auto m : ctre::search_all<R"RE([()]|\b(?:select|insert|update|delete)\b)RE">(std::string_view(scrubbed))) {
+        std::string_view tok = m.to_view();
         if (tok == "(") {
             ++depth;
         } else if (tok == ")") {
             --depth;
         } else if (depth == 0) {
-            return lower(tok);
+            return std::string(tok);
         }
     }
     return std::nullopt;
@@ -136,8 +135,7 @@ std::string infer_verb(const std::string& sql, const std::string& file, const st
             auto main = main_verb_after_with(sql);
             if (!main) die(file + ": block '" + name + "': WITH has no statement after its CTEs");
             // A data-modifying CTE statement with RETURNING still yields rows.
-            static const Re returning_re(R"RE(\breturning\b)RE", std::regex::icase);
-            if (*main != "select" && !std::regex_search(process_sql(sql, nullptr), returning_re)) return "exec";
+            if (*main != "select" && !ctre::search<R"RE(\breturning\b)RE">(lower(process_sql(sql, nullptr)))) return "exec";
             return "query";
         }
         die(file + ": block '" + name + "': unrecognised SQL verb '" + token +
@@ -231,17 +229,6 @@ int gen_queries(const Ctx& ctx) {
         return 0;
     }
 
-    static const Re exec_re(R"RE(--\s*exec\s*)RE");
-    static const Re columns_re(R"RE(--\s*columns\s*:)RE");
-    static const Re directive_re(R"RE(--\s*@revet:(\w+))RE");
-    static const Re split_re(R"RE(--\s*@revet:name:\s*)RE");
-    static const Re model_re(R"RE(--\s*@revet:model:\s*(\w+))RE");
-    static const Re raw_re(R"RE(--\s*@revet:raw\s*)RE");
-    static const Re returns_re(R"RE(--\s*@revet:returns:\s*(.+)$)RE");
-    static const Re scalar_re(R"RE(--\s*@revet:scalar:\s*(\w+\??)\s*$)RE");
-    static const Re param_re(R"RE(--\s*@revet:param:\s*(\w+)\s+(\w+\??))RE");
-    static const Re ref_re(R"RE(:([A-Za-z_]\w*))RE");
-
     Lines out = file_header({"#include <revet/db.hpp>", "#include <revet/task.hpp>", "#include <revet/decimal.hpp>",
                              "#include \"models.hpp\"", "#include <optional>", "#include <string>",
                              "#include <tuple>", "#include <utility>", "#include <vector>"});
@@ -257,16 +244,15 @@ int gen_queries(const Ctx& ctx) {
         for (const auto& line : splitlines(content)) {
             ++lineno;
             std::string stripped = strip(line);
-            Match m;
             std::string where = file + ":" + std::to_string(lineno) + ": ";
-            if (match_full(stripped, m, exec_re)) {
+            if (ctre::match<R"RE(--\s*exec\s*)RE">(stripped)) {
                 die(where + "'-- exec' is not a valid directive — exec/query is inferred from the SQL verb");
             }
-            if (match_prefix(stripped, m, columns_re)) {
+            if (ctre::starts_with<R"RE(--\s*columns\s*:)RE">(stripped)) {
                 die(where + "'-- columns:' is not a valid directive — use '-- @revet:model: <Type>'");
             }
-            if (match_prefix(stripped, m, directive_re)) {
-                std::string key = m[1].str();
+            if (auto m = ctre::starts_with<R"RE(--\s*@revet:(\w+))RE">(stripped)) {
+                std::string key = m.get<1>().to_string();
                 if (!valid_directives.count(key)) {
                     std::string valid;
                     for (const auto& d : valid_directives) {
@@ -281,10 +267,10 @@ int gen_queries(const Ctx& ctx) {
         // re.split(r"--\s*@revet:name:\s*", content)
         std::vector<std::string> blocks;
         size_t prev = 0;
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), split_re); it != std::sregex_iterator(); ++it) {
-            size_t pos = static_cast<size_t>(it->position(0));
+        for (auto m : ctre::search_all<R"RE(--\s*@revet:name:\s*)RE">(std::string_view(content))) {
+            size_t pos = offset_in(content, m.to_view());
             blocks.push_back(content.substr(prev, pos - prev));
-            prev = pos + static_cast<size_t>(it->length(0));
+            prev = pos + m.size();
         }
         blocks.push_back(content.substr(prev));
 
@@ -303,21 +289,20 @@ int gen_queries(const Ctx& ctx) {
             for (size_t li = 1; li < block_lines.size(); ++li) {
                 const std::string& line = block_lines[li];
                 std::string stripped = strip(line);
-                Match m;
-                if (match_prefix(stripped, m, model_re)) {
-                    model = m[1].str();
-                } else if (match_prefix(stripped, m, raw_re)) {
+                if (auto m = ctre::starts_with<R"RE(--\s*@revet:model:\s*(\w+))RE">(stripped)) {
+                    model = m.get<1>().to_string();
+                } else if (ctre::match<R"RE(--\s*@revet:raw\s*)RE">(stripped)) {
                     is_raw = true;
-                } else if (match_prefix(stripped, m, returns_re)) {
-                    for (const auto& t : split_args(m[1].str())) {
+                } else if (auto r = ctre::match<R"RE(--\s*@revet:returns:\s*([^\n]+))RE">(stripped)) {
+                    for (const auto& t : split_args(r.get<1>().to_view())) {
                         std::string ts = strip(t);
                         if (!ts.empty()) returns.push_back(cpp_type(ts, file, name));
                     }
-                } else if (match_prefix(stripped, m, scalar_re)) {
-                    scalar = cpp_type(m[1].str(), file, name);
-                } else if (match_prefix(stripped, m, param_re)) {
-                    std::string pname = m[1].str();
-                    std::string ctype = cpp_type(m[2].str(), file, name);
+                } else if (auto sc = ctre::match<R"RE(--\s*@revet:scalar:\s*(\w+\??)\s*)RE">(stripped)) {
+                    scalar = cpp_type(sc.get<1>().to_string(), file, name);
+                } else if (auto pm = ctre::starts_with<R"RE(--\s*@revet:param:\s*(\w+)\s+(\w+\??))RE">(stripped)) {
+                    std::string pname = pm.get<1>().to_string();
+                    std::string ctype = cpp_type(pm.get<2>().to_string(), file, name);
                     for (const auto& p : params) {
                         if (p.first == pname) die(file + ": block '" + name + "': duplicate param '" + pname + "'");
                     }
@@ -333,9 +318,9 @@ int gen_queries(const Ctx& ctx) {
             std::string scrubbed = process_sql(sql, nullptr);
             std::vector<std::string> sql_param_refs;
             std::set<std::string> sql_param_set;
-            for (auto it = std::sregex_iterator(scrubbed.begin(), scrubbed.end(), ref_re); it != std::sregex_iterator(); ++it) {
-                sql_param_refs.push_back((*it)[1].str());
-                sql_param_set.insert((*it)[1].str());
+            for (auto m : ctre::search_all<R"RE(:([A-Za-z_]\w*))RE">(std::string_view(scrubbed))) {
+                sql_param_refs.push_back(m.get<1>().to_string());
+                sql_param_set.insert(m.get<1>().to_string());
             }
 
             std::string struct_name;

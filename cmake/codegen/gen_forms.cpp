@@ -15,11 +15,9 @@ struct FormStruct {
 };
 
 std::vector<FormStruct> find_form_structs(const std::string& src) {
-    static const Re pattern(R"RE(struct\s+\[\[revet::form\]\]\s+(\w+)\s*\{)RE");
     std::vector<FormStruct> out;
-    for (auto it = std::sregex_iterator(src.begin(), src.end(), pattern); it != std::sregex_iterator(); ++it) {
-        const std::smatch& m = *it;
-        size_t start = static_cast<size_t>(m.position(0) + m.length(0));
+    for (auto m : ctre::search_all<R"RE(struct\s+\[\[revet::form\]\]\s+(\w+)\s*\{)RE">(std::string_view(src))) {
+        size_t start = offset_in(src, m.to_view()) + m.size();
         int depth = 1;
         size_t i = start;
         while (i < src.size() && depth > 0) {
@@ -28,7 +26,7 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
             ++i;
         }
         // Drops the closing brace.
-        out.push_back({m[1].str(), src.substr(start, i - 1 - start)});
+        out.push_back({m.get<1>().to_string(), src.substr(start, i - 1 - start)});
     }
     return out;
 }
@@ -36,8 +34,6 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
 bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
 std::vector<Member> parse_members(const std::string& body) {
-    static const Re name_re(R"RE((\w+)\s*$)RE");
-    static const Re init_re(R"RE(\{[^}]*\})RE");
     std::vector<Member> members;
     size_t i = 0;
     while (i < body.size()) {
@@ -56,9 +52,8 @@ std::vector<Member> parse_members(const std::string& body) {
         i = j + 1;
         if (decl.empty() || decl.find("revet::Field") == std::string::npos) continue;
         bool optional = starts_with(decl, "std::optional");
-        std::string no_init = strip(std::regex_replace(decl, init_re, ""));
-        Match m;
-        if (std::regex_search(no_init, m, name_re)) members.push_back({m[1].str(), optional});
+        std::string no_init = strip(replace_all<R"RE(\{[^}]*\})RE">(decl, ""));
+        if (auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) members.push_back({m.get<1>().to_string(), optional});
     }
     return members;
 }

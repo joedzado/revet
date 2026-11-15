@@ -1,11 +1,14 @@
 #pragma once
-// Shared helpers for the revet-codegen tool .
-// Everything here is std-only so the tool builds with no Conan dependencies.
+// Shared helpers for the revet-codegen tool.
+// std plus the vendored, header-only CTRE: the tool builds with no Conan dependencies.
+//
+// Regexes are CTRE (checked at compile time). Unlike std::regex, CTRE's `.` matches
+// newlines, so patterns that must stay on one line use [^\n].
 
 #include <cstddef>
+#include <ctre.hpp>
 #include <filesystem>
 #include <initializer_list>
-#include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -17,8 +20,6 @@ namespace revet::codegen {
 namespace fs = std::filesystem;
 using Lines = std::vector<std::string>;
 using Vars = std::vector<std::pair<std::string, std::string>>;
-using Re = std::regex;
-using Match = std::smatch;
 
 // User-facing failure. main() prints what() to stderr and exits 1.
 struct GenError : std::runtime_error {
@@ -81,11 +82,42 @@ std::string rel_include(const fs::path& hpp, const fs::path& proj);
 // Header lines: generated-file banner plus includes.
 Lines file_header(std::initializer_list<std::string> includes);
 
-// ── Regex helpers ───────────────────────────────────────────────────────────
-// Anchored search at the start of `s` .
-bool match_prefix(const std::string& s, Match& m, const Re& re);
-// Full-string match .
-bool match_full(const std::string& s, Match& m, const Re& re);
+// ── CTRE helpers ──
+// Offset of `part` inside `whole` (part must be a view into whole).
+inline std::size_t offset_in(std::string_view whole, std::string_view part) {
+    return static_cast<std::size_t>(part.data() - whole.data());
+}
+// Replaces every match of P in `s` with `with`.
+template <ctll::fixed_string P>
+std::string replace_all(std::string_view s, std::string_view with) {
+    std::string out;
+    const char* last = s.data();
+    for (auto m : ctre::search_all<P>(s)) {
+        std::string_view hit = m.to_view();
+        out.append(last, hit.data());
+        out += with;
+        last = hit.data() + hit.size();
+    }
+    out.append(last, s.data() + s.size());
+    return out;
+}
+
+// First place where `name` is directly followed by Tail — a search for name + Tail when
+// the name is only known at run time. Captures are Tail's.
+template <ctll::fixed_string Tail>
+auto search_after(std::string_view src, std::string_view name) {
+    for (std::size_t at = src.find(name); at != std::string_view::npos; at = src.find(name, at + 1)) {
+        if (auto m = ctre::starts_with<Tail>(src.substr(at + name.size()))) return m;
+    }
+    return decltype(ctre::starts_with<Tail>(src)){};
+}
+
+// Patterns shared by several generators.
+// `[[revet::toggle("/route", true|false)]] bool name` — captures: 1 route, 2 default, 3 name.
+inline constexpr auto find_toggles =
+    ctre::search_all<R"RE(\[\[[\s\S]*?revet::toggle\(\s*"([^"]+)"\s*,\s*(true|false)\s*\)[\s\S]*?\]\]\s*bool\s+(\w+))RE">;
+// `web::State<T>` / `web::Flash<T>` — captures: 1 State|Flash, 2 T.
+inline constexpr auto find_state_types = ctre::search_all<R"RE(web::(State|Flash)<(\w+)>)RE">;
 
 // ── Generators (one per gen_*.cpp) ─────────────────────────────────────
 int gen_json_models(const Ctx& ctx);

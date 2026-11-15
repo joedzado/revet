@@ -252,14 +252,4 @@ Lines file_header(std::initializer_list<std::string> includes) {
     return out;
 }
 
-// ── Regex ───────────────────────────────────────────────────────────────────
-
-bool match_prefix(const std::string& s, Match& m, const Re& re) {
-    return std::regex_search(s, m, re, std::regex_constants::match_continuous);
-}
-
-bool match_full(const std::string& s, Match& m, const Re& re) {
-    return std::regex_match(s, m, re);
-}
-
 }  // namespace revet::codegen

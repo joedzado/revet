@@ -6,21 +6,11 @@
 namespace revet::codegen {
 namespace {
 
-const Re& attr_re() {
-    static const Re re(R"RE(\[\[\s*revet::model(?:\s*\(\s*[^)]*\s*\))?\s*\]\]\s*struct|struct\s*\[\[\s*revet::model(?:\s*\(\s*[^)]*\s*\))?\s*\]\])RE"
-                       R"RE(\s+(\w+)\s*\{([^}]*)\}\s*;)RE");
-    return re;
-}
-
-const Re& ns_open_re() {
-    static const Re re(R"RE(\bnamespace\s+([\w:]+)\s*\{)RE");
-    return re;
-}
-
-const Re& field_stmt_re() {
-    static const Re re(R"RE(([\w:<>,\s]+?)\s+(\w+))RE");
-    return re;
-}
+// `[[revet::model]] struct Name { ... };` or `struct [[revet::model]] Name { ... };`
+// Captures: 1 = name, 2 = body.
+constexpr auto find_models = ctre::search_all<
+    R"RE((?:\[\[\s*revet::model(?:\s*\(\s*[^)]*\s*\))?\s*\]\]\s*struct|struct\s*\[\[\s*revet::model(?:\s*\(\s*[^)]*\s*\))?\s*\]\]))RE"
+    R"RE(\s+(\w+)\s*\{([^}]*)\}\s*;)RE">;
 
 struct Field {
     std::string type;
@@ -51,9 +41,8 @@ std::vector<Field> parse_fields(const std::string& body) {
         if (line.empty()) return;
         if (line.find('(') != std::string::npos || line.find('{') != std::string::npos) return;
         line = strip(drop_initializer(line));
-        Match m;
-        if (match_full(line, m, field_stmt_re())) {
-            fields.push_back({collapse_ws(strip(m[1].str())), m[2].str()});
+        if (auto m = ctre::match<R"RE(([\w:<>,\s]+?)\s+(\w+))RE">(line)) {
+            fields.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
         }
     };
     for (char c : body) {
@@ -80,13 +69,10 @@ std::string ns_at(const std::string& content, size_t pos) {
     auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     while (i < pos) {
         if (content.compare(i, 9, "namespace") == 0 && (i == 0 || !is_word(content[i - 1]))) {
-            Match m;
-            if (std::regex_search(content.begin() + static_cast<std::ptrdiff_t>(i), content.end(), m, ns_open_re(),
-                                  std::regex_constants::match_continuous |
-                                      (i > 0 ? std::regex_constants::match_prev_avail : std::regex_constants::match_default))) {
+            if (auto m = ctre::starts_with<R"RE(namespace\s+([\w:]+)\s*\{)RE">(std::string_view(content).substr(i))) {
                 ++depth;
-                stack.push_back({m[1].str(), depth});
-                i += static_cast<size_t>(m.length(0));
+                stack.push_back({m.get<1>().to_string(), depth});
+                i += m.get<0>().size();
                 continue;
             }
         }
@@ -121,10 +107,8 @@ std::string inner_type(const std::string& t) {
 std::string deser_expr(const std::string& ftype, const std::string& value_expr) {
     if (is_optional(ftype)) {
         std::string inner = inner_type(ftype);
-        Match km;
-        static const Re key_re(R"RE(\.at\("([^"]+)"\)$)RE");
-        if (std::regex_search(value_expr, km, key_re)) {
-            std::string key = km[1].str();
+        if (auto km = ctre::search<R"RE(\.at\("([^"]+)"\)$)RE">(value_expr)) {
+            std::string key = km.get<1>().to_string();
             std::string base = value_expr.substr(0, value_expr.rfind(".at("));
             return cat(base, ".has(\"", key, "\") ? std::optional<", inner, ">(static_cast<", inner, ">(", base,
                        ".at(\"", key, "\"))) : std::nullopt");
@@ -209,12 +193,10 @@ int gen_json_models(const Ctx& ctx) {
     std::vector<Model> models;
     for (const auto& f : sources) {
         std::string content = read_text(f);
-        auto begin = std::sregex_iterator(content.begin(), content.end(), attr_re());
-        for (auto it = begin; it != std::sregex_iterator(); ++it) {
-            const std::smatch& m = *it;
-            std::string name = m[1].str();
-            std::string body = m[2].str();
-            std::string ns = ns_at(content, static_cast<size_t>(m.position(0)));
+        for (auto m : find_models(std::string_view(content))) {
+            std::string name = m.get<1>().to_string();
+            std::string body = m.get<2>().to_string();
+            std::string ns = ns_at(content, static_cast<size_t>(m.get<0>().to_view().data() - content.data()));
             Model model;
             model.src_file = f.filename().string();
             model.qualified = ns.empty() ? name : ns + "::" + name;

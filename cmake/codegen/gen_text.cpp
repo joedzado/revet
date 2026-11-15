@@ -9,14 +9,6 @@
 namespace revet::codegen {
 namespace {
 
-const Re& class_re() {
-    static const Re re(R"RE(\.([A-Za-z][A-Za-z0-9_-]*))RE");
-    return re;
-}
-const Re& id_re() {
-    static const Re re(R"RE(#([A-Za-z][A-Za-z0-9_-]*))RE");
-    return re;
-}
 
 std::string replace_dashes(std::string s) {
     for (char& c : s) {
@@ -133,8 +125,8 @@ int gen_styles(const Ctx& ctx) {
             candidates.emplace_back(lineno, stripped);
             if (has_open) {
                 for (const auto& [li, sel] : candidates) {
-                    for (auto it = std::sregex_iterator(sel.begin(), sel.end(), class_re()); it != std::sregex_iterator(); ++it) {
-                        std::string css_name = (*it)[1].str();
+                    for (auto m : ctre::search_all<R"RE(\.([A-Za-z][A-Za-z0-9_\-]*))RE">(std::string_view(sel))) {
+                        std::string css_name = m.get<1>().to_string();
                         std::string cpp_name = replace_dashes(css_name);
                         if (!defined_classes.count(cpp_name)) {
                             out.push_back(subst(named_class_t, {{"line", std::to_string(li)},
@@ -144,8 +136,8 @@ int gen_styles(const Ctx& ctx) {
                             defined_classes.insert(cpp_name);
                         }
                     }
-                    for (auto it = std::sregex_iterator(sel.begin(), sel.end(), id_re()); it != std::sregex_iterator(); ++it) {
-                        std::string css_name = (*it)[1].str();
+                    for (auto m : ctre::search_all<R"RE(#([A-Za-z][A-Za-z0-9_\-]*))RE">(std::string_view(sel))) {
+                        std::string css_name = m.get<1>().to_string();
                         defined_ids.emplace(replace_dashes(css_name), css_name);
                     }
                 }

@@ -23,28 +23,6 @@ struct External {
     std::vector<Param> params;
 };
 
-const Re& attr_re() {
-    static const Re re(R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE");
-    return re;
-}
-
-const Re& ns_open_re() {
-    static const Re re(R"RE(\bnamespace\s+(\w+)\s*\{)RE");
-    return re;
-}
-
-// Function declaration directly after the attribute (anchored at the start of the tail).
-//   auto name(params) -> ReturnType;   |   ReturnType name(params);
-const Re& decl_re() {
-    static const Re re(R"RE((?:inline\s+)?(?:auto\s+(\w+)\s*\(([^)]*)\)\s*->\s*([^;]+?)|([\w:<>,\s]+?)\s+(\w+)\s*\(([^)]*)\))\s*;)RE");
-    return re;
-}
-
-const Re& param_re() {
-    static const Re re(R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*(.+?))?\s*)RE");
-    return re;
-}
-
 // Splits on commas outside <>, (), [] and drops empties.
 Lines split_top_commas(const std::string& s) {
     return split_args(s);
@@ -53,18 +31,16 @@ Lines split_top_commas(const std::string& s) {
 std::vector<Param> parse_params(const std::string& s) {
     std::vector<Param> params;
     for (const auto& raw : split_top_commas(s)) {
-        Match m;
-        if (!match_full(raw, m, param_re())) continue;
-        params.push_back({collapse_ws(strip(m[1].str())), m[2].str()});
+        auto m = ctre::match<R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*([^\n]+?))?\s*)RE">(raw);
+        if (!m) continue;
+        params.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
     }
     return params;
 }
 
 std::string task_inner(const std::string& ret) {
-    static const Re task_re(R"RE(\s*web::Task\s*<\s*([\s\S]+)\s*>\s*)RE");
     std::string stripped = strip(ret);
-    Match m;
-    if (match_full(stripped, m, task_re)) return strip(m[1].str());
+    if (auto m = ctre::match<R"RE(\s*web::Task\s*<\s*([\s\S]+)\s*>\s*)RE">(stripped)) return strip(m.get<1>().to_view());
     return stripped;
 }
 
@@ -79,16 +55,18 @@ std::vector<External> scan_file(const fs::path& path) {
         size_t end;
     };
     std::vector<Ev> events;
-    for (auto it = std::sregex_iterator(text.begin(), text.end(), ns_open_re()); it != std::sregex_iterator(); ++it) {
-        size_t pos = static_cast<size_t>(it->position(0));
-        events.push_back({pos, 0, (*it)[1].str(), pos + static_cast<size_t>(it->length(0))});
+    const std::string_view view = text;
+    auto offset = [&](std::string_view part) { return static_cast<size_t>(part.data() - view.data()); };
+    for (auto m : ctre::search_all<R"RE(\bnamespace\s+(\w+)\s*\{)RE">(view)) {
+        size_t pos = offset(m.get<0>().to_view());
+        events.push_back({pos, 0, m.get<1>().to_string(), pos + m.get<0>().size()});
     }
     for (size_t i = 0; i < text.size(); ++i) {
         if (text[i] == '}') events.push_back({i, 1, "", i + 1});
     }
-    for (auto it = std::sregex_iterator(text.begin(), text.end(), attr_re()); it != std::sregex_iterator(); ++it) {
-        size_t pos = static_cast<size_t>(it->position(0));
-        events.push_back({pos, 2, (*it)[1].str(), pos + static_cast<size_t>(it->length(0))});
+    for (auto m : ctre::search_all<R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE">(view)) {
+        size_t pos = offset(m.get<0>().to_view());
+        events.push_back({pos, 2, m.get<1>().to_string(), pos + m.get<0>().size()});
     }
     std::stable_sort(events.begin(), events.end(), [](const Ev& a, const Ev& b) { return a.pos < b.pos; });
 
@@ -122,27 +100,29 @@ std::vector<External> scan_file(const fs::path& path) {
         } else if (ev.kind == 1) {
             last = ev.pos;
         } else {
-            static const Re method_re(R"RE(^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$)RE");
-            Match mu;
             std::string method_url = strip(ev.payload);
-            if (!match_full(method_url, mu, method_re)) {
+            auto mu = ctre::match<R"RE((GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\n]+))RE">(method_url);
+            if (!mu) {
                 last = ev.end;
                 continue;
             }
-            std::string method = mu[1].str();
-            std::string url = strip(mu[2].str());
+            std::string method = mu.get<1>().to_string();
+            std::string url = strip(mu.get<2>().to_view());
 
             std::string tail = text.substr(ev.end, 2048);
             std::string lead = tail.substr(std::min(tail.find_first_not_of(" \t\r\n\f\v"), tail.size()));
-            Match dm;
-            if (!match_prefix(lead, dm, decl_re())) {
+            // Function declaration directly after the attribute:
+            //   auto name(params) -> ReturnType;   |   ReturnType name(params);
+            auto dm = ctre::starts_with<
+                R"RE((?:inline\s+)?(?:auto\s+(\w+)\s*\(([^)]*)\)\s*->\s*([^;]+?)|([\w:<>,\s]+?)\s+(\w+)\s*\(([^)]*)\))\s*;)RE">(lead);
+            if (!dm) {
                 last = ev.end;
                 continue;
             }
-            bool alt1 = dm[1].matched;
-            std::string ret = strip(alt1 ? dm[3].str() : dm[4].str());
-            std::string name = alt1 ? dm[1].str() : dm[5].str();
-            std::string params_s = alt1 ? dm[2].str() : dm[6].str();
+            bool alt1 = bool(dm.get<1>());
+            std::string ret = strip(alt1 ? dm.get<3>().to_view() : dm.get<4>().to_view());
+            std::string name = alt1 ? dm.get<1>().to_string() : dm.get<5>().to_string();
+            std::string params_s = alt1 ? dm.get<2>().to_string() : dm.get<6>().to_string();
 
             std::string ns;
             for (const auto& n : ns_stack) {
@@ -173,10 +153,7 @@ std::string json_str_literal(const std::string& s) {
 // Builds the URL expression: path params substituted, remaining params appended as a query string.
 std::string url_expr(const std::string& url, const std::vector<Param>& params) {
     std::set<std::string> path_names;
-    static const Re path_re(R"RE(\{(\w+)\})RE");
-    for (auto it = std::sregex_iterator(url.begin(), url.end(), path_re); it != std::sregex_iterator(); ++it) {
-        path_names.insert((*it)[1].str());
-    }
+    for (auto m : ctre::search_all<R"RE(\{(\w+)\})RE">(url)) path_names.insert(m.get<1>().to_string());
 
     std::string expr = cat("std::string(", json_str_literal(url), ")");
     for (const auto& p : params) {
