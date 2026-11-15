@@ -926,3 +926,104 @@ TEST_CASE("Conn::recv inflates a permessage-deflate text message and send_text d
 
     ::close(client_fd);
 }
+
+namespace {
+
+// RFC 7692 §7.2.1: raw deflate, sync-flushed, with the 00 00 FF FF tail removed.
+auto deflate_message(std::string_view plain) -> std::string {
+    z_stream zs{};
+    REQUIRE(deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) == Z_OK);
+    std::string out(256, '\0');
+    zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(plain.data()));
+    zs.avail_in = static_cast<uInt>(plain.size());
+    zs.next_out = reinterpret_cast<Bytef*>(out.data());
+    zs.avail_out = static_cast<uInt>(out.size());
+    REQUIRE(deflate(&zs, Z_SYNC_FLUSH) == Z_OK);
+    out.resize(out.size() - zs.avail_out);
+    deflateEnd(&zs);
+    REQUIRE(out.size() >= 4);
+    out.resize(out.size() - 4);
+    return out;
+}
+
+// Inflates one message: the stripped tail is restored before the final flush.
+auto inflate_message(std::string_view packed) -> std::string {
+    z_stream zs{};
+    REQUIRE(inflateInit2(&zs, -15) == Z_OK);
+    std::string input(packed);
+    input += std::string("\0\0\xff\xff", 4);
+    std::string out(256, '\0');
+    zs.next_in = reinterpret_cast<Bytef*>(input.data());
+    zs.avail_in = static_cast<uInt>(input.size());
+    zs.next_out = reinterpret_cast<Bytef*>(out.data());
+    zs.avail_out = static_cast<uInt>(out.size());
+    REQUIRE(inflate(&zs, Z_SYNC_FLUSH) == Z_OK);
+    out.resize(out.size() - zs.avail_out);
+    inflateEnd(&zs);
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("on_client negotiates permessage-deflate and round-trips a compressed message") {
+    ResetMw reset;
+    std::atomic<bool> echoed{false};
+    web::Route route;
+    route.path = "/ws";
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+        if (auto msg = conn.recv()) {
+            echoed = msg->data == "hello";
+            conn.send_text(msg->data);
+        }
+    };
+    std::vector<web::Route> routes{std::move(route)};
+
+    // RSV1 set: a compressed text frame, masked as clients must send it.
+    const std::string packed = deflate_message("hello");
+    Client client;
+    send_raw(client.fd, ws_upgrade("Sec-WebSocket-Extensions: permessage-deflate\r\n") +
+                            client_frame(0xC1, packed));
+    web::on_client(client.server, routes);
+
+    std::string resp = read_headers(client.fd);
+    REQUIRE(resp.find("HTTP/1.1 101 Switching Protocols") != std::string::npos);
+    REQUIRE(resp.find("Sec-WebSocket-Extensions: permessage-deflate") != std::string::npos);
+
+    // The reply frame may have arrived in the same read as the headers.
+    std::string body = resp.substr(resp.find("\r\n\r\n") + 4);
+    if (body.size() < 2) {
+        body += read_all(client.fd, 1000);
+    }
+    REQUIRE(body.size() >= 2);
+    REQUIRE(static_cast<uint8_t>(body[0]) == 0xC1); // FIN + RSV1 + text, unmasked
+    const size_t len = static_cast<uint8_t>(body[1]) & 0x7F;
+    REQUIRE(body.size() >= 2 + len);
+    REQUIRE(inflate_message(body.substr(2, len)) == "hello");
+
+    wait_flag(echoed);
+    REQUIRE(echoed);
+    wait_idle();
+}
+
+TEST_CASE("Conn::recv closes 1013 when a message would exceed the process-wide buffer budget") {
+    // Holds the budget full so that any new reservation is refused.
+    auto& total = web::ws::detail::buffered_total();
+    struct Fill {
+        std::atomic<size_t>& total;
+        size_t n;
+        explicit Fill(std::atomic<size_t>& t) : total(t), n(web::ws::k_max_buffered - 100) {
+            total.fetch_add(n);
+        }
+        ~Fill() {
+            total.fetch_sub(n);
+        }
+    } fill(total);
+
+    auto [server_fd, client_fd] = make_socketpair();
+    auto conn = web::ws::Conn::make(server_fd);
+    send_raw(client_fd, client_frame(0x81, std::string(150, 'a'))); // 150 > the 100 bytes of room left
+    REQUIRE_THROWS_AS(conn->recv(), web::ws::Error);
+    REQUIRE(read_all(client_fd) == std::string("\x88\x02\x03\xF5", 4)); // 1013
+
+    ::close(client_fd);
+}
