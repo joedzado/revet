@@ -1,4 +1,4 @@
-// Port of cmake/gen_forms.py: [[revet::form]] structs -> forms.hpp (populate / validate helpers).
+// [[revet::form]] structs -> forms.hpp (populate / validate helpers).
 #include "common.hpp"
 
 namespace revet::codegen {
@@ -27,7 +27,7 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
             else if (src[i] == '}') --depth;
             ++i;
         }
-        // Python: src[start:i - 1] (drops the closing brace).
+        // Drops the closing brace.
         out.push_back({m[1].str(), src.substr(start, i - 1 - start)});
     }
     return out;

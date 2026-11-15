@@ -1,4 +1,4 @@
-// Port of cmake/gen_json_models.py: [[revet::model]] structs -> models.hpp (from_json / from_row / to_json).
+// [[revet::model]] structs -> models.hpp (from_json / from_row / to_json).
 #include "common.hpp"
 
 #include <cctype>
@@ -33,7 +33,7 @@ struct Model {
     std::vector<Field> fields;
 };
 
-// Python: re.sub(r"\s*=\s*.*$", "", line) for a single-line statement.
+// Strips a trailing `= ...` initializer from a single-line statement.
 std::string drop_initializer(const std::string& line) {
     size_t eq = line.find('=');
     if (eq == std::string::npos) return line;
@@ -68,7 +68,7 @@ std::vector<Field> parse_fields(const std::string& body) {
     return fields;
 }
 
-// Namespace that encloses `pos` (Python _ns_at): a brace-depth walk over the prefix.
+// Namespace that encloses `pos`: a brace-depth walk over the prefix.
 std::string ns_at(const std::string& content, size_t pos) {
     struct Frame {
         std::string name;
@@ -101,7 +101,7 @@ std::string ns_at(const std::string& content, size_t pos) {
     }
     std::string out;
     for (const auto& f : stack) {
-        // Split "a::b" and re-join with "::", as the Python version does.
+        // Split "a::b" and re-join with "::".
         std::string name = f.name;
         if (!out.empty()) out += "::";
         out += name;
@@ -156,7 +156,7 @@ std::string row_expr(const std::string& ftype, const std::string& cell) {
     return cat(ftype, "{}");
 }
 
-// Lines that append the JSON encoding of `expr` to `out_var` (Python ser_lines).
+// Lines that append the JSON encoding of `expr` to `out_var` .
 Lines ser_lines(const std::string& ftype, const std::string& expr, const std::string& out_var) {
     Lines lines;
     if (is_optional(ftype)) {

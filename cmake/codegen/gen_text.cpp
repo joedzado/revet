@@ -1,4 +1,4 @@
-// Ports of cmake/gen_styles.py (CSS class/id constants) and cmake/gen_i18n.py (locale strings).
+// CSS class/id constants and locale strings.
 #include "common.hpp"
 
 #include <cctype>
@@ -176,7 +176,7 @@ int gen_styles(const Ctx& ctx) {
         joined += all_css[i];
     }
     out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(joined), "\";"));
-    // Kept byte-for-byte from the Python generator (a plain, non-f-string literal there).
+    // Emitted verbatim.
     out.push_back("inline const bool _all_css_init = ([]{{ all_css_block = _all_css_str; return true; }})();");
     out.push_back("} // namespace html::detail");
     out.push_back("");

@@ -1,5 +1,5 @@
 #pragma once
-// Shared helpers for the revet-codegen tool (C++ port of the former cmake/codegen.py).
+// Shared helpers for the revet-codegen tool .
 // Everything here is std-only so the tool builds with no Conan dependencies.
 
 #include <cstddef>
@@ -40,12 +40,12 @@ std::string cat(const T&... parts) {
 }
 
 // ── Files ───────────────────────────────────────────────────────────────────
-// Reads a file with Python read_text() semantics (universal newlines).
+// Reads a file with universal newlines.
 std::string read_text(const fs::path& p);
 bool file_exists(const fs::path& p);
-// Writes only when the content changed (write-if-changed, like codegen.py).
+// Writes only when the content changed (write-if-changed).
 void write_file(const fs::path& p, std::string_view content);
-// Lines joined with "\n" and no trailing newline (codegen.py write_lines).
+// Lines joined with "\n" and no trailing newline.
 void write_lines(const fs::path& p, const Lines& lines);
 // build/generated/<filename> under the project; creates the directory.
 fs::path setup(const Ctx& ctx, std::string_view filename);
@@ -54,9 +54,9 @@ std::vector<fs::path> glob(const fs::path& dir, std::string_view suffix, bool re
 bool has_models(const fs::path& dir);
 
 // ── Templates (framework cmake/templates) ───────────────────────────────────
-// Like codegen.py tmpl(): file contents with trailing newlines stripped.
+// Template file contents with trailing newlines stripped.
 std::string tmpl(const Ctx& ctx, std::string_view name);
-// Like codegen.py tmpl_whole(): raw file contents.
+// Raw template file contents.
 std::string tmpl_whole(const Ctx& ctx, std::string_view name);
 // string.Template.substitute: $name, ${name}, $$. Missing keys are errors.
 std::string subst(std::string_view text, const Vars& vars);
@@ -67,27 +67,27 @@ std::string lower(std::string_view s);
 bool starts_with(std::string_view s, std::string_view prefix);
 bool ends_with(std::string_view s, std::string_view suffix);
 std::string join(const Lines& parts, std::string_view sep);
-// Python str.splitlines() for \n, \r and \r\n.
+// Splits lines on \n, \r and \r\n.
 Lines splitlines(std::string_view s);
 // Splits on commas that are not nested in <>, (), [] and drops empty items.
 Lines split_args(std::string_view s);
-// codegen.py escape_str: backslash, quote and newline for a C++ string literal.
+// Escapes backslash, quote and newline for a C++ string literal.
 std::string escape_str(std::string_view s);
-// Python re.sub(r"\s+", " ", s).
+// Collapses runs of whitespace to one space.
 std::string collapse_ws(std::string_view s);
-// Python str.count("\n", 0, end).
+// Counts newlines before `end`.
 std::size_t count_newlines(std::string_view s, std::size_t end);
 std::string rel_include(const fs::path& hpp, const fs::path& proj);
-// Lines returned by codegen.py file_header(*includes).
+// Header lines: generated-file banner plus includes.
 Lines file_header(std::initializer_list<std::string> includes);
 
 // ── Regex helpers ───────────────────────────────────────────────────────────
-// Anchored search at the start of `s` (Python re.match).
+// Anchored search at the start of `s` .
 bool match_prefix(const std::string& s, Match& m, const Re& re);
-// Full-string match (Python re.fullmatch / anchored both ends).
+// Full-string match .
 bool match_full(const std::string& s, Match& m, const Re& re);
 
-// ── Generators (one per cmake/gen_*.py) ─────────────────────────────────────
+// ── Generators (one per gen_*.cpp) ─────────────────────────────────────
 int gen_json_models(const Ctx& ctx);
 int gen_states(const Ctx& ctx);
 int gen_forms(const Ctx& ctx);

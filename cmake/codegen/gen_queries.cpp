@@ -1,4 +1,4 @@
-// Port of cmake/gen_queries.py: app/queries/*.sql -> queries.hpp (typed async/sync wrappers).
+// app/queries/*.sql -> queries.hpp (typed async/sync wrappers).
 #include "common.hpp"
 
 #include <cctype>
@@ -23,7 +23,7 @@ const std::map<std::string, std::string> param_types = {
 
 bool is_word(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
 
-// Python _process_sql(): scrub mode (params == nullptr) blanks literals and comments
+// Scrub mode (params == nullptr) blanks literals and comments
 // to spaces; sub mode rewrites :name → ? for declared params (outside literals/comments).
 std::string process_sql(const std::string& sql, const std::set<std::string>* params) {
     std::string out;
@@ -75,7 +75,7 @@ std::string snake_to_camel(const std::string& s) {
         size_t end = s.find('_', start);
         if (end == std::string::npos) end = s.size();
         std::string w = s.substr(start, end - start);
-        // Python str.capitalize(): first letter upper, the rest lower.
+        // First letter upper, the rest lower.
         for (size_t k = 0; k < w.size(); ++k) {
             w[k] = static_cast<char>(k == 0 ? std::toupper(static_cast<unsigned char>(w[k]))
                                             : std::tolower(static_cast<unsigned char>(w[k])));

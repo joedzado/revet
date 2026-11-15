@@ -1,4 +1,4 @@
-// Port of cmake/gen_htmx.py and cmake/gen_optimistic.py: embed bundled JS as string_view constants.
+// Embeds bundled JS (htmx, optimistic) as string_view constants.
 // Both are invoked from gen_routes (routes.cpp includes their headers).
 #include "common.hpp"
 
@@ -63,7 +63,7 @@ int gen_htmx(const Ctx& ctx) {
 
     fs::path vendor_file = ctx.framework / "vendor" / "htmx" / version / "htmx.min.js";
     if (!file_exists(vendor_file)) {
-        throw GenError("gen_htmx: htmx " + version + " not vendored — run: python3 scripts/vendor_htmx.py");
+        throw GenError("gen_htmx: htmx " + version + " not vendored — run: scripts/vendor_htmx.sh");
     }
 
     Lines out = file_header({"#include <string_view>"});

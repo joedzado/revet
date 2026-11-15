@@ -5,7 +5,7 @@ static const log::TuTag LOG(log::tags::ROUTES);
 
 // GET /quakes?start=YYYY-MM-DD&end=YYYY-MM-DD
 // Outbound HTTP example. The usgs_gov::count() function is generated
-// from app/apis/usgs.hpp by gen_api.py.
+// from app/apis/usgs.hpp by gen_api.
 static auto render_get(const web::Request& req) -> web::Task<web::Response> {
     auto start = req.query.get("start");
     auto end   = req.query.get("end");

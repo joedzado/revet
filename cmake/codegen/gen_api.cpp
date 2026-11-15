@@ -1,4 +1,4 @@
-// Port of cmake/gen_api.py: [[revet::external("METHOD URL")]] declarations -> apis.hpp (inline HTTP coroutines).
+// [[revet::external("METHOD URL")]] declarations -> apis.hpp (inline HTTP coroutines).
 #include "common.hpp"
 
 #include <algorithm>
@@ -45,7 +45,7 @@ const Re& param_re() {
     return re;
 }
 
-// Splits on commas outside <>, (), [] and drops empties (Python split_top_commas).
+// Splits on commas outside <>, (), [] and drops empties.
 Lines split_top_commas(const std::string& s) {
     return split_args(s);
 }
@@ -68,7 +68,7 @@ std::string task_inner(const std::string& ret) {
     return stripped;
 }
 
-// Mirrors Python _ns_at-free namespace tracking in scan_file: a brace walk over the whole text.
+// Namespace tracking: a brace walk over the whole text.
 std::vector<External> scan_file(const fs::path& path) {
     std::string text = read_text(path);
 

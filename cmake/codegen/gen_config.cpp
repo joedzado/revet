@@ -1,4 +1,4 @@
-// Ports of cmake/gen_resources.py, gen_uploads.py, gen_dependencies.py, gen_toggles.py.
+// Resource, upload, dependency and toggle generators.
 // Each reads revet.toml (or app/states) and writes one generated include or CMake fragment.
 #include "common.hpp"
 #include "node.hpp"
@@ -26,7 +26,7 @@ const Node* table_or_empty(const Node& root, std::string_view key) {
     return n ? n : &empty_table;
 }
 
-// ── stable ordered view of a table (Python dict iteration order) ───────────
+// ── stable ordered view of a table (insertion order) ───────────
 
 struct Pair {
     std::string key;

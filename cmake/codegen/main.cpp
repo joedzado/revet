@@ -1,7 +1,6 @@
 // revet-codegen: runs one codegen step for a Revet project.
 //   usage: revet-codegen <generator> <project-root> <framework-root>
-// Generators mirror the former cmake/gen_*.py scripts, which read the same inputs and write the
-// same files into <project-root>/build/generated.
+// Each generator reads the project and writes into <project-root>/build/generated.
 
 #include "common.hpp"
 

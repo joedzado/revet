@@ -1,4 +1,4 @@
-// Port of cmake/gen_routes.py: app/routes/**/*.cpp -> routes.hpp (urls::) and routes.cpp (route table).
+// app/routes/**/*.cpp -> routes.hpp (urls::) and routes.cpp (route table).
 #include "common.hpp"
 #include "node.hpp"
 
@@ -35,7 +35,7 @@ struct Entry {
     fs::path file;
 };
 
-// Python route_and_ns(): rel is relative to app/routes.
+// rel is relative to app/routes.
 std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
     std::vector<std::string> parts;
     for (const auto& e : rel) parts.push_back(e.string());

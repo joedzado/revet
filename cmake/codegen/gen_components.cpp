@@ -1,4 +1,4 @@
-// Port of cmake/gen_components.py: [[revet::export]] functions -> components.hpp declarations.
+// [[revet::export]] functions -> components.hpp declarations.
 #include "common.hpp"
 
 #include <cctype>
@@ -6,7 +6,7 @@
 namespace revet::codegen {
 namespace {
 
-// Python str.split() with no arguments.
+// str.split() with no arguments.
 Lines split_ws(const std::string& s) {
     Lines out;
     std::string cur;
@@ -66,7 +66,7 @@ int gen_components(const Ctx& ctx) {
         std::string name;
         std::vector<std::pair<std::string, std::string>> items;  // (mode, type)
     };
-    std::vector<Deps> comp_deps;  // insertion-ordered, like the Python dict
+    std::vector<Deps> comp_deps;  // insertion-ordered
 
     for (const auto& cpp_file : cpp_files) {
         std::string content = read_text(cpp_file);

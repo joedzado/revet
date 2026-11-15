@@ -26,7 +26,7 @@ struct Node {
 
 // Parses JSON. Throws std::runtime_error on malformed input.
 Node parse_json(std::string_view text);
-// Matches Python json.dumps(obj, indent=2) (ensure_ascii, no trailing newline).
+// Matches json.dumps(obj, indent=2) output (ensure_ascii, no trailing newline).
 std::string dump_json_indent2(const Node& n);
 
 // Parses the TOML subset used by revet.toml: [a.b] tables, dotted keys,
@@ -34,7 +34,7 @@ std::string dump_json_indent2(const Node& n);
 // Throws std::runtime_error on anything else.
 Node parse_toml(std::string_view text);
 
-// Python-style conversions used by the generators.
+// Conversions used by the generators.
 std::string py_str(const Node& n);   // str(value)
 long long py_int(const Node& n);     // int(value)
 bool py_bool(const Node& n);         // bool(value)

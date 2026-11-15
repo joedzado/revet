@@ -2,7 +2,7 @@
 #include <revet/web.hpp>
 
 // Outbound HTTP example — USGS Earthquake Hazards Program.
-// The [[revet::external]] attribute drives codegen: gen_api.py reads this
+// The [[revet::external]] attribute drives codegen: gen_api reads this
 // header and emits an inline coroutine definition in apis.hpp.
 //
 // The response struct is [[revet::model]] so JSON deserialization is free.

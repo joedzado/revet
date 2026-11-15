@@ -15,7 +15,7 @@ std::string read_text(const fs::path& p) {
     std::ostringstream ss;
     ss << in.rdbuf();
     std::string raw = ss.str();
-    // Universal newlines, as Python's text-mode read_text() does.
+    // Universal newlines: \r\n and \r are read as \n.
     std::string out;
     out.reserve(raw.size());
     for (size_t i = 0; i < raw.size(); ++i) {

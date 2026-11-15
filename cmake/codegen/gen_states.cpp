@@ -1,4 +1,4 @@
-// Port of cmake/gen_states.py: web::State / web::Flash / toggle types -> states.hpp (cookie codecs).
+// web::State / web::Flash / toggle types -> states.hpp (cookie codecs).
 #include "common.hpp"
 
 #include <cctype>
@@ -29,7 +29,7 @@ bool is_num_type(const std::string& t) {
     return nums.count(t) != 0;
 }
 
-// Returns "" for unsupported types (the Python version returned None, which filter() dropped).
+// Returns "" for unsupported types.
 std::string pack_field(const std::string& ft, const std::string& fn) {
     if (is_str_type(ft)) {
         return cat("    { uint32_t len = (uint32_t)s.", fn, ".size(); out.append((char*)&len, 4); out.append(s.", fn,
@@ -58,7 +58,7 @@ struct Field {
     std::string name;
 };
 
-// Python: re.sub(r"\s*=\s*.*$", "", line) for a single declaration.
+// Strips a trailing `= ...` initializer from a single declaration.
 std::string drop_default(const std::string& line) {
     size_t eq = line.find('=');
     if (eq == std::string::npos || line.find('\n', eq) != std::string::npos) return line;
