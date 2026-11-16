@@ -82,7 +82,7 @@ The main difference: no JavaScript, no runtime, no Node. One binary. `revet buil
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | bash
 ```
 
 This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), and Conan 2.

@@ -107,7 +107,7 @@ Live as `static` inside generated `resources::_pools::_pool_<name>()`. Created a
 ├─ demo/                 # showcase site that exercises every feature
 ├─ tests/                # framework tests (Catch2, codegen golden test, CLI test)
 ├─ docs/                 # this directory
-└─ scripts/install.sh      # framework dev/install commands
+└─ scripts/install_local.sh  # builds and installs this checkout (install.sh clones, then calls it)
 ```
 
 When you build:
@@ -119,7 +119,7 @@ If you change build behavior, edit `template/CMakeLists.txt`. The demo's copy re
 
 ## Distribution & install
 
-`scripts/install.sh` does two things:
+`install.sh` clones the repo when piped from curl, then runs `scripts/install_local.sh`, which does two things:
 
 1. Copies the source tree to `~/.revet/current/` so the CLI can find it from `FRAMEWORK_DIR = "/Users/joedzado/.revet/current"` (baked into the per-project CMakeLists).
 2. Installs the CLI, codegen tool and vendored libs to `~/.revet/current/prebuilt/`, and symlinks `/usr/local/bin/revet` to `prebuilt/bin/revet`.
