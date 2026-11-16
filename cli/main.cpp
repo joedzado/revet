@@ -146,6 +146,12 @@ void print_help(const std::string& command) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#if defined(__APPLE__)
+    // Apple's clang for everything revet runs (CMake, Conan builds) unless CC/CXX say otherwise:
+    // `cc` on PATH can be a Homebrew GCC or LLVM that lacks the macOS SDK setup.
+    if (!std::getenv("CC") && access("/usr/bin/clang", X_OK) == 0) setenv("CC", "/usr/bin/clang", 1);
+    if (!std::getenv("CXX") && access("/usr/bin/clang++", X_OK) == 0) setenv("CXX", "/usr/bin/clang++", 1);
+#endif
     Args a = parse(argc, argv);
     if (a.version) {
         info(framework_version());

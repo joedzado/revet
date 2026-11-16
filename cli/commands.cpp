@@ -131,8 +131,9 @@ int cmd_add(std::string_view raw_spec) {
         info("Fetching " + *ref + "…");
         Deps deps = deps_from_toml(content);
         fs::path conanfile = project_conanfile(deps);
+        auto prof = conan_profile().value_or("default");
         Result r = run({"conan", "install", conanfile.string(), "--output-folder=" + conan_dir.string(), "--build=missing",
-                        "-s", "build_type=Release"});
+                        "-s", "build_type=Release", "-pr:h=" + prof, "-pr:b=" + prof});
         if (r.rc != 0) {
             dim("  (conan fetch failed — will retry on next build)");
         } else {
@@ -160,7 +161,8 @@ int cmd_lock() {
     require_conan();
     fs::path conanfile = project_conanfile(deps_from_toml(read_toml()));
     info("Regenerating revet.lock…");
-    Result r = run({"conan", "lock", "create", conanfile.string(), "--lockfile-out=revet.lock"});
+    auto prof = conan_profile().value_or("default");
+    Result r = run({"conan", "lock", "create", conanfile.string(), "--lockfile-out=revet.lock", "-pr:h=" + prof, "-pr:b=" + prof});
     if (r.rc != 0) {
         err("Failed to generate lockfile:");
         err(r.err.empty() ? "unknown error" : r.err.substr(r.err.size() > 500 ? r.err.size() - 500 : 0));

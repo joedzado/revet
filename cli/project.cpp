@@ -239,7 +239,8 @@ void conan_update_lockfile(const fs::path& conanfile) {
     int fd = mkstemp(tmpl.data());
     if (fd < 0) return;
     close(fd);
-    Result r = run({"conan", "lock", "create", conanfile.string(), "--lockfile-out=" + tmpl});
+    auto prof = conan_profile().value_or("default");
+    Result r = run({"conan", "lock", "create", conanfile.string(), "--lockfile-out=" + tmpl, "-pr:h=" + prof, "-pr:b=" + prof});
     if (r.rc != 0) {
         dim("  (lockfile generation failed — continuing without it)");
     } else if (auto fresh = read_file(tmpl)) {
@@ -303,6 +304,37 @@ std::optional<std::string> conan_latest(std::string_view name, int timeout_s) {
 }
 
 fs::path install_deps_script() { return framework_dir() / "scripts" / "install_deps.sh"; }
+
+// revet's own Conan profile ("revet"), detected once with the compiler revet builds with
+// (CC/CXX; Apple clang on macOS, see main). The user's default profile can name any
+// compiler — `cc` on PATH may even be GCC — and must not decide how revet's packages build.
+std::optional<std::string> conan_profile() {
+    static std::optional<std::string> cached;
+    if (cached) return cached;
+    Result home = run({"conan", "config", "home"}, {}, 30);
+    if (home.rc != 0) return std::nullopt;
+    fs::path path = fs::path(strip(home.out)) / "profiles" / "revet";
+    if (!fs::exists(path)) {
+        Result r = run({"conan", "profile", "detect", "--name", "revet"}, {}, 60);
+        if (r.rc != 0) {
+            err("conan profile detect failed: " + strip(r.err));
+            return std::nullopt;
+        }
+    }
+    cached = "revet";
+    return cached;
+}
+
+namespace {
+// The last `n` lines of `s`.
+std::string tail_lines(const std::string& s, size_t n) {
+    size_t at = s.size();
+    for (size_t count = 0; at > 0 && count <= n; --at) {
+        if (s[at - 1] == '\n') ++count;
+    }
+    return at == 0 ? s : s.substr(at + 1);
+}
+}  // namespace
 
 // ── CMakeLists.txt ──────────────────────────────────────────────────────────
 
@@ -412,14 +444,13 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
         info("Fetching dependencies via Conan…");
         fs::path conanfile = project_conanfile(deps);
         bool fresh_tree = !fs::exists(conan_dir / ".revet_deps_hash");
-        // Release packages always: Debug builds map to the Release imports
-        // (CMAKE_MAP_IMPORTED_CONFIG_DEBUG), and this keeps the user's default profile out of it.
+        auto revet_profile = conan_profile();
+        if (!revet_profile) return {1, "", "no usable Conan profile", true};
+        // Release packages always: Debug builds map to the Release imports (CMAKE_MAP_IMPORTED_CONFIG_DEBUG).
         std::vector<std::string> cmd = {"conan", "install", conanfile.string(), "--output-folder=" + conan_dir.string(),
                                         "--build=missing", "-s", "build_type=Release"};
-        if (profile) {
-            cmd.push_back("-pr:h=" + profile->string());
-            cmd.push_back("-pr:b=default");
-        }
+        cmd.push_back("-pr:h=" + (profile ? profile->string() : *revet_profile));
+        cmd.push_back("-pr:b=" + *revet_profile);
         // Fresh clone with a committed lockfile: use it. It describes the host graph, so cross builds skip it.
         bool with_lock = fs::exists("revet.lock") && fresh_tree && !profile;
         if (with_lock) cmd.push_back("--lockfile=revet.lock");
@@ -431,7 +462,9 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
             conan = run(cmd);
         }
         if (conan.rc != 0) {
-            err("conan install failed. Run: bash " + install_deps_script().string());
+            // Conan's full log is long; the end has the error.
+            conan.err = tail_lines(conan.out + conan.err, 40) + "\nconan install failed (" + conanfile.string() + ")";
+            conan.out.clear();
             return conan;
         }
         conan_mark_updated(deps, conan_dir);

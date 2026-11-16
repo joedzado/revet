@@ -37,7 +37,7 @@ case "$OS" in
     brew install ninja sqlite ccache samply lldb clang-tools 2>/dev/null || true
 
     info "Initializing Conan profile..."
-    conan profile detect --force 2>/dev/null || true
+    conan profile detect 2>/dev/null || true  # keeps an existing default profile
 
     ok "Dependencies installed"
     ;;
@@ -77,7 +77,7 @@ case "$OS" in
     fi
 
     info "Initializing Conan profile..."
-    conan profile detect --force 2>/dev/null || true
+    conan profile detect 2>/dev/null || true  # keeps an existing default profile
 
     ok "Dependencies installed"
     ;;

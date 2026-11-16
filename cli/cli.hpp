@@ -114,6 +114,7 @@ void sort_refs_newest_first(std::vector<std::string>& refs);
 std::optional<std::string> conan_latest(std::string_view name, int timeout_s);
 std::string ref_version(std::string_view ref);  // "fmt/10.1.0" -> "10.1.0"
 fs::path install_deps_script();
+std::optional<std::string> conan_profile();
 
 // ── Build ───────────────────────────────────────────────────────────────────
 inline const fs::path BUILD_DIR = "build";
