@@ -7,7 +7,7 @@ How to set up, test, and ship changes against the framework itself (not an app b
 ```bash
 git clone https://github.com/joedzado/revet ~/revet
 cd ~/revet
-bash scripts/install_deps.sh        # libsodium, libcurl, libsqlite, libpq, conan, python3, cmake
+bash scripts/install_deps.sh        # cmake, conan, ninja, sqlite and optional tools
 ./install.sh       # populate ~/.revet/current and install /usr/local/bin/revet
 ```
 
@@ -45,10 +45,11 @@ ctest --test-dir build --output-on-failure -R test_csrf
 build/test_csrf
 ```
 
-Run a single Python test:
+Codegen golden test and CLI tests:
 
 ```bash
-python3 -m unittest tests.test_gen_api.TestExternalAttributeParsing -v
+ctest --test-dir build -R codegen   # see docs/codegen.md#tests
+ctest --test-dir build -R cli       # test_cli (helpers) and cli (end to end)
 ```
 
 ASan + UBSan build:
@@ -85,7 +86,7 @@ The existing attributes (`model`, `external`, `toggle`, `form`, `export`) follow
 2. **Write a parser script** in `cmake/codegen/gen_<thing>.cpp`. Most existing parsers are regex-based — fine for the surface we control. Use `cmake/codegen/common.hpp` helpers (namespace tracking, write-if-changed) so your script behaves like the others.
 3. **Emit a header** users can `#include`. Don't emit code into the user's TU directly; emit into `build/generated/<thing>.hpp` and `#include` from somewhere they already include (often the auto-included `routes.hpp` or `models.hpp`).
 4. **Wire into CMake** — see [codegen.md](./codegen.md#adding-a-new-codegen-script).
-5. **Add tests** — both the Python codegen test (`tests/test_gen_<thing>.py`) and a C++ behavior test that exercises the generated output against the runtime.
+5. **Add tests** — cover it in `tests/codegen/fixture` (refresh `expected/`) and add a C++ behavior test that exercises the generated output against the runtime.
 6. **Document it** in the README's relevant section and add a row in `codegen.md`.
 
 ## Release process
@@ -93,7 +94,7 @@ The existing attributes (`model`, `external`, `toggle`, `form`, `export`) follow
 There isn't one yet. Current state:
 
 - `VERSION` is the single source of truth.
-- `bin/revet` and `conanfile.py` both read it at runtime.
+- The `revet` CLI reads it at runtime (`revet --version`).
 - No git tags. No CHANGELOG. No CI.
 
 Planned shape (not done yet):

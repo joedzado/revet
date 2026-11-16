@@ -85,7 +85,7 @@ The main difference: no JavaScript, no runtime, no Node. One binary. `revet buil
 curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | sh
 ```
 
-This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), and Python 3.8+.
+This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), and Conan 2.
 
 > **Note for C++ developers:** revet uses CMake and Conan under the hood, but you won't touch `CMakeLists.txt` directly — the CLI manages the entire build. `revet new` scaffolds the project, `revet dev` builds and runs it, and `revet build` produces the release binary.
 
@@ -1215,7 +1215,7 @@ cd ~/revet
 (removed)
 (removed)
 ./rm -rf build   # remove build artifacts
-python3 scripts/check_deps.py    # check dependencies
+revet doctor    # check build tools
 ```
 
 ### Framework source structure
@@ -1227,11 +1227,10 @@ revet/
 ├── cmake/codegen/       ← Code generation tool (C++, revet_codegen_tool)
 ├── template/            ← User project template (scaffolded by `revet new`)
 ├── demo/                ← Full-featured demo app
+├── cli/                 ← User-facing `revet` CLI (C++, FTXUI)
 ├── scripts/
-│   ├── check_deps.py    ← Dependency validator
 │   └── install_deps.sh  ← Auto-installer
-├── bin/revet            ← User-facing CLI
-├── conanfile.py         ← Framework dependency manifest
+├── conanfile.txt        ← Framework dependency manifest (curl, catch2)
 └── tests/               ← Framework unit tests
 ```
 
@@ -1257,7 +1256,7 @@ All outputs land in `build/generated/`.
 
 ### Dependencies
 
-**Required:** CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), Python 3.8+, libsodium
+**Required:** CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), Conan 2 (libsodium, simdjson, CTRE and FTXUI are vendored)
 
 **Optional:** Ninja (faster builds), Catch2 3 (testing), SQLite 3, ccache, clang-tidy, clang-format
 

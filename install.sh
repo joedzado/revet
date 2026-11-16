@@ -43,7 +43,7 @@ bash "$SRC_DIR/scripts/install_deps.sh"
 
 command -v cmake >/dev/null 2>&1 || err "cmake is required (>= 3.20)."
 command -v clang++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || err "A C++23 compiler (clang++ >= 17 or g++ >= 13) is required."
-command -v python3 >/dev/null 2>&1 || err "python3 is required by the revet CLI."
+command -v conan >/dev/null 2>&1 || err "conan is required (C++ packages). Run: bash $SRC_DIR/scripts/install_deps.sh"
 
 # ── build from source ─────────────────────────────────────────────────────────
 info "Building revet..."
@@ -57,7 +57,7 @@ cmake --build "$BUILD_DIR"
 info "Installing revet to $PREFIX..."
 rm -rf "$PREFIX"
 mkdir -p "$PREFIX"
-for d in cmake src static template include vendor CMakeLists.txt conanfile.py LICENSE VERSION; do
+for d in cmake cli src static template include vendor scripts CMakeLists.txt conanfile.txt .clang-format .clang-tidy LICENSE VERSION; do
     [ -e "$SRC_DIR/$d" ] || continue
     if [ -d "$SRC_DIR/$d" ]; then
         cp -R "$SRC_DIR/$d" "$PREFIX/$d"
@@ -65,10 +65,9 @@ for d in cmake src static template include vendor CMakeLists.txt conanfile.py LI
         cp "$SRC_DIR/$d" "$PREFIX/$d"
     fi
 done
-# Codegen tool and vendored static libs, built once here and reused by every app build.
+# The revet CLI, the codegen tool and the vendored static libs, built once here and reused by every app build.
 cmake --install "$BUILD_DIR" --prefix "$PREFIX/prebuilt" >/dev/null
-cp "$SRC_DIR/bin/revet" "$PREFIX/revet"
-chmod +x "$PREFIX/revet"
+ln -sf "$PREFIX/prebuilt/bin/revet" "$PREFIX/revet"
 
 if [ -w "$(dirname "$BIN_LINK")" ]; then
     ln -sf "$PREFIX/revet" "$BIN_LINK"

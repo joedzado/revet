@@ -28,6 +28,20 @@ add_executable(revet_codegen_tool ${CODEGEN_SOURCES})
 target_link_libraries(revet_codegen_tool PRIVATE ctre::ctre)
 set_target_properties(revet_codegen_tool PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
 
+# ── revet CLI (cli/): the `revet` command, installed to <framework>/prebuilt/bin ──
+find_package(Threads REQUIRED)
+file(GLOB REVET_CLI_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/cli/*.cpp)
+list(FILTER REVET_CLI_SOURCES EXCLUDE REGEX "/main\\.cpp$")
+add_library(revet_cli_core STATIC ${REVET_CLI_SOURCES})
+target_include_directories(revet_cli_core PUBLIC ${CMAKE_SOURCE_DIR}/cli)
+target_link_libraries(revet_cli_core PUBLIC ctre::ctre ftxui::component ftxui::dom ftxui::screen Threads::Threads)
+target_compile_options(revet_cli_core PRIVATE -Wall -Wextra)
+target_compile_definitions(revet_cli_core PRIVATE REVET_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_executable(revet_cli ${CMAKE_SOURCE_DIR}/cli/main.cpp)
+target_link_libraries(revet_cli PRIVATE revet_cli_core)
+set_target_properties(revet_cli PROPERTIES OUTPUT_NAME revet RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
+install(TARGETS revet_cli RUNTIME DESTINATION bin)
+
 # `cmake --install build --prefix <framework>/prebuilt` (install.sh does this) gives app
 # builds the tool and the vendored static libs, so they compile none of them.
 install(TARGETS revet_codegen_tool RUNTIME DESTINATION bin)
@@ -67,6 +81,25 @@ add_test(NAME codegen
     COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:revet_codegen_tool> -DFRAMEWORK=${CMAKE_SOURCE_DIR}
             -DWORK=${CMAKE_BINARY_DIR}/codegen_test -P ${CMAKE_SOURCE_DIR}/tests/codegen/run.cmake)
 
+# static/optimistic.ts: bun compiles it (static/optimistic.js, which tests/optimistic_test.js
+# loads); node runs the functional test. Skipped when either tool is missing.
+find_program(REVET_BUN bun HINTS $ENV{HOME}/.bun/bin)
+find_program(REVET_NODE node)
+if(REVET_BUN)
+    add_test(NAME optimistic_ts_build
+        COMMAND ${REVET_BUN} build --minify static/optimistic.ts --outfile static/optimistic.js
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    if(REVET_NODE)
+        add_test(NAME optimistic_js COMMAND ${REVET_NODE} tests/optimistic_test.js WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(optimistic_js PROPERTIES DEPENDS optimistic_ts_build)
+    endif()
+endif()
+
+# revet CLI end to end: --version, new --empty, add/remove (no network, no build).
+add_test(NAME cli
+    COMMAND ${CMAKE_COMMAND} -DREVET=$<TARGET_FILE:revet_cli> -DFRAMEWORK=${CMAKE_SOURCE_DIR}
+            -DWORK=${CMAKE_BINARY_DIR}/cli_test -P ${CMAKE_SOURCE_DIR}/tests/cli/run.cmake)
+
 find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
     include(CTest)
@@ -94,6 +127,9 @@ if(Catch2_FOUND)
             target_link_libraries(${test_name} PRIVATE ${REVET_TEST_PQ_LIB})
         endif()
         target_link_libraries(${test_name} PRIVATE revet_core Catch2::Catch2WithMain)
+        if(${test_name} STREQUAL "test_cli")
+            target_link_libraries(${test_name} PRIVATE revet_cli_core)
+        endif()
         if(${test_name} MATCHES "sqlite")
             target_compile_definitions(${test_name} PRIVATE REVET_DB_SQLITE)
             target_link_libraries(${test_name} PRIVATE sqlite3)

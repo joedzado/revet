@@ -21,7 +21,7 @@ case "$OS" in
     fi
 
     info "Installing critical dependencies..."
-    brew install cmake python@3.12 conan 2>/dev/null || true
+    brew install cmake conan 2>/dev/null || true
 
     # Check for Xcode CLI tools
     if ! xcode-select -p &>/dev/null; then
@@ -71,7 +71,7 @@ case "$OS" in
       warn "Unsupported package manager. Install manually:"
       echo "  - cmake 3.20+"
       echo "  - C++ compiler with C++23 support"
-      echo "  - python3 + conan (pip3 install conan)"
+      echo "  - conan (pip3 install conan)"
       echo "  - Optional: ninja, sqlite3, ccache, clang-tidy, lldb"
       exit 1
     fi

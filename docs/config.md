@@ -56,7 +56,6 @@ url  = "env:DATABASE_URL"   # `env:NAME` reads the value from environment
 | `REVET_COOKIE_KEY` | `crypto.hpp` | 64-char hex (32 bytes) AEAD key for state + CSRF cookies. Without it, derives a key from `hostname()` — fine for dev, never for prod. | **Yes** |
 | `REVET_FORCE_SECURE_COOKIES` | `web.hpp` | When `=1`, all `Set-Cookie` headers include the `Secure` attribute. Off by default for localhost dev. | **Yes** (when serving HTTPS) |
 | `REVET_DATA_DIR` | `web.hpp` | `web::data_dir()`. Overrides `revet.toml data_dir`; `--data-dir` overrides this. | No |
-| `REVET_PYTHON` | `CMakeLists.txt` | Python 3.12+ interpreter for codegen. Without it, the newest `python3` on PATH or in Homebrew. | No |
 | `REVET_MAX_BODY` | `web.hpp` | Largest request body in bytes or with a binary unit (`64MB`, `1GB`). Overrides `revet.toml max_body`. Bigger bodies get 413. | No |
 | `LOG_LEVEL` | `log.hpp` | Overrides `revet.toml [logging].level`. Values: `debug`, `info`, `warn`, `error`. | No |
 | `DATABASE_URL` (or any name you reference) | `db/postgres.hpp` via `url = "env:DATABASE_URL"` | Resolves the postgres connection string at startup. | If using postgres |
