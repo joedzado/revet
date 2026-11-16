@@ -7,9 +7,7 @@
 | **C++23 compiler** | All framework code is C++23. | clang 18 / gcc 14 / Apple clang from Xcode 16 |
 | **CMake** | Configure + build. | 3.20 |
 | **Ninja** (optional) | Faster builds. revet auto-picks it if installed. | any |
-| **Python 3** | Codegen + CLI. | 3.10 |
-| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libsodium, libcurl, simdjson, ctre. | 2.0 |
-| **libsodium-dev** | AEAD for cookies + CSRF. Linked against the system version. | 1.0.18 |
+| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libcurl, Catch2 and app dependencies; needs Python, which pip or Homebrew brings. libsodium, simdjson, CTRE and FTXUI are vendored. | 2.21 (libcurl recipes need it) |
 | **libcurl-dev** | Outbound HTTP client. | 7.x |
 | **libsqlite3-dev** | SQLite resource backend. | 3.x |
 | **libpq-dev** *(optional; macOS: `brew install libpq`)* | Postgres resource backend. Skip if not using postgres. | 14 |
@@ -17,8 +15,7 @@
 ## macOS
 
 ```bash
-brew install cmake ninja python3 libsodium curl sqlite postgresql
-pip3 install conan
+brew install cmake ninja conan sqlite postgresql
 conan profile detect
 ```
 
@@ -39,7 +36,7 @@ sudo apt-get install -y \
     python3 python3-pip \
     cmake ninja-build \
     clang-19 libc++-19-dev libc++abi-19-dev \
-    libsodium-dev libcurl4-openssl-dev \
+    libcurl4-openssl-dev \
     libsqlite3-dev libpq-dev
 pip3 install --break-system-packages conan
 conan profile detect
@@ -62,9 +59,9 @@ What `install.sh` does:
 
 1. Clones the repo to `~/.revet/src/`.
 2. Runs `scripts/install_deps.sh` to install missing dev dependencies for your OS.
-3. Runs `scripts/install.sh`, which:
-   - Copies the framework into `~/.revet/current/`.
-   - Symlinks `/usr/local/bin/revet → ~/.revet/current/bin/revet` (needs sudo for the symlink).
+3. Builds the framework from source: the `revet` CLI, the codegen tool and the vendored libraries.
+4. Copies the framework into `~/.revet/current/` and installs the build to `~/.revet/current/prebuilt/`.
+5. Symlinks `/usr/local/bin/revet → ~/.revet/current/prebuilt/bin/revet` (needs sudo for the symlink).
 
 Re-running `install.sh` upgrades to the latest `main`.
 

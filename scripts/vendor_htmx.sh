@@ -2,7 +2,7 @@
 # Download htmx releases into vendor/htmx/<version>/htmx.min.js.
 set -eu
 
-VERSIONS="2.0.4 2.0.5 2.0.6 2.0.7 2.0.8 2.0.9 4.0.0-beta1 4.0.0-beta2 4.0.0-beta3 4.0.0-beta4"
+VERSIONS="2.0.4 2.0.5 2.0.6 2.0.7 2.0.8 2.0.9 2.0.10 2.0.11 4.0.0-beta1 4.0.0-beta2 4.0.0-beta3 4.0.0-beta4 4.0.0-beta5 4.0.0-beta6 4.0.0 4.0.1"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 VENDOR="$REPO/vendor/htmx"
 

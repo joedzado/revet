@@ -39,7 +39,7 @@ fs::path find_bun() {
 int gen_htmx(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "htmx_asset.hpp");
 
-    std::string version = "2.0.9";
+    std::string version = "2.0.11";
     fs::path toml = ctx.proj / "revet.toml";
     if (file_exists(toml)) {
         bool in_htmx = false;
