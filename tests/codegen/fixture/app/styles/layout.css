@@ -83,3 +83,7 @@ body {
   border-radius: var(--r);
   transition: background 0.1s;
 }
+
+/* Class names that are C++ keywords or alternative tokens. */
+.or, .not { opacity: .6 }
+.float-end, .default { float: right }

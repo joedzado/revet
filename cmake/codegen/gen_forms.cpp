@@ -21,8 +21,11 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
         int depth = 1;
         size_t i = start;
         while (i < src.size() && depth > 0) {
-            if (src[i] == '{') ++depth;
-            else if (src[i] == '}') --depth;
+            if (src[i] == '{') {
+                ++depth;
+            } else if (src[i] == '}') {
+                --depth;
+            }
             ++i;
         }
         // Drops the closing brace.
@@ -31,34 +34,48 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
     return out;
 }
 
-bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+bool is_ws(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
 
 std::vector<Member> parse_members(const std::string& body) {
     std::vector<Member> members;
     size_t i = 0;
     while (i < body.size()) {
-        while (i < body.size() && is_ws(body[i])) ++i;
-        if (i >= body.size()) break;
+        while (i < body.size() && is_ws(body[i])) {
+            ++i;
+        }
+        if (i >= body.size()) {
+            break;
+        }
         int depth = 0;
         size_t j = i;
         while (j < body.size()) {
             char c = body[j];
-            if (c == '<' || c == '(') ++depth;
-            else if (c == '>' || c == ')') --depth;
-            else if (c == ';' && depth == 0) break;
+            if (c == '<' || c == '(') {
+                ++depth;
+            } else if (c == '>' || c == ')') {
+                --depth;
+            } else if (c == ';' && depth == 0) {
+                break;
+            }
             ++j;
         }
         std::string decl = strip(body.substr(i, j - i));
         i = j + 1;
-        if (decl.empty() || decl.find("revet::Field") == std::string::npos) continue;
+        if (decl.empty() || !decl.contains("revet::Field")) {
+            continue;
+        }
         bool optional = starts_with(decl, "std::optional");
         std::string no_init = strip(replace_all<R"RE(\{[^}]*\})RE">(decl, ""));
-        if (auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) members.push_back({m.get<1>().to_string(), optional});
+        if (auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) {
+            members.push_back({m.get<1>().to_string(), optional});
+        }
     }
     return members;
 }
 
-}  // namespace
+} // namespace
 
 int gen_forms(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "forms.hpp");
@@ -80,7 +97,9 @@ int gen_forms(const Ctx& ctx) {
 
     std::string includes;
     for (size_t i = 0; i < form_files.size(); ++i) {
-        if (i) includes += "\n";
+        if (i != 0U) {
+            includes += '\n';
+        }
         includes += rel_include(form_files[i], ctx.proj);
     }
 
@@ -89,7 +108,9 @@ int gen_forms(const Ctx& ctx) {
         std::string src = read_text(hpp);
         for (const auto& fs_struct : find_form_structs(src)) {
             auto members = parse_members(fs_struct.body);
-            if (members.empty()) continue;
+            if (members.empty()) {
+                continue;
+            }
 
             Lines pop_lines;
             Lines val_lines;
@@ -97,14 +118,15 @@ int gen_forms(const Ctx& ctx) {
                 pop_lines.push_back(subst(m.optional ? populate_opt_t : populate_req_t, {{"mname", m.name}}));
                 val_lines.push_back(subst(m.optional ? validate_opt_t : validate_req_t, {{"mname", m.name}}));
             }
-            functions.push_back(subst(populate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(pop_lines, "\n")}}));
-            functions.push_back(subst(validate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(val_lines, "\n")}}));
+            functions.push_back(
+                subst(populate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(pop_lines, "\n")}}));
+            functions.push_back(
+                subst(validate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(val_lines, "\n")}}));
         }
     }
 
-    write_file(out_path,
-               subst(header_t, {{"includes", includes}, {"functions", join(functions, "\n\n")}}) + "\n");
+    write_file(out_path, subst(header_t, {{"includes", includes}, {"functions", join(functions, "\n\n")}}) + "\n");
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

@@ -7,56 +7,56 @@
 //   commands.cpp  add, remove, lock, new, upgrade, clean, tidy, format, doctor
 //   main.cpp      argument parsing and dispatch
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <sys/types.h>
 #include <utility>
 #include <vector>
-
-#include <sys/types.h>
 
 namespace revet::cli {
 
 namespace fs = std::filesystem;
 
 // ── Output ──────────────────────────────────────────────────────────────────
-inline constexpr std::string_view RESET = "\033[0m";
-inline constexpr std::string_view BOLD_CYAN = "\033[1;36m";
-inline constexpr std::string_view DIM = "\033[2m";
-inline constexpr std::string_view RED = "\033[91m";
-inline constexpr std::string_view GREEN = "\033[92m";
-inline constexpr std::string_view YELLOW = "\033[93m";
-inline constexpr std::string_view CYAN = "\033[36m";
+inline constexpr std::string_view k_reset = "\033[0m";
+inline constexpr std::string_view k_bold_cyan = "\033[1;36m";
+inline constexpr std::string_view k_dim = "\033[2m";
+inline constexpr std::string_view k_red = "\033[91m";
+inline constexpr std::string_view k_green = "\033[92m";
+inline constexpr std::string_view k_yellow = "\033[93m";
+inline constexpr std::string_view k_cyan = "\033[36m";
 
-void rule(std::string_view s);  // ── s ──
+void rule(std::string_view s); // ── s ──
 void info(std::string_view s);
-void err(std::string_view s);   // ERROR: s (stderr)
+void err(std::string_view s); // ERROR: s (stderr)
 void dim(std::string_view s);
-void ok(std::string_view s);    // ✔ s
-[[noreturn]] void fail(std::string_view s);  // err + exit(1)
+void ok(std::string_view s);                // ✔ s
+[[noreturn]] void fail(std::string_view s); // err + exit(1)
 std::string expand_tabs(std::string_view s, int width = 4);
 void clear_screen();
 
 // ── Processes ───────────────────────────────────────────────────────────────
-enum class Io { Inherit, Pipe, Null };
+enum class Io : std::uint8_t { Inherit, Pipe, Null };
 
 struct SpawnOptions {
-    fs::path cwd;                     // empty: current directory
-    std::vector<std::string> env;     // "KEY=VALUE" entries added to / replacing the environment
+    fs::path cwd;                 // empty: current directory
+    std::vector<std::string> env; // "KEY=VALUE" entries added to / replacing the environment
     Io in = Io::Inherit, out = Io::Inherit, err = Io::Inherit;
-    bool new_session = false;         // setsid: the child leads its own process group
+    bool new_session = false; // setsid: the child leads its own process group
 };
 
 struct Child {
     pid_t pid = -1;
-    int out_fd = -1;  // set when out == Io::Pipe
-    int err_fd = -1;  // set when err == Io::Pipe
+    int out_fd = -1; // set when out == Io::Pipe
+    int err_fd = -1; // set when err == Io::Pipe
 };
 
 // posix_spawnp; pid stays -1 when the program cannot be started.
 Child spawn(const std::vector<std::string>& argv, const SpawnOptions& opts = {});
-int wait_child(pid_t pid);  // exit status; 128+N for signal N
+int wait_child(pid_t pid); // exit status; 128+N for signal N
 
 struct Result {
     int rc = 0;
@@ -90,7 +90,7 @@ const fs::path& framework_dir();
 const std::string& framework_version();
 
 // ── revet.toml ──────────────────────────────────────────────────────────────
-using Deps = std::vector<std::pair<std::string, std::string>>;  // name -> Conan ref, in file order
+using Deps = std::vector<std::pair<std::string, std::string>>; // name -> Conan ref, in file order
 
 std::optional<int> toml_port(const fs::path& project);
 std::string project_binary_name(const fs::path& project);
@@ -112,12 +112,12 @@ void conan_update_lockfile(const fs::path& conanfile);
 std::vector<std::string> conan_refs(std::string_view list_output, std::string_view name = {});
 void sort_refs_newest_first(std::vector<std::string>& refs);
 std::optional<std::string> conan_latest(std::string_view name, int timeout_s);
-std::string ref_version(std::string_view ref);  // "fmt/10.1.0" -> "10.1.0"
+std::string ref_version(std::string_view ref); // "fmt/10.1.0" -> "10.1.0"
 fs::path install_deps_script();
 std::optional<std::string> conan_profile();
 
 // ── Build ───────────────────────────────────────────────────────────────────
-inline const fs::path BUILD_DIR = "build";
+inline constexpr std::string_view k_build_dir = "build";
 void generate_cmakelists();
 Result cmake_build(bool release, bool asan, bool debug, const std::optional<std::string>& target);
 fs::path binary_path();
@@ -150,4 +150,4 @@ int cmd_doctor();
 // Critical tools for building (cmake, a C++ compiler, conan); names of the missing ones.
 std::vector<std::string> missing_critical_tools();
 
-}  // namespace revet::cli
+} // namespace revet::cli

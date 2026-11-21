@@ -1,13 +1,13 @@
 // Resource, upload, dependency and toggle generators.
 // Each reads revet.toml (or app/states) and writes one generated include or CMake fragment.
-#include "common.hpp"
-#include "node.hpp"
-
 #include <cstdlib>
 #include <iostream>
 #include <map>
 #include <set>
 #include <sys/stat.h>
+
+#include "common.hpp"
+#include "node.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -23,7 +23,7 @@ const Node* table_or_empty(const Node& root, std::string_view key) {
         return n;
     }();
     const Node* n = root.find(key);
-    return n ? n : &empty_table;
+    return (n != nullptr) ? n : &empty_table;
 }
 
 // ── stable ordered view of a table (insertion order) ───────────
@@ -35,11 +35,14 @@ struct Pair {
 
 std::vector<Pair> items_of(const Node& table) {
     std::vector<Pair> out;
-    for (size_t i = 0; i < table.keys.size(); ++i) out.push_back({table.keys[i], &table.vals[i]});
+    out.reserve(table.keys.size());
+    for (size_t i = 0; i < table.keys.size(); ++i) {
+        out.push_back({table.keys[i], &table.vals[i]});
+    }
     return out;
 }
 
-}  // namespace
+} // namespace
 
 // ── resources ───────────────────────────────────────────────────────────────
 
@@ -55,11 +58,15 @@ int gen_resources(const Ctx& ctx) {
         return 0;
     };
 
-    if (!file_exists(toml)) return exit_empty("// no revet.toml");
+    if (!file_exists(toml)) {
+        return exit_empty("// no revet.toml");
+    }
 
     Node data = load_toml(ctx);
     long long thread_count = 4;
-    if (const Node* tc = data.find("thread_count")) thread_count = py_int(*tc);
+    if (const Node* tc = data.find("thread_count")) {
+        thread_count = py_int(*tc);
+    }
 
     struct Resource {
         std::string name;
@@ -73,7 +80,7 @@ int gen_resources(const Ctx& ctx) {
         Resource r;
         r.name = name;
         const Node* type = rnode->find("type");
-        r.type = type ? py_str(*type) : "sqlite";
+        r.type = (type != nullptr) ? py_str(*type) : "sqlite";
         if (const Node* p = rnode->find("path")) {
             r.path = py_str(*p);
         } else if (const Node* u = rnode->find("url")) {
@@ -82,17 +89,23 @@ int gen_resources(const Ctx& ctx) {
             r.path = "app/data/" + name + ".db";
         }
         const Node* pool = rnode->find("pool_size");
-        r.pool = pool ? py_int(*pool) : thread_count;
+        r.pool = (pool != nullptr) ? py_int(*pool) : thread_count;
         const Node* def = rnode->find("default");
-        r.is_default = def ? py_bool(*def) : false;
+        r.is_default = (def != nullptr) ? py_bool(*def) : false;
         resources.push_back(std::move(r));
     }
 
-    if (resources.empty()) return exit_empty("// no [resources.*] in revet.toml");
+    if (resources.empty()) {
+        return exit_empty("// no [resources.*] in revet.toml");
+    }
 
     auto ns_for = [](const std::string& type) -> std::string {
-        if (type == "sqlite") return "db::sqlite";
-        if (type == "postgres") return "db::postgres";
+        if (type == "sqlite") {
+            return "db::sqlite";
+        }
+        if (type == "postgres") {
+            return "db::postgres";
+        }
         throw GenError("gen_resources: unknown resource type '" + type + "'");
     };
 
@@ -105,29 +118,43 @@ int gen_resources(const Ctx& ctx) {
     }
     std::string dflt_ns;
     for (const auto& r : resources) {
-        if (r.name == dflt) dflt_ns = ns_for(r.type);
+        if (r.name == dflt) {
+            dflt_ns = ns_for(r.type);
+        }
     }
 
     const std::string pool_fn_t = tmpl(ctx, "resources_pool_fn.tmpl");
     const std::string handle_fn_t = tmpl(ctx, "resources_handle_fn.tmpl");
     const std::string db_alias_t = tmpl(ctx, "resources_db_alias.tmpl");
 
-    Lines lines = {"// Auto-generated — do not edit", "#pragma once", "#include <revet/db.hpp>", "", paths_block, "",
-                   "namespace resources {", "namespace _pools {", ""};
+    Lines lines = {"// Auto-generated — do not edit",
+                   "#pragma once",
+                   "#include <revet/db.hpp>",
+                   "",
+                   paths_block,
+                   "",
+                   "namespace resources {",
+                   "namespace _pools {",
+                   ""};
     Lines pool_lines;
     Lines handle_lines;
     std::set<std::string> backends;
     for (const auto& r : resources) {
         std::string ns = ns_for(r.type);
         backends.insert(r.type);
-        pool_lines.push_back(subst(pool_fn_t, {{"ns", ns}, {"name", r.name}, {"path", r.path}, {"pool", std::to_string(r.pool)}}));
+        pool_lines.push_back(
+            subst(pool_fn_t, {{"ns", ns}, {"name", r.name}, {"path", r.path}, {"pool", std::to_string(r.pool)}}));
         pool_lines.push_back("");
         handle_lines.push_back(subst(handle_fn_t, {{"ns", ns}, {"name", r.name}}));
     }
-    for (const auto& l : pool_lines) lines.push_back(l);
+    for (const auto& l : pool_lines) {
+        lines.push_back(l);
+    }
     lines.push_back("} // namespace _pools");
     lines.push_back("");
-    for (const auto& l : handle_lines) lines.push_back(l);
+    for (const auto& l : handle_lines) {
+        lines.push_back(l);
+    }
 
     if (dflt != "db") {
         lines.push_back("");
@@ -140,7 +167,9 @@ int gen_resources(const Ctx& ctx) {
 
     std::string list;
     for (const auto& b : backends) {
-        if (!list.empty()) list += " ";
+        if (!list.empty()) {
+            list += ' ';
+        }
         list += b;
     }
     write_file(backends_out, "# Auto-generated — do not edit\nset(REVET_DB_BACKENDS " + list + ")\n");
@@ -171,8 +200,8 @@ int gen_uploads(const Ctx& ctx) {
         b.name = name;
         const Node* inc = d->find("incoming");
         const Node* val = d->find("validated");
-        b.incoming = inc ? py_str(*inc) : "app/uploads/" + name + "/incoming";
-        b.validated = val ? py_str(*val) : "app/uploads/" + name + "/validated";
+        b.incoming = (inc != nullptr) ? py_str(*inc) : "app/uploads/" + name + "/incoming";
+        b.validated = (val != nullptr) ? py_str(*val) : "app/uploads/" + name + "/validated";
         dirs.push_back(std::move(b));
     }
 
@@ -183,7 +212,8 @@ int gen_uploads(const Ctx& ctx) {
 
     // Created at configure time: incoming 0700 (not web-accessible), validated 0750.
     for (const auto& b : dirs) {
-        for (const auto& [rel, mode] : std::vector<std::pair<std::string, mode_t>>{{b.incoming, 0700}, {b.validated, 0750}}) {
+        for (const auto& [rel, mode] :
+             std::vector<std::pair<std::string, mode_t>>{{b.incoming, 0700}, {b.validated, 0750}}) {
             fs::path p = ctx.proj / rel;
             fs::create_directories(p);
             ::chmod(p.c_str(), mode);
@@ -212,7 +242,7 @@ int gen_dependencies(const Ctx& ctx) {
     const std::string dep_t = tmpl(ctx, "dependencies_dep.tmpl");
 
     // Line-based on purpose: matches the original parser's behaviour exactly.
-    std::vector<std::pair<std::string, std::string>> deps;  // key -> conan ref (insertion order)
+    std::vector<std::pair<std::string, std::string>> deps; // key -> conan ref (insertion order)
     if (file_exists(toml)) {
         bool in_deps = false;
         for (const auto& line : splitlines(read_text(toml))) {
@@ -221,8 +251,12 @@ int gen_dependencies(const Ctx& ctx) {
                 in_deps = true;
                 continue;
             }
-            if (!in_deps) continue;
-            if (starts_with(stripped, "[")) break;
+            if (!in_deps) {
+                continue;
+            }
+            if (starts_with(stripped, "[")) {
+                break;
+            }
             std::string key;
             std::string ref;
             if (auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(stripped)) {
@@ -242,7 +276,9 @@ int gen_dependencies(const Ctx& ctx) {
                     break;
                 }
             }
-            if (!replaced) deps.emplace_back(key, ref);
+            if (!replaced) {
+                deps.emplace_back(key, ref);
+            }
         }
     }
 
@@ -254,7 +290,9 @@ int gen_dependencies(const Ctx& ctx) {
     if (fs::is_directory(conan_dir)) {
         for (const auto& f : glob(conan_dir, "-data.cmake")) {
             std::string name = f.filename().string();
-            if (starts_with(name, "module-") || name.find("-release-") == std::string::npos) continue;
+            if (starts_with(name, "module-") || !name.contains("-release-")) {
+                continue;
+            }
             std::string text = read_text(f);
             if (auto m = ctre::search<R"RE(set\((\w+)_PACKAGE_FOLDER_RELEASE)RE">(text)) {
                 cmake_names[m.get<1>().to_string()] = name.substr(0, name.find("-release-"));
@@ -271,8 +309,9 @@ int gen_dependencies(const Ctx& ctx) {
         std::string cmake_name = it == cmake_names.end() ? pkg : it->second;
         cmake.push_back(subst(dep_t, {{"pkg_name", pkg}, {"cmake_name", cmake_name}}));
         // Conan's root target can be empty with the libraries on its components; forward them when present.
-        cmake.push_back("if(DEFINED " + pkg + "_COMPONENT_NAMES AND TARGET " + pkg + "::" + pkg + ")");
-        cmake.push_back("    set_property(TARGET " + pkg + "::" + pkg + " APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${" + pkg + "_COMPONENT_NAMES})");
+        cmake.push_back(cat("if(DEFINED ", pkg, "_COMPONENT_NAMES AND TARGET ", pkg, "::", pkg, ")"));
+        cmake.push_back(cat("    set_property(TARGET ", pkg, "::", pkg, " APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${",
+                            pkg, "_COMPONENT_NAMES})"));
         cmake.push_back("endif()");
     }
     cmake.push_back("");
@@ -312,4 +351,4 @@ int gen_toggles(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

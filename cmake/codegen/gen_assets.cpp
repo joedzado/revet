@@ -1,9 +1,9 @@
 // Embeds bundled JS (htmx, optimistic) as string_view constants.
 // Both are invoked from gen_routes (routes.cpp includes their headers).
-#include "common.hpp"
-
 #include <chrono>
 #include <cstdlib>
+
+#include "common.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -11,8 +11,11 @@ namespace {
 std::string shell_quote(const std::string& s) {
     std::string out = "'";
     for (char c : s) {
-        if (c == '\'') out += "'\\''";
-        else out += c;
+        if (c == '\'') {
+            out += "'\\''";
+        } else {
+            out += c;
+        }
     }
     return out + "'";
 }
@@ -23,18 +26,24 @@ fs::path find_bun() {
         size_t start = 0;
         while (start <= p.size()) {
             size_t end = p.find(':', start);
-            if (end == std::string::npos) end = p.size();
+            if (end == std::string::npos) {
+                end = p.size();
+            }
             fs::path candidate = fs::path(p.substr(start, end - start)) / "bun";
             std::error_code ec;
-            if (fs::is_regular_file(candidate, ec)) return candidate;
+            if (fs::is_regular_file(candidate, ec)) {
+                return candidate;
+            }
             start = end + 1;
         }
     }
-    if (const char* home = std::getenv("HOME")) return fs::path(home) / ".bun" / "bin" / "bun";
+    if (const char* home = std::getenv("HOME")) {
+        return fs::path(home) / ".bun" / "bin" / "bun";
+    }
     return {};
 }
 
-}  // namespace
+} // namespace
 
 int gen_htmx(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "htmx_asset.hpp");
@@ -49,7 +58,9 @@ int gen_htmx(const Ctx& ctx) {
                 continue;
             }
             if (in_htmx) {
-                if (starts_with(strip(line), "[")) break;
+                if (starts_with(strip(line), "[")) {
+                    break;
+                }
                 if (auto m = ctre::starts_with<R"RE(\s*version\s*=\s*"([^"]+)")RE">(line)) {
                     version = m.get<1>().to_string();
                     break;
@@ -76,18 +87,24 @@ int gen_htmx(const Ctx& ctx) {
 int gen_optimistic(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "optimistic_asset.hpp");
     fs::path ts_file = ctx.framework / "static" / "optimistic.ts";
-    if (!file_exists(ts_file)) throw GenError("gen_optimistic: " + ts_file.string() + " not found");
+    if (!file_exists(ts_file)) {
+        throw GenError("gen_optimistic: " + ts_file.string() + " not found");
+    }
 
     fs::path bun = find_bun();
-    if (bun.empty() || !file_exists(bun)) throw GenError("gen_optimistic: bun not found");
+    if (bun.empty() || !file_exists(bun)) {
+        throw GenError("gen_optimistic: bun not found");
+    }
 
-    fs::path tmp_dir = fs::temp_directory_path() / ("revet-codegen-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::path tmp_dir = fs::temp_directory_path() /
+                       ("revet-codegen-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(tmp_dir);
     fs::path js_tmp = tmp_dir / "optimistic.js";
     fs::path err_tmp = tmp_dir / "bun.err";
 
-    std::string cmd = cat(shell_quote(bun.string()), " build --minify ", shell_quote(ts_file.string()),
-                          " --outfile ", shell_quote(js_tmp.string()), " 2>", shell_quote(err_tmp.string()));
+    std::string cmd = cat(shell_quote(bun.string()), " build --minify ", shell_quote(ts_file.string()), " --outfile ",
+                          shell_quote(js_tmp.string()), " 2>", shell_quote(err_tmp.string()));
+    // NOLINTNEXTLINE(cert-env33-c,bugprone-command-processor): every argument is shell-quoted
     int rc = std::system(cmd.c_str());
     if (rc != 0) {
         std::string err = file_exists(err_tmp) ? read_text(err_tmp) : "";
@@ -107,4 +124,4 @@ int gen_optimistic(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

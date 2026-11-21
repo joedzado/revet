@@ -1,9 +1,9 @@
 // [[revet::external("METHOD URL")]] declarations -> apis.hpp (inline HTTP coroutines).
-#include "common.hpp"
-
 #include <algorithm>
 #include <map>
 #include <set>
+
+#include "common.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -16,7 +16,7 @@ struct Param {
 struct External {
     std::string method;
     std::string url;
-    std::string ns;  // "a::b" or empty
+    std::string ns; // "a::b" or empty
     std::string func_name;
     std::string return_type;
     std::string response_type;
@@ -32,7 +32,9 @@ std::vector<Param> parse_params(const std::string& s) {
     std::vector<Param> params;
     for (const auto& raw : split_top_commas(s)) {
         auto m = ctre::match<R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*([^\n]+?))?\s*)RE">(raw);
-        if (!m) continue;
+        if (!m) {
+            continue;
+        }
         params.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
     }
     return params;
@@ -40,7 +42,9 @@ std::vector<Param> parse_params(const std::string& s) {
 
 std::string task_inner(const std::string& ret) {
     std::string stripped = strip(ret);
-    if (auto m = ctre::match<R"RE(\s*web::Task\s*<\s*([\s\S]+)\s*>\s*)RE">(stripped)) return strip(m.get<1>().to_view());
+    if (auto m = ctre::match<R"RE(\s*web::Task\s*<\s*([\s\S]+)\s*>\s*)RE">(stripped)) {
+        return strip(m.get<1>().to_view());
+    }
     return stripped;
 }
 
@@ -50,8 +54,8 @@ std::vector<External> scan_file(const fs::path& path) {
 
     struct Ev {
         size_t pos;
-        int kind;  // 0 = namespace open, 1 = closing brace, 2 = attribute
-        std::string payload;  // namespace name, or attribute method+url
+        int kind;            // 0 = namespace open, 1 = closing brace, 2 = attribute
+        std::string payload; // namespace name, or attribute method+url
         size_t end;
     };
     std::vector<Ev> events;
@@ -62,7 +66,9 @@ std::vector<External> scan_file(const fs::path& path) {
         events.push_back({pos, 0, m.get<1>().to_string(), pos + m.get<0>().size()});
     }
     for (size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '}') events.push_back({i, 1, "", i + 1});
+        if (text[i] == '}') {
+            events.push_back({i, 1, "", i + 1});
+        }
     }
     for (auto m : ctre::search_all<R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE">(view)) {
         size_t pos = offset(m.get<0>().to_view());
@@ -114,19 +120,22 @@ std::vector<External> scan_file(const fs::path& path) {
             // Function declaration directly after the attribute:
             //   auto name(params) -> ReturnType;   |   ReturnType name(params);
             auto dm = ctre::starts_with<
-                R"RE((?:inline\s+)?(?:auto\s+(\w+)\s*\(([^)]*)\)\s*->\s*([^;]+?)|([\w:<>,\s]+?)\s+(\w+)\s*\(([^)]*)\))\s*;)RE">(lead);
+                R"RE((?:inline\s+)?(?:auto\s+(\w+)\s*\(([^)]*)\)\s*->\s*([^;]+?)|([\w:<>,\s]+?)\s+(\w+)\s*\(([^)]*)\))\s*;)RE">(
+                lead);
             if (!dm) {
                 last = ev.end;
                 continue;
             }
-            bool alt1 = bool(dm.get<1>());
+            bool alt1 = static_cast<bool>(dm.get<1>());
             std::string ret = strip(alt1 ? dm.get<3>().to_view() : dm.get<4>().to_view());
             std::string name = alt1 ? dm.get<1>().to_string() : dm.get<5>().to_string();
             std::string params_s = alt1 ? dm.get<2>().to_string() : dm.get<6>().to_string();
 
             std::string ns;
             for (const auto& n : ns_stack) {
-                if (!ns.empty()) ns += "::";
+                if (!ns.empty()) {
+                    ns += "::";
+                }
                 ns += n;
             }
             out.push_back({method, url, ns, name, ret, task_inner(ret), parse_params(params_s)});
@@ -137,14 +146,18 @@ std::vector<External> scan_file(const fs::path& path) {
 }
 
 std::string to_string_expr(const std::string& ptype, const std::string& name) {
-    if (lower(ptype).find("string") != std::string::npos) return cat("std::string(", name, ")");
+    if (lower(ptype).contains("string")) {
+        return cat("std::string(", name, ")");
+    }
     return cat("std::to_string(", name, ")");
 }
 
 std::string json_str_literal(const std::string& s) {
     std::string out = "\"";
     for (char c : s) {
-        if (c == '\\' || c == '"') out += '\\';
+        if (c == '\\' || c == '"') {
+            out += '\\';
+        }
         out += c;
     }
     return out + "\"";
@@ -153,20 +166,26 @@ std::string json_str_literal(const std::string& s) {
 // Builds the URL expression: path params substituted, remaining params appended as a query string.
 std::string url_expr(const std::string& url, const std::vector<Param>& params) {
     std::set<std::string> path_names;
-    for (auto m : ctre::search_all<R"RE(\{(\w+)\})RE">(url)) path_names.insert(m.get<1>().to_string());
+    for (auto m : ctre::search_all<R"RE(\{(\w+)\})RE">(url)) {
+        path_names.insert(m.get<1>().to_string());
+    }
 
     std::string expr = cat("std::string(", json_str_literal(url), ")");
     for (const auto& p : params) {
-        if (!path_names.count(p.name)) continue;
+        if (!path_names.contains(p.name)) {
+            continue;
+        }
         std::string val = to_string_expr(p.type, p.name);
         std::string key = "{" + p.name + "}";
         expr = cat("[](std::string s, const std::string& v) { auto p = s.find(\"", key,
                    "\"); if (p != std::string::npos) s.replace(p, ", std::to_string(p.name.size() + 2),
                    ", v); return s; }(", expr, ", ", val, ")");
     }
-    bool first_q = url.find('?') == std::string::npos;
+    bool first_q = !url.contains('?');
     for (const auto& p : params) {
-        if (path_names.count(p.name)) continue;
+        if (path_names.contains(p.name)) {
+            continue;
+        }
         std::string val = to_string_expr(p.type, p.name);
         std::string sep = first_q ? "?" : "&";
         first_q = false;
@@ -183,7 +202,9 @@ std::string http_helper(const std::string& method) {
 Lines emit_definition(const External& e) {
     std::string sig;
     for (size_t i = 0; i < e.params.size(); ++i) {
-        if (i) sig += ", ";
+        if (i != 0U) {
+            sig += ", ";
+        }
         sig += e.params[i].type + " " + e.params[i].name;
     }
     Lines lines;
@@ -197,7 +218,7 @@ Lines emit_definition(const External& e) {
     return lines;
 }
 
-}  // namespace
+} // namespace
 
 int gen_api(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "apis.hpp");
@@ -205,17 +226,23 @@ int gen_api(const Ctx& ctx) {
 
     std::vector<External> externs;
     for (const auto& f : glob(apis_dir, ".hpp")) {
-        for (auto& e : scan_file(f)) externs.push_back(std::move(e));
+        for (auto& e : scan_file(f)) {
+            externs.push_back(std::move(e));
+        }
     }
 
     Lines lines = file_header({"#include <coroutine>", "#include <revet/task.hpp>", "#include <revet/http.hpp>",
                                "#include <revet/json.hpp>", "#include \"models.hpp\"", "#include <string>"});
-    for (const auto& hpp : glob(apis_dir, ".hpp")) lines.push_back(rel_include(hpp, ctx.proj));
+    for (const auto& hpp : glob(apis_dir, ".hpp")) {
+        lines.push_back(rel_include(hpp, ctx.proj));
+    }
     lines.push_back("");
 
     // Group by namespace, emitted in sorted namespace order.
     std::map<std::string, std::vector<External>> by_ns;
-    for (auto& e : externs) by_ns[e.ns].push_back(std::move(e));
+    for (auto& e : externs) {
+        by_ns[e.ns].push_back(std::move(e));
+    }
     for (const auto& [ns, group] : by_ns) {
         size_t depth = 0;
         if (!ns.empty()) {
@@ -223,8 +250,12 @@ int gen_api(const Ctx& ctx) {
             size_t start = 0;
             while (start <= ns.size()) {
                 size_t end = ns.find("::", start);
-                if (end == std::string::npos) end = ns.size();
-                if (depth) opened += " ";
+                if (end == std::string::npos) {
+                    end = ns.size();
+                }
+                if (depth != 0U) {
+                    opened += ' ';
+                }
                 opened += "namespace " + ns.substr(start, end - start) + " {";
                 ++depth;
                 start = end + 2;
@@ -232,7 +263,9 @@ int gen_api(const Ctx& ctx) {
             lines.push_back(opened);
         }
         for (const auto& e : group) {
-            for (const auto& l : emit_definition(e)) lines.push_back(l);
+            for (const auto& l : emit_definition(e)) {
+                lines.push_back(l);
+            }
             lines.push_back("");
         }
         if (!ns.empty()) {
@@ -245,4 +278,4 @@ int gen_api(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

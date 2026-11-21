@@ -23,6 +23,8 @@ inline std::string pack_plain_Cart(const Cart& s) {
     std::string out;
     out.append((char*)&s.count, sizeof(s.count));
     { uint32_t len = (uint32_t)s.coupon.size(); out.append((char*)&len, 4); out.append(s.coupon); }
+    out.append((char*)&s.expires, sizeof(s.expires));
+    out.append((char*)&s.version, sizeof(s.version));
     return sanitize::base64_encode(out);
 }
 
@@ -38,6 +40,8 @@ inline Cart unpack_plain_Cart(std::string_view base64) {
     const char* end = p + raw.size();
     if (p + sizeof(out.count) <= end) { memcpy(&out.count, p, sizeof(out.count)); p += sizeof(out.count); }
     if (p + 4 <= end) { uint32_t len; memcpy(&len, p, 4); p += 4; if (p + len <= end) { out.coupon = std::string(p, len); p += len; } }
+    if (p + sizeof(out.expires) <= end) { memcpy(&out.expires, p, sizeof(out.expires)); p += sizeof(out.expires); }
+    if (p + sizeof(out.version) <= end) { memcpy(&out.version, p, sizeof(out.version)); p += sizeof(out.version); }
     return out;
 }
 

@@ -28,12 +28,12 @@ struct GenError : std::runtime_error {
 
 // Paths passed on the command line: revet-codegen <generator> <project> <framework>.
 struct Ctx {
-    fs::path proj;       // project root (CMAKE_SOURCE_DIR)
-    fs::path framework;  // framework root (FRAMEWORK_DIR); templates in cmake/templates
+    fs::path proj;      // project root (CMAKE_SOURCE_DIR)
+    fs::path framework; // framework root (FRAMEWORK_DIR); templates in cmake/templates
 };
 
 // ── String building ─────────────────────────────────────────────────────────
-template <class... T>
+template<class... T>
 std::string cat(const T&... parts) {
     std::string out;
     (out.append(std::string_view(parts)), ...);
@@ -88,34 +88,36 @@ inline std::size_t offset_in(std::string_view whole, std::string_view part) {
     return static_cast<std::size_t>(part.data() - whole.data());
 }
 // Replaces every match of P in `s` with `with`.
-template <ctll::fixed_string P>
+template<ctll::fixed_string P>
 std::string replace_all(std::string_view s, std::string_view with) {
     std::string out;
-    const char* last = s.data();
+    std::size_t pos = 0;
     for (auto m : ctre::search_all<P>(s)) {
-        std::string_view hit = m.to_view();
-        out.append(last, hit.data());
+        std::size_t at = offset_in(s, m.to_view());
+        out.append(s.substr(pos, at - pos));
         out += with;
-        last = hit.data() + hit.size();
+        pos = at + m.size();
     }
-    out.append(last, s.data() + s.size());
+    out.append(s.substr(pos));
     return out;
 }
 
 // First place where `name` is directly followed by Tail — a search for name + Tail when
 // the name is only known at run time. Captures are Tail's.
-template <ctll::fixed_string Tail>
+template<ctll::fixed_string Tail>
 auto search_after(std::string_view src, std::string_view name) {
     for (std::size_t at = src.find(name); at != std::string_view::npos; at = src.find(name, at + 1)) {
-        if (auto m = ctre::starts_with<Tail>(src.substr(at + name.size()))) return m;
+        if (auto m = ctre::starts_with<Tail>(src.substr(at + name.size()))) {
+            return m;
+        }
     }
     return decltype(ctre::starts_with<Tail>(src)){};
 }
 
 // Patterns shared by several generators.
 // `[[revet::toggle("/route", true|false)]] bool name` — captures: 1 route, 2 default, 3 name.
-inline constexpr auto find_toggles =
-    ctre::search_all<R"RE(\[\[[\s\S]*?revet::toggle\(\s*"([^"]+)"\s*,\s*(true|false)\s*\)[\s\S]*?\]\]\s*bool\s+(\w+))RE">;
+inline constexpr auto find_toggles = ctre::search_all<
+    R"RE(\[\[[\s\S]*?revet::toggle\(\s*"([^"]+)"\s*,\s*(true|false)\s*\)[\s\S]*?\]\]\s*bool\s+(\w+))RE">;
 // `web::State<T>` / `web::Flash<T>` — captures: 1 State|Flash, 2 T.
 inline constexpr auto find_state_types = ctre::search_all<R"RE(web::(State|Flash)<(\w+)>)RE">;
 
@@ -140,4 +142,4 @@ int gen_server(const Ctx& ctx);
 // (url, identifier) for each app/scripts/*.js; used by gen_routes.
 std::vector<std::pair<std::string, std::string>> app_script_routes(const Ctx& ctx);
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

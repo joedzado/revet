@@ -1,12 +1,12 @@
 // app/routes/**/*.cpp -> routes.hpp (urls::) and routes.cpp (route table).
-#include "common.hpp"
-#include "node.hpp"
-
 #include <algorithm>
 #include <iostream>
 #include <map>
 #include <set>
 #include <tuple>
+
+#include "common.hpp"
+#include "node.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -22,16 +22,22 @@ struct Entry {
 // rel is relative to app/routes.
 std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
     std::vector<std::string> parts;
-    for (const auto& e : rel) parts.push_back(e.string());
+    for (const auto& e : rel) {
+        parts.push_back(e.string());
+    }
     std::string& last = parts.back();
     size_t dot = last.rfind('.');
-    if (dot != std::string::npos && dot != 0) last = last.substr(0, dot);  // with_suffix("")
-    if (parts.back() == "index") parts.pop_back();
+    if (dot != std::string::npos && dot != 0) {
+        last = last.substr(0, dot); // with_suffix("")
+    }
+    if (parts.back() == "index") {
+        parts.pop_back();
+    }
 
     std::vector<std::string> route_parts;
     std::vector<std::string> ns_parts;
     for (const auto& part : parts) {
-        if (auto m = ctre::match<R"RE(\[([^\n]+)\])RE">(part)) {  // [id].cpp -> :id
+        if (auto m = ctre::match<R"RE(\[([^\n]+)\])RE">(part)) { // [id].cpp -> :id
             route_parts.push_back(":" + m.get<1>().to_string());
             ns_parts.push_back("_" + m.get<1>().to_string() + "_");
         } else {
@@ -44,7 +50,9 @@ std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
     std::string route = "/" + join(route_parts, "/");
     std::string ns = join(ns_parts, "_");
     std::replace(ns.begin(), ns.end(), '-', '_');
-    if (ns.empty()) ns = "index";
+    if (ns.empty()) {
+        ns = "index";
+    }
     return {route, ns};
 }
 
@@ -66,16 +74,20 @@ std::set<std::string> scan_model_names(const fs::path& models_dir) {
 struct StateInfo {
     bool needed = false;
     std::vector<std::string> state_vars;
-    std::vector<std::tuple<std::string, std::string, std::string>> flashes;  // (mode, type, var)
+    std::vector<std::tuple<std::string, std::string, std::string>> flashes; // (mode, type, var)
 };
 
 StateInfo extract_state_vars(const std::string& func_name, const std::string& src) {
     StateInfo info;
     std::string_view args;
-    if (auto head = search_after<R"RE(\s*\(([\s\S]*?)\))RE">(src, func_name)) args = head.get<1>().to_view();
+    if (auto head = search_after<R"RE(\s*\(([\s\S]*?)\))RE">(src, func_name)) {
+        args = head.get<1>().to_view();
+    }
 
     std::set<std::pair<std::string, std::string>> needed;
-    for (auto m : find_state_types(args)) needed.insert({m.get<1>().to_string(), m.get<2>().to_string()});
+    for (auto m : find_state_types(args)) {
+        needed.insert({m.get<1>().to_string(), m.get<2>().to_string()});
+    }
     info.needed = !needed.empty();
     for (const auto& [mode, type] : needed) {
         std::string var = "state_" + type;
@@ -87,7 +99,9 @@ StateInfo extract_state_vars(const std::string& func_name, const std::string& sr
 
 std::string handler_args(const std::vector<std::string>& state_vars, const std::string& suffix = "") {
     std::string out = "req";
-    for (const auto& v : state_vars) out += ", " + v;
+    for (const auto& v : state_vars) {
+        out += ", " + v;
+    }
     return out + suffix;
 }
 
@@ -101,8 +115,8 @@ void emit_state_loading(Lines& out, const StateInfo& info) {
 }
 
 struct ApiDetect {
-    std::string param_type;   // empty when none
-    std::string return_type;  // empty when none
+    std::string param_type;  // empty when none
+    std::string return_type; // empty when none
     bool is_async = false;
 };
 
@@ -111,17 +125,22 @@ ApiDetect api_detect(const std::string& func_name, const std::string& src, const
     if (auto pm = search_after<R"RE(\s*\(\s*const\s+([\w:]+)\s*&)RE">(src, func_name)) {
         std::string raw = pm.get<1>().to_string();
         size_t sep = raw.rfind("::");
-        if (sep != std::string::npos) raw = raw.substr(sep + 2);
-        if (names.count(raw)) d.param_type = raw;
+        if (sep != std::string::npos) {
+            raw = raw.substr(sep + 2);
+        }
+        if (names.contains(raw)) {
+            d.param_type = raw;
+        }
     }
 
-    d.is_async = bool(search_after<R"RE(\s*\([^)]*\)\s*->\s*(?:web::)?Task\s*<)RE">(src, func_name));
+    d.is_async = static_cast<bool>(search_after<R"RE(\s*\([^)]*\)\s*->\s*(?:web::)?Task\s*<)RE">(src, func_name));
 
-    if (auto rm = search_after<
-            R"RE(\s*\([^)]*\)\s*->\s*(?:(?:web::)?Task\s*<\s*)?(std::vector\s*<\s*(\w+)\s*>|(\w+)))RE">(src, func_name)) {
-        if (rm.get<2>() && names.count(rm.get<2>().to_string())) {
+    if (auto rm =
+            search_after<R"RE(\s*\([^)]*\)\s*->\s*(?:(?:web::)?Task\s*<\s*)?(std::vector\s*<\s*(\w+)\s*>|(\w+)))RE">(
+                src, func_name)) {
+        if (rm.get<2>() && names.contains(rm.get<2>().to_string())) {
             d.return_type = "std::vector<" + rm.get<2>().to_string() + ">";
-        } else if (rm.get<3>() && names.count(rm.get<3>().to_string())) {
+        } else if (rm.get<3>() && names.contains(rm.get<3>().to_string())) {
             d.return_type = rm.get<3>().to_string();
         }
     }
@@ -140,10 +159,13 @@ void emit_api_handler(Lines& out, const std::string& ns, const std::string& meth
     out.push_back(cat("        ", handle, " = [](const web::Request& req) ", sig, " {"));
     const std::string fn = cat("route_", ns, "::render_", method);
     if (!d.param_type.empty()) {
-        out.push_back("            if (!std::string_view(req.headers.get(\"content-type\")).starts_with(\"application/json\"))");
-        out.push_back(cat("                ", ret, " web::api::error(web::status::bad_request, \"Content-Type: application/json required\");"));
+        out.push_back(
+            "            if (!std::string_view(req.headers.get(\"content-type\")).starts_with(\"application/json\"))");
+        out.push_back(cat("                ", ret,
+                          " web::api::error(web::status::bad_request, \"Content-Type: application/json required\");"));
         out.push_back("            if (req.raw_body.empty())");
-        out.push_back(cat("                ", ret, " web::api::error(web::status::bad_request, \"request body required\");"));
+        out.push_back(
+            cat("                ", ret, " web::api::error(web::status::bad_request, \"request body required\");"));
         out.push_back(cat("            ", d.param_type, " body{};"));
         out.push_back("            try {");
         out.push_back("                revet::json::Document doc(req.raw_body);");
@@ -185,7 +207,9 @@ fs::path resolved(const fs::path& p) {
 
 void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::path& site) {
     fs::path cc = ctx.proj / "build" / "compile_commands.json";
-    if (!file_exists(cc)) return;
+    if (!file_exists(cc)) {
+        return;
+    }
 
     Node db;
     try {
@@ -194,7 +218,9 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
         std::cerr << "gen_routes: warning: failed to parse " << cc.string() << ": " << e.what() << "\n";
         return;
     }
-    if (db.kind != Node::Kind::Array) return;
+    if (db.kind != Node::Kind::Array) {
+        return;
+    }
 
     auto file_of = [](const Node& e) -> fs::path {
         const Node* f = e.find("file");
@@ -209,21 +235,27 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
             break;
         }
     }
-    if (!ref) return;
+    if (ref == nullptr) {
+        return;
+    }
     Node ref_copy = *ref;
 
     fs::path gen_dir = resolved(ctx.proj / "build" / "generated");
-    const Lines always_headers = {"routes.hpp", "components.hpp", "styles.hpp", "states.hpp",
-                                  "toggles.hpp", "i18n.hpp",     "uploads.hpp"};
+    const Lines always_headers = {"routes.hpp",  "components.hpp", "styles.hpp", "states.hpp",
+                                  "toggles.hpp", "i18n.hpp",       "uploads.hpp"};
     const Lines optional_headers = {"queries.hpp", "resources.hpp", "models.hpp", "forms.hpp", "apis.hpp"};
     std::vector<fs::path> headers;
-    for (const auto& h : always_headers) headers.push_back(gen_dir / h);
+    for (const auto& h : always_headers) {
+        headers.push_back(gen_dir / h);
+    }
     for (const auto& h : optional_headers) {
-        if (file_exists(gen_dir / h)) headers.push_back(gen_dir / h);
+        if (file_exists(gen_dir / h)) {
+            headers.push_back(gen_dir / h);
+        }
     }
 
-    Lines include_pairs;  // arguments form: "-include", "<abs>"
-    Lines include_flags;  // command form:    "-include <abs>"
+    Lines include_pairs; // arguments form: "-include", "<abs>"
+    Lines include_flags; // command form:    "-include <abs>"
     for (const auto& h : headers) {
         include_pairs.push_back("-include");
         include_pairs.push_back(h.string());
@@ -244,14 +276,20 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
         } else if (const Node* args_node = ref_copy.find("arguments")) {
             Node args;
             args.kind = Node::Kind::Array;
-            for (const auto& a : args_node->items) args.items.push_back(a);
+            for (const auto& a : args_node->items) {
+                args.items.push_back(a);
+            }
             for (size_t i = 0; i < args.items.size(); ++i) {
                 if (args.items[i].kind == Node::Kind::String && args.items[i].s == "-o" && i + 1 < args.items.size()) {
                     args.items[i + 1] = str_node(stem + ".o");
                 }
             }
-            if (!args.items.empty()) args.items.back() = str_node(src_abs.string());
-            for (const auto& p : include_pairs) args.items.push_back(str_node(p));
+            if (!args.items.empty()) {
+                args.items.back() = str_node(src_abs.string());
+            }
+            for (const auto& p : include_pairs) {
+                args.items.push_back(str_node(p));
+            }
             args.items.push_back(str_node("-Wno-unused-function"));
             entry.set("arguments", args);
         }
@@ -260,26 +298,32 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
 
     std::set<fs::path> site_files;
     for (const auto& f : glob(site, ".cpp", true)) {
-        if (f.filename() != "site_init.cpp") site_files.insert(resolved(f));
+        if (f.filename() != "site_init.cpp") {
+            site_files.insert(resolved(f));
+        }
     }
 
     Node out;
     out.kind = Node::Kind::Array;
     for (const auto& e : db.items) {
-        if (!site_files.count(file_of(e))) out.items.push_back(e);
+        if (static_cast<unsigned int>(site_files.contains(file_of(e))) == 0U) {
+            out.items.push_back(e);
+        }
     }
-    for (const auto& f : site_files) out.items.push_back(make_entry(f));
+    for (const auto& f : site_files) {
+        out.items.push_back(make_entry(f));
+    }
 
     write_file(cc, dump_json_indent2(out));
 }
 
-}  // namespace
+} // namespace
 
 int gen_routes(const Ctx& ctx) {
     // routes.cpp includes these asset headers, so they must exist first.
     gen_htmx(ctx);
     gen_optimistic(ctx);
-    gen_scripts(ctx);  // scripts.hpp, listed as a Routes output
+    gen_scripts(ctx); // scripts.hpp, listed as a Routes output
 
     fs::path site = ctx.proj / "app" / "routes";
     fs::path models_dir = ctx.proj / "models";
@@ -299,9 +343,11 @@ int gen_routes(const Ctx& ctx) {
         entries.push_back({route, ns, f});
     }
     std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
-        int ka = a.route.find(':') != std::string::npos ? 1 : 0;
-        int kb = b.route.find(':') != std::string::npos ? 1 : 0;
-        if (ka != kb) return ka < kb;
+        int ka = a.route.contains(':') ? 1 : 0;
+        int kb = b.route.contains(':') ? 1 : 0;
+        if (ka != kb) {
+            return ka < kb;
+        }
         return a.route < b.route;
     });
 
@@ -314,22 +360,27 @@ int gen_routes(const Ctx& ctx) {
     Lines hpp_url_entries;
     for (const auto& e : entries) {
         Lines params;
-        for (auto m : ctre::search_all<R"RE(:(\w+))RE">(std::string_view(e.route))) params.push_back(m.get<1>().to_string());
+        for (auto m : ctre::search_all<R"RE(:(\w+))RE">(std::string_view(e.route))) {
+            params.push_back(m.get<1>().to_string());
+        }
         if (!params.empty()) {
             std::string param_args;
             for (size_t i = 0; i < params.size(); ++i) {
-                if (i) param_args += ", ";
+                if (i != 0U) {
+                    param_args += ", ";
+                }
                 param_args += "std::string_view " + params[i];
             }
             std::string fmt_route = replace_all<R"RE(:\w+)RE">(e.route, "{}");
             // Python: args are url-encoded with sanitize::url_encode when building a URL.
             Lines wrapped;
-            for (const auto& p : params) wrapped.push_back("sanitize::url_encode(" + p + ")");
+            for (const auto& p : params) {
+                wrapped.push_back("sanitize::url_encode(" + p + ")");
+            }
             std::string encoded_args = join(wrapped, ", ");
-            hpp_url_entries.push_back(subst(url_param_t, {{"ns", e.ns},
-                                                          {"param_args", param_args},
-                                                          {"fmt_route", fmt_route},
-                                                          {"args_list", encoded_args}}));
+            hpp_url_entries.push_back(subst(
+                url_param_t,
+                {{"ns", e.ns}, {"param_args", param_args}, {"fmt_route", fmt_route}, {"args_list", encoded_args}}));
         } else {
             hpp_url_entries.push_back(subst(url_static_t, {{"ns", e.ns}, {"route", e.route}}));
         }
@@ -337,10 +388,18 @@ int gen_routes(const Ctx& ctx) {
 
     // ── includes ──
     std::set<std::string> global_includes = {"#include \"routes.hpp\"", "#include \"styles.hpp\"", "#include <vector>"};
-    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) global_includes.insert(rel_include(hpp, ctx.proj));
-    if (have_models) global_includes.insert("#include \"models.hpp\"");
-    if (have_apis) global_includes.insert("#include \"apis.hpp\"");
-    if (file_exists(models_site)) global_includes.insert(rel_include(models_site, ctx.proj));
+    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) {
+        global_includes.insert(rel_include(hpp, ctx.proj));
+    }
+    if (have_models) {
+        global_includes.insert("#include \"models.hpp\"");
+    }
+    if (have_apis) {
+        global_includes.insert("#include \"apis.hpp\"");
+    }
+    if (file_exists(models_site)) {
+        global_includes.insert(rel_include(models_site, ctx.proj));
+    }
 
     // ── site bodies: includes hoisted, the rest kept (ordered map by namespace) ──
     std::vector<std::pair<std::string, std::string>> site_contents;
@@ -350,9 +409,8 @@ int gen_routes(const Ctx& ctx) {
         for (const auto& line : splitlines(content)) {
             std::string s = strip(line);
             if (starts_with(s, "#include")) {
-                if (s.find("models.hpp") != std::string::npos || s.find("json_models.hpp") != std::string::npos ||
-                    s.find("web.hpp") != std::string::npos || s.find("routes.hpp") != std::string::npos ||
-                    s.find("styles.hpp") != std::string::npos) {
+                if (s.contains("models.hpp") || s.contains("json_models.hpp") || s.contains("web.hpp") ||
+                    s.contains("routes.hpp") || s.contains("styles.hpp")) {
                     continue;
                 }
                 global_includes.insert(s);
@@ -369,11 +427,13 @@ int gen_routes(const Ctx& ctx) {
                 break;
             }
         }
-        if (!replaced) site_contents.emplace_back(e.ns, body);
+        if (!replaced) {
+            site_contents.emplace_back(e.ns, body);
+        }
     }
 
     // ── state toggles: [[revet::toggle("/route", default)]] bool name ──
-    std::vector<std::pair<std::string, std::string>> toggle_routes;  // (route, name)
+    std::vector<std::pair<std::string, std::string>> toggle_routes; // (route, name)
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
         for (auto m : find_toggles(std::string_view(content))) {
@@ -395,18 +455,22 @@ int gen_routes(const Ctx& ctx) {
                              "#include <revet/upload.hpp>", "#include \"toggles.hpp\"", "#include \"components.hpp\"",
                              "#include \"i18n.hpp\"", "#include \"uploads.hpp\"", "#include \"resources.hpp\""});
     hpp.push_back("namespace urls {");
-    for (const auto& l : hpp_url_entries) hpp.push_back(l);
+    for (const auto& l : hpp_url_entries) {
+        hpp.push_back(l);
+    }
     hpp.push_back("}");
-    for (const auto& l : Lines{"", "namespace revet {",
-                               cat("inline constexpr std::string_view version = \"", version_str, "\";"),
-                               "} // namespace revet"}) {
+    for (const auto& l :
+         Lines{"", "namespace revet {", cat("inline constexpr std::string_view version = \"", version_str, "\";"),
+               "} // namespace revet"}) {
         hpp.push_back(l);
     }
     write_lines(out_h, hpp);
 
     // ── routes.cpp ──
     Lines cpp;
-    for (const auto& inc : global_includes) cpp.push_back(inc);  // std::set is already sorted
+    for (const auto& inc : global_includes) {
+        cpp.push_back(inc); // std::set is already sorted
+    }
     cpp.push_back("#include \"htmx_asset.hpp\"");
     cpp.push_back("#include \"optimistic_asset.hpp\"");
     cpp.push_back("#include \"scripts.hpp\"");
@@ -445,7 +509,9 @@ int gen_routes(const Ctx& ctx) {
             {"get", "get"}, {"post", "post"}, {"put", "put"}, {"delete", "del"}, {"patch", "patch"}};
         for (const auto& [method, field] : method_field) {
             std::string func = "render_" + method;
-            if (!search_after<R"RE(\s*\()RE">(src, func)) continue;
+            if (!search_after<R"RE(\s*\()RE">(src, func)) {
+                continue;
+            }
 
             if (is_api) {
                 emit_api_handler(cpp, e.ns, method, field, src, model_names);
@@ -454,28 +520,38 @@ int gen_routes(const Ctx& ctx) {
 
             StateInfo st = extract_state_vars(func, src);
             // `Task<Response> func(` or `func(...) -> web::Task<Response>`
-            bool is_async = bool(search_after<R"RE(\s*\([^)]*\)\s*->\s*web::Task\s*<\s*(?:web::)?Response\s*>)RE">(src, func));
-            for (auto m : ctre::search_all<R"RE(Task\s*<\s*(?:web::)?Response\s*>\s+(\w+)\s*\()RE">(std::string_view(src))) {
-                if (m.get<1>().to_view() == func) is_async = true;
+            bool is_async = static_cast<bool>(
+                search_after<R"RE(\s*\([^)]*\)\s*->\s*web::Task\s*<\s*(?:web::)?Response\s*>)RE">(src, func));
+            for (auto m :
+                 ctre::search_all<R"RE(Task\s*<\s*(?:web::)?Response\s*>\s+(\w+)\s*\()RE">(std::string_view(src))) {
+                if (m.get<1>().to_view() == func) {
+                    is_async = true;
+                }
             }
 
             if (is_async) {
-                cpp.push_back(cat("        r.async_", field, " = [](const web::Request& req) -> web::Task<web::Response> {"));
-                if (st.needed) cpp.push_back("            auto& ctx = web::Context::current();");
+                cpp.push_back(
+                    cat("        r.async_", field, " = [](const web::Request& req) -> web::Task<web::Response> {"));
+                if (st.needed) {
+                    cpp.push_back("            auto& ctx = web::Context::current();");
+                }
                 emit_state_loading(cpp, st);
-                cpp.push_back(cat("            return route_", e.ns, "::", func, "(", handler_args(st.state_vars), ");"));
+                cpp.push_back(
+                    cat("            return route_", e.ns, "::", func, "(", handler_args(st.state_vars), ");"));
                 cpp.push_back("        };");
             } else {
                 cpp.push_back(cat("        r.", field, " = [](const web::Request& req) -> web::Response {"));
-                if (st.needed) cpp.push_back("            auto& ctx = web::Context::current();");
+                if (st.needed) {
+                    cpp.push_back("            auto& ctx = web::Context::current();");
+                }
                 emit_state_loading(cpp, st);
                 cpp.push_back(cat("            auto resp = web::to_response(route_", e.ns, "::", func, "(",
                                   handler_args(st.state_vars), "));"));
                 for (const auto& [mode, type, var] : st.flashes) {
                     (void)var;
                     if (mode == "Flash") {
-                        cpp.push_back(cat("            if (req.cookies.get(\"_cw_", type, "\") != \"\") resp.cookies[\"_cw_",
-                                          type, "\"] = \"\";"));
+                        cpp.push_back(cat("            if (req.cookies.get(\"_cw_", type,
+                                          "\") != \"\") resp.cookies[\"_cw_", type, "\"] = \"\";"));
                     }
                 }
                 cpp.push_back("            return resp;");
@@ -486,7 +562,9 @@ int gen_routes(const Ctx& ctx) {
         if (ctre::search<R"RE(render_sse\s*\()RE">(src)) {
             cpp.push_back("        r.sse = [](const web::Request& req, web::SSEWriter& sse) {");
             StateInfo st = extract_state_vars("render_sse", src);
-            if (st.needed || !st.flashes.empty()) cpp.push_back("            auto& ctx = web::Context::current();");
+            if (st.needed || !st.flashes.empty()) {
+                cpp.push_back("            auto& ctx = web::Context::current();");
+            }
             emit_state_loading(cpp, st);
             cpp.push_back(cat("            route_", e.ns, "::render_sse(", handler_args(st.state_vars, ", sse"), ");"));
             cpp.push_back("        };");
@@ -496,7 +574,9 @@ int gen_routes(const Ctx& ctx) {
         if (ctre::search<R"RE(render_ws\s*\()RE">(src)) {
             cpp.push_back("        r.ws = [](const web::Request& req, web::ws::Conn& conn) {");
             StateInfo st = extract_state_vars("render_ws", src);
-            if (st.needed || !st.flashes.empty()) cpp.push_back("            auto& ctx = web::Context::current();");
+            if (st.needed || !st.flashes.empty()) {
+                cpp.push_back("            auto& ctx = web::Context::current();");
+            }
             emit_state_loading(cpp, st);
             cpp.push_back(cat("            route_", e.ns, "::render_ws(", handler_args(st.state_vars, ", conn"), ");"));
             cpp.push_back("        };");
@@ -520,4 +600,4 @@ int gen_routes(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

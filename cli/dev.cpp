@@ -1,21 +1,24 @@
 // `revet dev`: Debug build, run the server, rebuild on file changes, single-key commands.
-#include "cli.hpp"
-
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <map>
 #include <mutex>
-#include <set>
-#include <thread>
-
 #include <poll.h>
+#include <set>
 #include <signal.h>
 #include <sys/stat.h>
 #include <termios.h>
+#include <thread>
 #include <unistd.h>
+
+#include "cli.hpp"
 
 namespace revet::cli {
 namespace {
@@ -26,11 +29,15 @@ termios g_saved_tty{};
 bool g_have_tty = false;
 
 void restore_tty() {
-    if (g_have_tty) tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    if (g_have_tty) {
+        tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    }
 }
 
 void raw_tty() {
-    if (!g_have_tty) return;
+    if (!g_have_tty) {
+        return;
+    }
     termios raw = g_saved_tty;
     cfmakeraw(&raw);
     tcsetattr(STDIN_FILENO, TCSADRAIN, &raw);
@@ -39,14 +46,21 @@ void raw_tty() {
 // ── Server process ──────────────────────────────────────────────────────────
 
 std::atomic<pid_t> g_server{-1};
-std::atomic<bool> g_server_own_group{false};  // false for lldb, which shares our terminal and group
+std::atomic<bool> g_server_own_group{false}; // false for lldb, which shares our terminal and group
 
 void stop_server(bool wait) {
     pid_t pid = g_server.exchange(-1);
-    if (pid <= 0) return;
-    if (g_server_own_group) killpg(pid, SIGTERM);
-    else kill(pid, SIGTERM);
-    if (wait) wait_child(pid);
+    if (pid <= 0) {
+        return;
+    }
+    if (g_server_own_group) {
+        killpg(pid, SIGTERM);
+    } else {
+        kill(pid, SIGTERM);
+    }
+    if (wait) {
+        wait_child(pid);
+    }
 }
 
 bool server_running() {
@@ -58,20 +72,29 @@ bool server_running() {
 extern "C" void on_signal(int sig) {
     pid_t pid = g_server;
     if (pid > 0) {
-        if (g_server_own_group) killpg(pid, SIGTERM);
-        else kill(pid, SIGTERM);
+        if (g_server_own_group) {
+            killpg(pid, SIGTERM);
+        } else {
+            kill(pid, SIGTERM);
+        }
     }
-    if (g_have_tty) tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    if (g_have_tty) {
+        tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    }
     _exit(128 + sig);
 }
 
-void write_pid(pid_t pid) { write_file(BUILD_DIR / ".pid", std::to_string(pid)); }
+void write_pid(pid_t pid) {
+    write_file(fs::path(k_build_dir) / ".pid", std::to_string(pid));
+}
 
 // ── File watcher ────────────────────────────────────────────────────────────
 
 class Watcher {
 public:
-    Watcher() { scan(true); }
+    Watcher() {
+        scan(true);
+    }
 
     // Polls every 250 ms; collects changed or new files until take() is called.
     void start() {
@@ -92,11 +115,13 @@ public:
 
 private:
     static bool skipped_dir(const std::string& name) {
-        return name == "build" || name == "__pycache__" || name[0] == '.';  // includes .git, .cache
+        return name == "build" || name == "__pycache__" || name[0] == '.'; // includes .git, .cache
     }
     static bool skipped_file(const fs::path& p) {
         std::string name = p.filename().string();
-        if (name.empty() || name[0] == '.') return true;
+        if (name.empty() || name[0] == '.') {
+            return true;
+        }
         std::string ext = p.extension().string();
         return ext == ".db" || ext == ".db-shm" || ext == ".db-wal";
     }
@@ -106,15 +131,23 @@ private:
         std::vector<std::string> changed;
         for (auto it = fs::recursive_directory_iterator(".", fs::directory_options::skip_permission_denied, ec);
              it != fs::recursive_directory_iterator(); it.increment(ec)) {
-            if (ec) break;
+            if (ec) {
+                break;
+            }
             const fs::path& p = it->path();
             if (it->is_directory(ec)) {
-                if (skipped_dir(p.filename().string())) it.disable_recursion_pending();
+                if (skipped_dir(p.filename().string())) {
+                    it.disable_recursion_pending();
+                }
                 continue;
             }
-            if (!it->is_regular_file(ec) || skipped_file(p)) continue;
+            if (!it->is_regular_file(ec) || skipped_file(p)) {
+                continue;
+            }
             auto t = fs::last_write_time(p, ec);
-            if (ec) continue;
+            if (ec) {
+                continue;
+            }
             std::string key = p.lexically_relative(".").string();
             auto found = mtimes_.find(key);
             if (initial) {
@@ -130,47 +163,66 @@ private:
         }
     }
 
-    std::map<std::string, fs::file_time_type> mtimes_;  // touched only by the scanning thread
+    std::map<std::string, fs::file_time_type> mtimes_; // touched only by the scanning thread
     std::mutex mu_;
     std::set<std::string> pending_;
 };
 
 // ── Rebuild and run ─────────────────────────────────────────────────────────
 
-void header() { rule("revet"); }
+void header() {
+    rule("revet");
+}
 
 void print_flags(const DevOptions& o) {
     std::string flags;
     for (auto [name, on] : {std::pair{"asan", o.asan}, {"ubsan", o.asan}, {"lldb", o.lldb}, {"profile", o.profile}}) {
-        if (on) flags += (flags.empty() ? "" : " ") + std::string(name);
+        if (on) {
+            flags += (flags.empty() ? "" : " ") + std::string(name);
+        }
     }
-    if (!flags.empty()) dim("  flags: " + flags);
+    if (!flags.empty()) {
+        dim("  flags: " + flags);
+    }
 }
 
-void print_keys() { dim("  r=rebuild  t=routes  d=debug  q=quit"); }
+void print_keys() {
+    dim("  r=rebuild  t=routes  d=debug  q=quit");
+}
 
 // Copies the server's stderr to build/.server.log and to the terminal.
-void tee_server_log(int fd, fs::path log_path) {
+void tee_server_log(int fd, const fs::path& log_path) {
+    // Only allocation failure can throw in here.
+    // NOLINTNEXTLINE(bugprone-exception-escape)
     std::thread([fd, log_path] {
-        FILE* in = fdopen(fd, "r");
-        FILE* log = std::fopen(log_path.c_str(), "w");
-        if (!in) return;
-        char* line = nullptr;
-        size_t cap = 0;
-        while (getline(&line, &cap, in) > 0) {
-            if (log) std::fputs(line, log), std::fflush(log);
-            std::fflush(stdout);
-            std::fprintf(stderr, "\r\033[K%s", line);
-            std::fflush(stderr);
+        std::ofstream log(log_path, std::ios::binary | std::ios::trunc);
+        std::string pending;
+        std::array<char, 4096> buf{};
+        auto emit = [&](std::string_view line) {
+            log << line << std::flush;
+            std::string out = "\r\033[K" + std::string(line);
+            (void)std::fflush(stdout);
+            (void)!write(STDERR_FILENO, out.data(), out.size());
+        };
+        ssize_t got = 0;
+        while ((got = read(fd, buf.data(), buf.size())) > 0 || (got < 0 && errno == EINTR)) {
+            pending.append(buf.data(), static_cast<size_t>(std::max<ssize_t>(got, 0)));
+            for (size_t nl = pending.find('\n'); nl != std::string::npos; nl = pending.find('\n')) {
+                emit(std::string_view(pending).substr(0, nl + 1));
+                pending.erase(0, nl + 1);
+            }
         }
-        std::free(line);
-        if (log) std::fclose(log);
-        std::fclose(in);
+        if (!pending.empty()) {
+            emit(pending);
+        }
+        close(fd);
     }).detach();
 }
 
 std::string chomp(std::string s) {
-    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
+        s.pop_back();
+    }
     return s;
 }
 
@@ -179,12 +231,18 @@ void rebuild(const DevOptions& o, const std::string& reason) {
     clear_screen();
     header();
     print_flags(o);
-    if (!reason.empty()) dim(reason);
+    if (!reason.empty()) {
+        dim(reason);
+    }
     dim("building…");
     Result r = cmake_build(false, o.asan, o.debug, std::nullopt);
-    for (const auto& line : split_lines_keepends(r.out)) info(expand_tabs(chomp(line)));
+    for (const auto& line : split_lines_keepends(r.out)) {
+        info(expand_tabs(chomp(line)));
+    }
     if (r.rc != 0) {
-        for (const auto& line : split_lines_keepends(r.err)) err(expand_tabs(chomp(line)));
+        for (const auto& line : split_lines_keepends(r.err)) {
+            err(expand_tabs(chomp(line)));
+        }
         err("✖ build failed");
         return;
     }
@@ -203,19 +261,22 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         std::string out = "profiles/profile-" + std::to_string(std::time(nullptr)) + ".json.gz";
         // samply opens the profile with `open`; this one forces Chrome instead of the default browser.
         std::string dir = (fs::temp_directory_path() / "revet-samply-XXXXXX").string();
-        if (mkdtemp(dir.data())) {
+        if (mkdtemp(dir.data()) != nullptr) {
             write_file(fs::path(dir) / "open", "#!/bin/sh\nexec /usr/bin/open -a \"Google Chrome\" \"$@\"\n");
-            fs::permissions(fs::path(dir) / "open", fs::perms::owner_all | fs::perms::group_read | fs::perms::others_read, ec);
+            fs::permissions(fs::path(dir) / "open",
+                            fs::perms::owner_all | fs::perms::group_read | fs::perms::others_read, ec);
         }
         SpawnOptions so;
         so.new_session = true;
         const char* path = std::getenv("PATH");
-        so.env.push_back("PATH=" + dir + ":" + (path ? path : ""));
+        so.env.push_back("PATH=" + dir + ":" + ((path != nullptr) ? path : ""));
         std::string samply = which("samply").value_or("samply").string();
         Child c = spawn({samply, "record", "-o", out, bin, "--port", port}, so);
         g_server_own_group = true;
         g_server = c.pid;
-        if (c.pid > 0) write_pid(c.pid);
+        if (c.pid > 0) {
+            write_pid(c.pid);
+        }
         ok("● profiling  " + url + "  → " + out);
     } else {
         SpawnOptions so;
@@ -231,7 +292,7 @@ void rebuild(const DevOptions& o, const std::string& reason) {
             return;
         }
         if (logging) {
-            fs::path log_path = BUILD_DIR / ".server.log";
+            fs::path log_path = fs::path(k_build_dir) / ".server.log";
             tee_server_log(c.err_fd, log_path);
             dim("  logs → " + log_path.string());
         }
@@ -243,34 +304,46 @@ void rebuild(const DevOptions& o, const std::string& reason) {
 
 std::string changed_reason(const std::vector<std::string>& files) {
     std::string names;
-    for (const auto& f : files) names += (names.empty() ? "" : ", ") + fs::path(f).filename().string();
+    for (const auto& f : files) {
+        names += (names.empty() ? "" : ", ") + fs::path(f).filename().string();
+    }
     return "↺ " + names;
 }
 
-}  // namespace
+} // namespace
 
 int cmd_dev(const DevOptions& o) {
-    if (o.logging) setenv("LOG_LEVEL", o.logging->c_str(), 1);
+    if (o.logging) {
+        setenv("LOG_LEVEL", o.logging->c_str(), 1);
+    }
 
     auto missing = missing_critical_tools();
     if (!missing.empty()) {
         std::string list;
-        for (const auto& m : missing) list += (list.empty() ? "" : ", ") + m;
+        for (const auto& m : missing) {
+            list += (list.empty() ? "" : ", ") + m;
+        }
         err("✗ Missing dependencies: " + list);
         info("Installing via: bash " + install_deps_script().string());
-        if (run_inherit({"bash", install_deps_script().string()}) != 0) fail("Installation failed. Install manually and retry.");
+        if (run_inherit({"bash", install_deps_script().string()}) != 0) {
+            fail("Installation failed. Install manually and retry.");
+        }
         ok("✓ Dependencies installed. Retrying...");
         missing = missing_critical_tools();
         if (!missing.empty()) {
             list.clear();
-            for (const auto& m : missing) list += (list.empty() ? "" : ", ") + m;
+            for (const auto& m : missing) {
+                list += (list.empty() ? "" : ", ") + m;
+            }
             fail("Still missing: " + list);
         }
     }
 
-    if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &g_saved_tty) == 0) g_have_tty = true;
-    std::atexit(restore_tty);
-    struct sigaction sa{};
+    if (isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &g_saved_tty) == 0) {
+        g_have_tty = true;
+    }
+    (void)std::atexit(restore_tty);
+    struct sigaction sa {};
     sa.sa_handler = on_signal;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, nullptr);
@@ -295,10 +368,12 @@ int cmd_dev(const DevOptions& o) {
             continue;
         }
         pollfd pfd{STDIN_FILENO, POLLIN, 0};
-        if (poll(&pfd, 1, 100) <= 0) continue;
+        if (poll(&pfd, 1, 100) <= 0) {
+            continue;
+        }
         char key = 0;
         if (read(STDIN_FILENO, &key, 1) != 1) {
-            stdin_open = false;  // EOF: not interactive; keep watching
+            stdin_open = false; // EOF: not interactive; keep watching
             continue;
         }
         restore_tty();
@@ -311,8 +386,11 @@ int cmd_dev(const DevOptions& o) {
                 clear_screen();
                 header();
                 print_flags(o);
-                if (server_running()) ok("● running  http://localhost:" + std::to_string(o.port));
-                else err("✖ server exited during debug session");
+                if (server_running()) {
+                    ok("● running  http://localhost:" + std::to_string(o.port));
+                } else {
+                    err("✖ server exited during debug session");
+                }
                 print_keys();
             } else {
                 err("no running server to attach to");
@@ -322,11 +400,14 @@ int cmd_dev(const DevOptions& o) {
             header();
             print_routes();
             if (server_running()) {
-                ok(std::string(o.profile ? "● profiling" : "● running") + "  http://localhost:" + std::to_string(o.port));
+                ok(std::string(o.profile ? "● profiling" : "● running") +
+                   "  http://localhost:" + std::to_string(o.port));
             }
             print_keys();
         } else if (key == 'q' || key == '\x03') {
-            if (o.profile && g_server > 0) ok("● writing profile…");
+            if (o.profile && g_server > 0) {
+                ok("● writing profile…");
+            }
             stop_server(o.profile);
             return 0;
         }
@@ -334,4 +415,4 @@ int cmd_dev(const DevOptions& o) {
     }
 }
 
-}  // namespace revet::cli
+} // namespace revet::cli

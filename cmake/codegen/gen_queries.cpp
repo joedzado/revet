@@ -1,29 +1,40 @@
 // app/queries/*.sql -> queries.hpp (typed async/sync wrappers).
-#include "common.hpp"
-
 #include <cctype>
 #include <map>
 #include <optional>
 #include <set>
 #include <tuple>
 
+#include "common.hpp"
+
 namespace revet::codegen {
 namespace {
 
-const std::set<std::string> exec_verbs = {"insert", "update", "delete", "create", "drop", "alter", "truncate"};
-const std::set<std::string> valid_directives = {"name", "model", "raw", "param", "returns", "scalar"};
+const std::set<std::string>& exec_verbs() {
+    static const std::set<std::string> values = {"insert", "update", "delete", "create", "drop", "alter", "truncate"};
+    return values;
+}
+const std::set<std::string>& valid_directives() {
+    static const std::set<std::string> values = {"name", "model", "raw", "param", "returns", "scalar"};
+    return values;
+}
 
-const std::map<std::string, std::string> param_types = {
-    {"int", "int"},     {"int32", "int32_t"}, {"int64", "int64_t"},   {"uint32", "uint32_t"},
-    {"uint64", "uint64_t"}, {"double", "double"}, {"float", "float"}, {"string", "std::string"},
-    {"bool", "bool"},   {"decimal", "revet::Decimal"},
-};
+const std::map<std::string, std::string>& param_types() {
+    static const std::map<std::string, std::string> values = {
+        {"int", "int"},         {"int32", "int32_t"},          {"int64", "int64_t"}, {"uint32", "uint32_t"},
+        {"uint64", "uint64_t"}, {"double", "double"},          {"float", "float"},   {"string", "std::string"},
+        {"bool", "bool"},       {"decimal", "revet::Decimal"},
+    };
+    return values;
+}
 
 [[noreturn]] void die(const std::string& msg) {
     throw GenError("error: " + msg);
 }
 
-bool is_word(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+bool is_word(char c) {
+    return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
+}
 
 // Scrub mode (params == nullptr) blanks literals and comments
 // to spaces; sub mode rewrites :name → ? for declared params (outside literals/comments).
@@ -50,11 +61,13 @@ std::string process_sql(const std::string& sql, const std::set<std::string>* par
             }
         } else if (params != nullptr && sql[i] == ':') {
             size_t j = i + 1;
-            if (j < sql.size() && (std::isalpha(static_cast<unsigned char>(sql[j])) || sql[j] == '_')) {
+            if (j < sql.size() && ((std::isalpha(static_cast<unsigned char>(sql[j])) != 0) || sql[j] == '_')) {
                 size_t k = j;
-                while (k < sql.size() && is_word(sql[k])) ++k;
+                while (k < sql.size() && is_word(sql[k])) {
+                    ++k;
+                }
                 std::string name = sql.substr(j, k - j);
-                if (params->count(name)) {
+                if (params->contains(name)) {
                     out += '?';
                     i = k;
                     continue;
@@ -75,7 +88,9 @@ std::string snake_to_camel(const std::string& s) {
     size_t start = 0;
     while (start <= s.size()) {
         size_t end = s.find('_', start);
-        if (end == std::string::npos) end = s.size();
+        if (end == std::string::npos) {
+            end = s.size();
+        }
         std::string w = s.substr(start, end - start);
         // First letter upper, the rest lower.
         for (size_t k = 0; k < w.size(); ++k) {
@@ -92,15 +107,18 @@ std::string snake_to_camel(const std::string& s) {
 std::string cpp_type(const std::string& t, const std::string& file, const std::string& name) {
     bool nullable = !t.empty() && t.back() == '?';
     std::string base = nullable ? t.substr(0, t.size() - 1) : t;
-    auto it = param_types.find(base);
-    if (it == param_types.end()) {
+    auto it = param_types().find(base);
+    if (it == param_types().end()) {
         std::string valid;
-        for (const auto& [k, v] : param_types) {
+        for (const auto& [k, v] : param_types()) {
             (void)v;
-            if (!valid.empty()) valid += ", ";
+            if (!valid.empty()) {
+                valid += ", ";
+            }
             valid += k;
         }
-        die(file + ": block '" + name + "': unknown type '" + t + "' — valid types: " + valid + " (add '?' for nullable)");
+        die(cat(file, ": block '", name, "': unknown type '", t, "' — valid types: ", valid,
+                " (add '?' for nullable)"));
     }
     return nullable ? "std::optional<" + it->second + ">" : it->second;
 }
@@ -125,47 +143,65 @@ std::optional<std::string> main_verb_after_with(const std::string& sql) {
 std::string infer_verb(const std::string& sql, const std::string& file, const std::string& name) {
     for (const auto& line : splitlines(sql)) {
         std::string stripped = strip(line);
-        if (stripped.empty() || starts_with(stripped, "--")) continue;
+        if (stripped.empty() || starts_with(stripped, "--")) {
+            continue;
+        }
         size_t end = 0;
-        while (end < stripped.size() && !std::isspace(static_cast<unsigned char>(stripped[end]))) ++end;
+        while (end < stripped.size() && (std::isspace(static_cast<unsigned char>(stripped[end])) == 0)) {
+            ++end;
+        }
         std::string token = lower(stripped.substr(0, end));
-        if (exec_verbs.count(token)) return "exec";
-        if (token == "select" || token == "values" || token == "pragma") return "query";
-        if (token == "with") {
-            auto main = main_verb_after_with(sql);
-            if (!main) die(file + ": block '" + name + "': WITH has no statement after its CTEs");
-            // A data-modifying CTE statement with RETURNING still yields rows.
-            if (*main != "select" && !ctre::search<R"RE(\breturning\b)RE">(lower(process_sql(sql, nullptr)))) return "exec";
+        if (exec_verbs().contains(token)) {
+            return "exec";
+        }
+        if (token == "select" || token == "values" || token == "pragma") {
             return "query";
         }
-        die(file + ": block '" + name + "': unrecognised SQL verb '" + token +
-            "' — expected SELECT, WITH, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, or TRUNCATE");
+        if (token == "with") {
+            auto main = main_verb_after_with(sql);
+            if (!main) {
+                die(cat(file, ": block '", name, "': WITH has no statement after its CTEs"));
+            }
+            // A data-modifying CTE statement with RETURNING still yields rows.
+            if (*main != "select" && !ctre::search<R"RE(\breturning\b)RE">(lower(process_sql(sql, nullptr)))) {
+                return "exec";
+            }
+            return "query";
+        }
+        die(cat(file, ": block '", name, "': unrecognised SQL verb '", token,
+                "' — expected SELECT, WITH, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, or TRUNCATE"));
     }
-    die(file + ": block '" + name + "': no SQL statement found");
+    die(cat(file, ": block '", name, "': no SQL statement found"));
 }
 
 Lines emit_pair(const std::string& fn, const std::string& opts, const std::string& async_ret,
                 const std::string& sync_ret, const Lines& async_body, const Lines& sync_body) {
     Lines out;
     out.push_back(cat("inline auto ", fn, "(auto& db", opts, ") -> ", async_ret, " {"));
-    for (const auto& l : async_body) out.push_back(l);
+    for (const auto& l : async_body) {
+        out.push_back(l);
+    }
     out.push_back("}");
     out.push_back("");
     out.push_back(cat("inline auto sync_", fn, "(auto& db", opts, ") -> ", sync_ret, " {"));
-    for (const auto& l : sync_body) out.push_back(l);
+    for (const auto& l : sync_body) {
+        out.push_back(l);
+    }
     out.push_back("}");
     out.push_back("");
     return out;
 }
 
-Lines emit_exec(const std::string& fn, const std::string& sql, const std::string& args_decl, const std::string& call_args) {
+Lines emit_exec(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                const std::string& call_args) {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     return emit_pair(fn, opts, "web::Task<void>", "void",
                      {cat("    co_await db.async_exec(\"", sql, "\"", call_args, ");")},
                      {cat("    db.exec(\"", sql, "\"", call_args, ");")});
 }
 
-Lines emit_query_raw(const std::string& fn, const std::string& sql, const std::string& args_decl, const std::string& call_args) {
+Lines emit_query_raw(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                     const std::string& call_args) {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     return emit_pair(fn, opts, "web::Task<db::Result>", "db::Result",
                      {cat("    co_return co_await db.async_query(\"", sql, "\"", call_args, ");")},
@@ -209,15 +245,20 @@ Lines emit_query_model(const std::string& fn, const std::string& sql, const std:
         cat("    for (auto& r : raw) out.push_back(revet::json::from_row<", mdl, ">(r));"),
     };
     Lines async_body = {cat("    auto raw = co_await db.async_query(\"", sql, "\"", call_args, ");")};
-    for (const auto& l : map_rows) async_body.push_back(l);
+    for (const auto& l : map_rows) {
+        async_body.push_back(l);
+    }
     async_body.push_back("    co_return out;");
     Lines sync_body = {cat("    auto raw = db.query(\"", sql, "\"", call_args, ");")};
-    for (const auto& l : map_rows) sync_body.push_back(l);
+    for (const auto& l : map_rows) {
+        sync_body.push_back(l);
+    }
     sync_body.push_back("    return out;");
-    return emit_pair(fn, opts, cat("web::Task<std::vector<", mdl, ">>"), cat("std::vector<", mdl, ">"), async_body, sync_body);
+    return emit_pair(fn, opts, cat("web::Task<std::vector<", mdl, ">>"), cat("std::vector<", mdl, ">"), async_body,
+                     sync_body);
 }
 
-}  // namespace
+} // namespace
 
 int gen_queries(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "queries.hpp");
@@ -230,8 +271,8 @@ int gen_queries(const Ctx& ctx) {
     }
 
     Lines out = file_header({"#include <revet/db.hpp>", "#include <revet/task.hpp>", "#include <revet/decimal.hpp>",
-                             "#include \"models.hpp\"", "#include <optional>", "#include <string>",
-                             "#include <tuple>", "#include <utility>", "#include <vector>"});
+                             "#include \"models.hpp\"", "#include <optional>", "#include <string>", "#include <tuple>",
+                             "#include <utility>", "#include <vector>"});
     out.push_back("namespace queries {");
     out.push_back("");
 
@@ -253,13 +294,15 @@ int gen_queries(const Ctx& ctx) {
             }
             if (auto m = ctre::starts_with<R"RE(--\s*@revet:(\w+))RE">(stripped)) {
                 std::string key = m.get<1>().to_string();
-                if (!valid_directives.count(key)) {
+                if (!valid_directives().contains(key)) {
                     std::string valid;
-                    for (const auto& d : valid_directives) {
-                        if (!valid.empty()) valid += ", ";
+                    for (const auto& d : valid_directives()) {
+                        if (!valid.empty()) {
+                            valid += ", ";
+                        }
                         valid += "@revet:" + d;
                     }
-                    die(where + "unknown directive '@revet:" + key + "' — valid directives: " + valid);
+                    die(cat(where, "unknown directive '@revet:", key, "' — valid directives: ", valid));
                 }
             }
         }
@@ -277,14 +320,16 @@ int gen_queries(const Ctx& ctx) {
         Lines ns_out;
         for (size_t bi = 1; bi < blocks.size(); ++bi) {
             Lines block_lines = splitlines(blocks[bi]);
-            if (block_lines.empty()) die(file + ": empty @revet:name block");
+            if (block_lines.empty()) {
+                die(file + ": empty @revet:name block");
+            }
             std::string name = strip(block_lines[0]);
 
             std::string model;
             bool is_raw = false;
             std::vector<std::string> returns;
             std::string scalar;
-            std::vector<std::pair<std::string, std::string>> params;  // ordered: (name, C++ type)
+            std::vector<std::pair<std::string, std::string>> params; // ordered: (name, C++ type)
             Lines sql_lines;
             for (size_t li = 1; li < block_lines.size(); ++li) {
                 const std::string& line = block_lines[li];
@@ -296,7 +341,9 @@ int gen_queries(const Ctx& ctx) {
                 } else if (auto r = ctre::match<R"RE(--\s*@revet:returns:\s*([^\n]+))RE">(stripped)) {
                     for (const auto& t : split_args(r.get<1>().to_view())) {
                         std::string ts = strip(t);
-                        if (!ts.empty()) returns.push_back(cpp_type(ts, file, name));
+                        if (!ts.empty()) {
+                            returns.push_back(cpp_type(ts, file, name));
+                        }
                     }
                 } else if (auto sc = ctre::match<R"RE(--\s*@revet:scalar:\s*(\w+\??)\s*)RE">(stripped)) {
                     scalar = cpp_type(sc.get<1>().to_string(), file, name);
@@ -304,7 +351,9 @@ int gen_queries(const Ctx& ctx) {
                     std::string pname = pm.get<1>().to_string();
                     std::string ctype = cpp_type(pm.get<2>().to_string(), file, name);
                     for (const auto& p : params) {
-                        if (p.first == pname) die(file + ": block '" + name + "': duplicate param '" + pname + "'");
+                        if (p.first == pname) {
+                            die(cat(file, ": block '", name, "': duplicate param '", pname, "'"));
+                        }
                     }
                     params.emplace_back(pname, ctype);
                 } else {
@@ -329,39 +378,52 @@ int gen_queries(const Ctx& ctx) {
             std::string call_args;
             if (!params.empty()) {
                 std::set<std::string> declared;
-                for (const auto& p : params) declared.insert(p.first);
                 for (const auto& p : params) {
-                    if (!sql_param_set.count(p.first)) {
-                        die(file + ": block '" + name + "': param '" + p.first + "' declared but not used in SQL");
+                    declared.insert(p.first);
+                }
+                for (const auto& p : params) {
+                    if (!sql_param_set.contains(p.first)) {
+                        die(cat(file, ": block '", name, "': param '", p.first, "' declared but not used in SQL"));
                     }
                 }
                 for (const auto& ref : sql_param_set) {
-                    if (!declared.count(ref)) {
-                        die(file + ": block '" + name + "': SQL uses ':" + ref + "' but it is not declared with @revet:param");
+                    if (!declared.contains(ref)) {
+                        die(cat(file, ": block '", name, "': SQL uses ':", ref,
+                                "' but it is not declared with @revet:param"));
                     }
                 }
                 sql_escaped = escape_str(process_sql(sql, &declared));
                 struct_name = snake_to_camel(name) + "Params";
 
                 Lines fields;
-                for (const auto& p : params) fields.push_back(cat("    ", p.second, " ", p.first, ";"));
+                for (const auto& p : params) {
+                    fields.push_back(cat("    ", p.second, " ", p.first, ";"));
+                }
                 ns_out.push_back(cat("struct ", struct_name, " {"));
-                for (const auto& f : fields) ns_out.push_back(f);
+                for (const auto& f : fields) {
+                    ns_out.push_back(f);
+                }
                 ns_out.push_back("};");
                 ns_out.push_back("");
 
                 args_decl = "const " + struct_name + "& p";
-                for (const auto& ref : sql_param_refs) call_args += ", p." + ref;
+                for (const auto& ref : sql_param_refs) {
+                    call_args += ", p." + ref;
+                }
                 call_args = ", " + call_args.substr(2);
-                if (sql_param_refs.empty()) call_args.clear();
+                if (sql_param_refs.empty()) {
+                    call_args.clear();
+                }
             } else if (!sql_param_set.empty()) {
                 std::string refs;
                 for (const auto& r : sql_param_set) {
-                    if (!refs.empty()) refs += ", ";
+                    if (!refs.empty()) {
+                        refs += ", ";
+                    }
                     refs += ":" + r;
                 }
-                die(file + ": block '" + name + "': SQL uses named params (" + refs +
-                    ") but no '@revet:param' directives are declared");
+                die(cat(file, ": block '", name, "': SQL uses named params (", refs,
+                        ") but no '@revet:param' directives are declared"));
             } else {
                 sql_escaped = escape_str(sql);
             }
@@ -369,19 +431,30 @@ int gen_queries(const Ctx& ctx) {
             std::string verb = infer_verb(sql, file, name);
 
             std::vector<std::string> shapes;
-            if (!model.empty()) shapes.push_back("model");
-            if (is_raw) shapes.push_back("raw");
-            if (!returns.empty()) shapes.push_back("returns");
-            if (!scalar.empty()) shapes.push_back("scalar");
+            if (!model.empty()) {
+                shapes.push_back("model");
+            }
+            if (is_raw) {
+                shapes.push_back("raw");
+            }
+            if (!returns.empty()) {
+                shapes.push_back("returns");
+            }
+            if (!scalar.empty()) {
+                shapes.push_back("scalar");
+            }
             if (shapes.size() > 1) {
-                die(file + ": block '" + name + "': pick one of @revet:model, @revet:raw, @revet:returns, @revet:scalar (got " +
-                    join(shapes, ", ") + ")");
+                die(cat(file, ": block '", name,
+                        "': pick one of @revet:model, @revet:raw, @revet:returns, @revet:scalar (got ",
+                        join(shapes, ", "), ")"));
             }
             if (shapes.empty() && verb == "query") {
-                die(file + ": block '" + name +
-                    "': SELECT query is missing '-- @revet:model: <Type>'.\n"
-                    "  Add '-- @revet:model: <Type>' to map results to a struct, '-- @revet:returns: <types>' for typed tuples,\n"
-                    "  '-- @revet:scalar: <type>' for one value, or '-- @revet:raw' to return vector<vector<string>>.");
+                die(cat(file, ": block '", name,
+                        "': SELECT query is missing '-- @revet:model: <Type>'.\n"
+                        "  Add '-- @revet:model: <Type>' to map results to a struct, '-- @revet:returns: <types>' for "
+                        "typed tuples,\n"
+                        "  '-- @revet:scalar: <type>' for one value, or '-- @revet:raw' to return "
+                        "vector<vector<string>>."));
             }
 
             Lines emitted;
@@ -396,13 +469,17 @@ int gen_queries(const Ctx& ctx) {
             } else {
                 emitted = emit_query_raw(name, sql_escaped, args_decl, call_args);
             }
-            for (const auto& l : emitted) ns_out.push_back(l);
+            for (const auto& l : emitted) {
+                ns_out.push_back(l);
+            }
         }
 
         if (!ns_out.empty()) {
             out.push_back("namespace " + ns + " {");
             out.push_back("");
-            for (const auto& l : ns_out) out.push_back(l);
+            for (const auto& l : ns_out) {
+                out.push_back(l);
+            }
             out.push_back("} // namespace " + ns);
             out.push_back("");
         }
@@ -414,4 +491,4 @@ int gen_queries(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

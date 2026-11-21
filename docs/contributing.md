@@ -72,7 +72,7 @@ There's no formal style guide — the `.clang-format` and `.clang-tidy` files ar
 - Throw on hard errors at framework boundaries (e.g. `crypto::get_key` on a malformed key, `http::Error` on bad response). Don't return error codes.
 - Don't write comments that restate the code. Do write a one-line comment when a constraint or non-obvious invariant lives in the next few lines.
 
-For new framework features, add tests in `tests/` (C++) or `tests/test_*.py` (codegen). The bar for merging: full suite still green, new feature has at least one happy-path test and one sad-path test.
+For new framework features, add tests in `tests/` (C++) or the codegen fixture in `tests/codegen/`. The bar for merging: full suite still green, new feature has at least one happy-path test and one sad-path test.
 
 ## Adding a codegen script
 

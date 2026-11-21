@@ -1,7 +1,7 @@
 // [[revet::model]] structs -> models.hpp (from_json / from_row / to_json).
-#include "common.hpp"
-
 #include <cctype>
+
+#include "common.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -26,10 +26,17 @@ struct Model {
 // Strips a trailing `= ...` initializer from a single-line statement.
 std::string drop_initializer(const std::string& line) {
     size_t eq = line.find('=');
-    if (eq == std::string::npos) return line;
-    if (line.find('\n', eq) != std::string::npos) return line;
+    if (eq == std::string::npos) {
+        return line;
+    }
+    if (line.find('\n', eq) != std::string::npos) {
+        return line;
+    }
     size_t cut = eq;
-    while (cut > 0 && (line[cut - 1] == ' ' || line[cut - 1] == '\t' || line[cut - 1] == '\n' || line[cut - 1] == '\r')) --cut;
+    while (cut > 0 &&
+           (line[cut - 1] == ' ' || line[cut - 1] == '\t' || line[cut - 1] == '\n' || line[cut - 1] == '\r')) {
+        --cut;
+    }
     return line.substr(0, cut);
 }
 
@@ -38,8 +45,12 @@ std::vector<Field> parse_fields(const std::string& body) {
     std::string piece;
     auto handle = [&](const std::string& raw) {
         std::string line = strip(raw);
-        if (line.empty()) return;
-        if (line.find('(') != std::string::npos || line.find('{') != std::string::npos) return;
+        if (line.empty()) {
+            return;
+        }
+        if (line.contains('(') || line.contains('{')) {
+            return;
+        }
         line = strip(drop_initializer(line));
         if (auto m = ctre::match<R"RE(([\w:<>,\s]+?)\s+(\w+))RE">(line)) {
             fields.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
@@ -81,7 +92,9 @@ std::string ns_at(const std::string& content, size_t pos) {
             ++depth;
         } else if (ch == '}') {
             --depth;
-            while (!stack.empty() && stack.back().depth > depth) stack.pop_back();
+            while (!stack.empty() && stack.back().depth > depth) {
+                stack.pop_back();
+            }
         }
         ++i;
     }
@@ -89,14 +102,20 @@ std::string ns_at(const std::string& content, size_t pos) {
     for (const auto& f : stack) {
         // Split "a::b" and re-join with "::".
         std::string name = f.name;
-        if (!out.empty()) out += "::";
+        if (!out.empty()) {
+            out += "::";
+        }
         out += name;
     }
     return out;
 }
 
-bool is_optional(const std::string& t) { return starts_with(t, "std::optional<"); }
-bool is_vector(const std::string& t) { return starts_with(t, "std::vector<"); }
+bool is_optional(const std::string& t) {
+    return starts_with(t, "std::optional<");
+}
+bool is_vector(const std::string& t) {
+    return starts_with(t, "std::vector<");
+}
 
 std::string inner_type(const std::string& t) {
     size_t lt = t.find('<');
@@ -121,10 +140,18 @@ std::string deser_expr(const std::string& ftype, const std::string& value_expr) 
 }
 
 std::string row_expr(const std::string& ftype, const std::string& cell) {
-    if (ftype == "std::string" || ftype == "std::string_view") return cell;
-    if (ftype == "bool") return cat("(", cell, " == \"1\" || ", cell, " == \"true\")");
-    if (ftype == "float") return cat("std::stof(", cell, ")");
-    if (ftype == "double") return cat("std::stod(", cell, ")");
+    if (ftype == "std::string" || ftype == "std::string_view") {
+        return cell;
+    }
+    if (ftype == "bool") {
+        return cat("(", cell, " == \"1\" || ", cell, " == \"true\")");
+    }
+    if (ftype == "float") {
+        return cat("std::stof(", cell, ")");
+    }
+    if (ftype == "double") {
+        return cat("std::stod(", cell, ")");
+    }
     if (ftype == "int" || ftype == "int32_t" || ftype == "uint32_t" || ftype == "short") {
         return cat("static_cast<", ftype, ">(std::stol(", cell, "))");
     }
@@ -146,7 +173,9 @@ Lines ser_lines(const std::string& ftype, const std::string& expr, const std::st
     if (is_optional(ftype)) {
         std::string inner = inner_type(ftype);
         lines.push_back(cat("    if (", expr, ".has_value()) {"));
-        for (const auto& ln : ser_lines(inner, cat("(*", expr, ")"), out_var)) lines.push_back("    " + ln);
+        for (const auto& ln : ser_lines(inner, cat("(*", expr, ")"), out_var)) {
+            lines.push_back("    " + ln);
+        }
         lines.push_back("    } else {");
         lines.push_back(cat("        ", out_var, " += \"null\";"));
         lines.push_back("    }");
@@ -160,7 +189,9 @@ Lines ser_lines(const std::string& ftype, const std::string& expr, const std::st
         lines.push_back(cat("        for (auto const& _elem : ", expr, ") {"));
         lines.push_back(cat("            if (!first) ", out_var, " += \",\";"));
         lines.push_back("            first = false;");
-        for (const auto& ln : ser_lines(inner, "_elem", out_var)) lines.push_back("    " + ln);
+        for (const auto& ln : ser_lines(inner, "_elem", out_var)) {
+            lines.push_back("    " + ln);
+        }
         lines.push_back("        }");
         lines.push_back("    }");
         lines.push_back(cat("    ", out_var, " += \"]\";"));
@@ -180,11 +211,13 @@ Lines ser_lines(const std::string& ftype, const std::string& expr, const std::st
 
 std::vector<fs::path> model_sources(const Ctx& ctx) {
     std::vector<fs::path> files = glob(ctx.proj / "models", ".hpp");
-    for (auto& f : glob(ctx.proj / "app" / "apis", ".hpp")) files.push_back(f);
+    for (auto& f : glob(ctx.proj / "app" / "apis", ".hpp")) {
+        files.push_back(f);
+    }
     return files;
 }
 
-}  // namespace
+} // namespace
 
 int gen_json_models(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "models.hpp");
@@ -199,7 +232,7 @@ int gen_json_models(const Ctx& ctx) {
             std::string ns = ns_at(content, static_cast<size_t>(m.get<0>().to_view().data() - content.data()));
             Model model;
             model.src_file = f.filename().string();
-            model.qualified = ns.empty() ? name : ns + "::" + name;
+            model.qualified = ns.empty() ? name : cat(ns, "::", name);
             model.fields = parse_fields(body);
             models.push_back(std::move(model));
         }
@@ -207,11 +240,15 @@ int gen_json_models(const Ctx& ctx) {
 
     Lines lines = file_header({"#include <revet/json.hpp>", "#include <string>", "#include <string_view>",
                                "#include <vector>", "#include <optional>", "#include <cstdio>"});
-    for (const auto& hpp : sources) lines.push_back(rel_include(hpp, ctx.proj));
+    for (const auto& hpp : sources) {
+        lines.push_back(rel_include(hpp, ctx.proj));
+    }
 
     // Preamble template: static_tmpl() strips trailing newlines; splitlines() keeps the leading blank line.
     std::string preamble = tmpl(ctx, "json_models_preamble.tmpl");
-    for (const auto& ln : splitlines(preamble)) lines.push_back(ln);
+    for (const auto& ln : splitlines(preamble)) {
+        lines.push_back(ln);
+    }
     lines.push_back("");
 
     const std::string from_json_value_t = tmpl(ctx, "json_from_json_value.tmpl");
@@ -224,7 +261,9 @@ int gen_json_models(const Ctx& ctx) {
 
         std::string fv_body;
         for (const auto& fd : model.fields) {
-            if (!fv_body.empty()) fv_body += "\n";
+            if (!fv_body.empty()) {
+                fv_body += '\n';
+            }
             fv_body += cat("    out.", fd.name, " = ", deser_expr(fd.type, cat("v.at(\"", fd.name, "\")")), ";");
         }
         lines.push_back(subst(from_json_value_t, {{"name", name}, {"src_file", model.src_file}, {"body", fv_body}}));
@@ -235,7 +274,9 @@ int gen_json_models(const Ctx& ctx) {
         std::string fr_body;
         for (size_t i = 0; i < model.fields.size(); ++i) {
             const auto& fd = model.fields[i];
-            if (i) fr_body += "\n";
+            if (i != 0U) {
+                fr_body += '\n';
+            }
             fr_body += cat("    out.", fd.name, " = ", row_expr(fd.type, cat("r[", std::to_string(i), "]")), ";");
         }
         lines.push_back(subst(from_row_t, {{"name", name}, {"body", fr_body}}));
@@ -246,7 +287,9 @@ int gen_json_models(const Ctx& ctx) {
             const auto& fd = model.fields[i];
             std::string sep = i > 0 ? "," : "";
             tj_lines.push_back(cat("    out += \"", sep, "\\\"", fd.name, "\\\":\";"));
-            for (const auto& ln : ser_lines(fd.type, cat("val.", fd.name), "out")) tj_lines.push_back(ln);
+            for (const auto& ln : ser_lines(fd.type, cat("val.", fd.name), "out")) {
+                tj_lines.push_back(ln);
+            }
         }
         lines.push_back(subst(to_json_t, {{"name", name}, {"body", join(tj_lines, "\n")}}));
         lines.push_back("");
@@ -258,4 +301,4 @@ int gen_json_models(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

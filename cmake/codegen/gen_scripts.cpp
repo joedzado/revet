@@ -5,18 +5,19 @@
 //   scripts::chart      — "/_app/chart.<hash>.js", safe to cache forever
 //   scripts::chart_js   — the source
 //   scripts::chart_tag()— <script src=... defer>
-#include "common.hpp"
-
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
 
+#include "common.hpp"
+
 namespace revet::codegen {
 namespace {
 
-// Minimal SHA-256 (FIPS 180-4). Only used for cache-busting URLs, so it must match the
-// hash the Python generator produced: hashlib.sha256(src).hexdigest()[:10].
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// Minimal SHA-256 (FIPS 180-4). Fixed-size blocks: every index is bounded by its loop. Only used for cache-busting
+// URLs, so it must match the hash the Python generator produced: hashlib.sha256(src).hexdigest()[:10].
 std::string sha256_hex(std::string_view data) {
     static constexpr std::array<std::uint32_t, 64> K = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -33,19 +34,24 @@ std::string sha256_hex(std::string_view data) {
     std::string msg(data);
     std::uint64_t bit_len = static_cast<std::uint64_t>(msg.size()) * 8;
     msg.push_back(static_cast<char>(0x80));
-    while (msg.size() % 64 != 56) msg.push_back('\0');
-    for (int i = 7; i >= 0; --i) msg.push_back(static_cast<char>((bit_len >> (i * 8)) & 0xff));
+    while (msg.size() % 64 != 56) {
+        msg.push_back('\0');
+    }
+    for (int i = 7; i >= 0; --i) {
+        msg.push_back(static_cast<char>((bit_len >> (i * 8)) & 0xffU));
+    }
 
     auto rotr = [](std::uint32_t x, unsigned n) { return (x >> n) | (x << (32 - n)); };
     for (std::size_t off = 0; off < msg.size(); off += 64) {
         std::array<std::uint32_t, 64> w{};
         for (std::size_t i = 0; i < 16; ++i) {
-            const auto* p = reinterpret_cast<const unsigned char*>(msg.data() + off + i * 4);
-            w[i] = (std::uint32_t(p[0]) << 24) | (std::uint32_t(p[1]) << 16) | (std::uint32_t(p[2]) << 8) | p[3];
+            const auto* p = reinterpret_cast<const unsigned char*>(msg.data() + off + (i * 4));
+            w[i] = (static_cast<std::uint32_t>(p[0]) << 24U) | (static_cast<std::uint32_t>(p[1]) << 16U) |
+                   (static_cast<std::uint32_t>(p[2]) << 8U) | p[3];
         }
         for (std::size_t i = 16; i < 64; ++i) {
-            std::uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
-            std::uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            std::uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3U);
+            std::uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10U);
             w[i] = w[i - 16] + s0 + w[i - 7] + s1;
         }
         auto v = h;
@@ -58,20 +64,25 @@ std::string sha256_hex(std::string_view data) {
             std::uint32_t t2 = S0 + maj;
             v = {t1 + t2, v[0], v[1], v[2], v[3] + t1, v[4], v[5], v[6]};
         }
-        for (std::size_t i = 0; i < 8; ++i) h[i] += v[i];
+        for (std::size_t i = 0; i < 8; ++i) {
+            h[i] += v[i];
+        }
     }
 
-    static constexpr char hex[] = "0123456789abcdef";
+    static constexpr char k_hex[] = "0123456789abcdef";
     std::string out;
     for (std::uint32_t word : h) {
-        for (int shift = 28; shift >= 0; shift -= 4) out.push_back(hex[(word >> shift) & 0xf]);
+        for (int shift = 28; shift >= 0; shift -= 4) {
+            out.push_back(k_hex[(word >> shift) & 0xfU]);
+        }
     }
     return out;
 }
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 struct AppScript {
-    std::string ident;  // C++ identifier
-    std::string url;    // /_app/<stem>.<hash>.js
+    std::string ident; // C++ identifier
+    std::string url;   // /_app/<stem>.<hash>.js
     std::string src;
 };
 
@@ -79,20 +90,28 @@ struct AppScript {
 std::string ident_of(const std::string& stem) {
     std::string name = stem;
     for (char& c : name) {
-        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) c = '_';
+        if (!(std::isalnum(static_cast<unsigned char>(c)) != 0) && c != '_') {
+            c = '_';
+        }
     }
-    if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) name = "_" + name;
+    if (!name.empty() && (std::isdigit(static_cast<unsigned char>(name[0])) != 0)) {
+        name = "_" + name;
+    }
     return name;
 }
 
 std::vector<AppScript> scan_scripts(const Ctx& ctx) {
     std::vector<AppScript> out;
     fs::path dir = ctx.proj / "app" / "scripts";
-    if (!fs::is_directory(dir)) return out;
+    if (!fs::is_directory(dir)) {
+        return out;
+    }
 
     std::vector<fs::path> files;
     for (const auto& entry : fs::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".js") files.push_back(entry.path());
+        if (entry.is_regular_file() && entry.path().extension() == ".js") {
+            files.push_back(entry.path());
+        }
     }
     std::sort(files.begin(), files.end(),
               [](const fs::path& a, const fs::path& b) { return a.filename().string() < b.filename().string(); });
@@ -101,17 +120,19 @@ std::vector<AppScript> scan_scripts(const Ctx& ctx) {
         std::string src = read_text(f);
         std::string stem = f.stem().string();
         std::string digest = sha256_hex(src).substr(0, 10);
-        out.push_back({ident_of(stem), "/_app/" + stem + "." + digest + ".js", src});
+        out.push_back({ident_of(stem), cat("/_app/", stem, ".", digest, ".js"), src});
     }
     return out;
 }
 
-}  // namespace
+} // namespace
 
 // Used by gen_routes to list app scripts as routes.
 std::vector<std::pair<std::string, std::string>> app_script_routes(const Ctx& ctx) {
     std::vector<std::pair<std::string, std::string>> out;
-    for (const auto& s : scan_scripts(ctx)) out.emplace_back(s.url, s.ident);
+    for (const auto& s : scan_scripts(ctx)) {
+        out.emplace_back(s.url, s.ident);
+    }
     return out;
 }
 
@@ -132,4 +153,4 @@ int gen_scripts(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

@@ -1,7 +1,7 @@
 // [[revet::export]] functions -> components.hpp declarations.
-#include "common.hpp"
-
 #include <cctype>
+
+#include "common.hpp"
 
 namespace revet::codegen {
 namespace {
@@ -11,20 +11,24 @@ Lines split_ws(const std::string& s) {
     Lines out;
     std::string cur;
     for (char c : s) {
-        if (std::isspace(static_cast<unsigned char>(c))) {
-            if (!cur.empty()) out.push_back(cur);
+        if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+            if (!cur.empty()) {
+                out.push_back(cur);
+            }
             cur.clear();
         } else {
             cur += c;
         }
     }
-    if (!cur.empty()) out.push_back(cur);
+    if (!cur.empty()) {
+        out.push_back(cur);
+    }
     return out;
 }
 
-constexpr std::string_view export_attr = "[[revet::export]]";
+constexpr std::string_view k_export_attr = "[[revet::export]]";
 
-}  // namespace
+} // namespace
 
 int gen_components(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "components.hpp");
@@ -33,7 +37,9 @@ int gen_components(const Ctx& ctx) {
     fs::path models_dir = ctx.proj / "models";
 
     std::vector<fs::path> cpp_files = glob(components_dir, ".cpp");
-    for (auto& f : glob(layouts_dir, ".cpp")) cpp_files.push_back(f);
+    for (auto& f : glob(layouts_dir, ".cpp")) {
+        cpp_files.push_back(f);
+    }
 
     if (cpp_files.empty()) {
         write_file(out_path, "// no components/*.cpp or layouts/*.cpp files found\n#pragma once\n");
@@ -49,32 +55,45 @@ int gen_components(const Ctx& ctx) {
         "#include <revet/web.hpp>",
         "#include \"states.hpp\"",
     };
-    if (has_models(models_dir)) out.push_back("#include \"models.hpp\"");
-    for (const auto& hpp : glob(components_dir, ".hpp")) out.push_back(rel_include(hpp, ctx.proj));
-    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) out.push_back(rel_include(hpp, ctx.proj));
+    if (has_models(models_dir)) {
+        out.push_back("#include \"models.hpp\"");
+    }
+    for (const auto& hpp : glob(components_dir, ".hpp")) {
+        out.push_back(rel_include(hpp, ctx.proj));
+    }
+    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) {
+        out.push_back(rel_include(hpp, ctx.proj));
+    }
     out.push_back("");
 
     struct Deps {
         std::string name;
-        std::vector<std::pair<std::string, std::string>> items;  // (mode, type)
+        std::vector<std::pair<std::string, std::string>> items; // (mode, type)
     };
-    std::vector<Deps> comp_deps;  // insertion-ordered
+    std::vector<Deps> comp_deps; // insertion-ordered
 
     for (const auto& cpp_file : cpp_files) {
         std::string content = read_text(cpp_file);
-        for (size_t at = content.find(export_attr); at != std::string::npos; at = content.find(export_attr, at + export_attr.size())) {
-            size_t start = at + export_attr.size();
+        for (size_t at = content.find(k_export_attr); at != std::string::npos;
+             at = content.find(k_export_attr, at + k_export_attr.size())) {
+            size_t start = at + k_export_attr.size();
             size_t paren_open = content.find('(', start);
-            if (paren_open == std::string::npos) continue;
+            if (paren_open == std::string::npos) {
+                continue;
+            }
 
             Lines head_parts = split_ws(content.substr(start, paren_open - start));
-            if (head_parts.empty()) continue;
+            if (head_parts.empty()) {
+                continue;
+            }
             std::string name = head_parts.back();
             head_parts.pop_back();
             std::string ret_type = join(head_parts, " ");
 
             size_t paren_close = content.find(')', paren_open);
-            if (paren_close == std::string::npos) continue;
+            if (paren_close == std::string::npos) {
+                continue;
+            }
             std::string args_str = strip(content.substr(paren_open + 1, paren_close - paren_open - 1));
 
             // State/Flash arguments get a default so callers may omit them.
@@ -82,7 +101,9 @@ int gen_components(const Ctx& ctx) {
             std::vector<std::pair<std::string, std::string>> deps;
             for (const auto& raw : split_args(args_str)) {
                 std::string arg = strip(raw);
-                if (arg.empty()) continue;
+                if (arg.empty()) {
+                    continue;
+                }
                 std::string arg_base = strip(arg.substr(0, arg.find('=')));
                 if (auto sm = ctre::search<R"RE(web::(State|Flash)<(\w+)>)RE">(arg_base)) {
                     std::string mode = sm.get<1>().to_string();
@@ -110,7 +131,9 @@ int gen_components(const Ctx& ctx) {
                         break;
                     }
                 }
-                if (!replaced) comp_deps.push_back({name, deps});
+                if (!replaced) {
+                    comp_deps.push_back({name, deps});
+                }
             }
         }
     }
@@ -120,7 +143,9 @@ int gen_components(const Ctx& ctx) {
     for (const auto& d : comp_deps) {
         std::string dep_list;
         for (size_t i = 0; i < d.items.size(); ++i) {
-            if (i) dep_list += ", ";
+            if (i != 0U) {
+                dep_list += ", ";
+            }
             dep_list += cat("\"", d.items[i].first, "\", \"", d.items[i].second, "\"");
         }
         out.push_back(subst(traits_t, {{"name", d.name}, {"dep_list", dep_list}}));
@@ -130,4 +155,4 @@ int gen_components(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

@@ -1,6 +1,5 @@
 #include "node.hpp"
 
-#include <cstdio>
 #include <stdexcept>
 
 namespace revet::codegen {
@@ -11,21 +10,31 @@ namespace {
     throw std::runtime_error(what);
 }
 
+// "\\u" plus four lowercase hex digits.
+void append_u_escape(std::string& out, unsigned v) {
+    static constexpr std::string_view k_hex = "0123456789abcdef";
+    out += "\\u";
+    for (unsigned shift = 16; shift > 0;) {
+        shift -= 4;
+        out += k_hex[(v >> shift) & 0xFU];
+    }
+}
+
 void append_utf8(std::string& out, unsigned cp) {
     if (cp < 0x80) {
         out += static_cast<char>(cp);
     } else if (cp < 0x800) {
-        out += static_cast<char>(0xC0 | (cp >> 6));
-        out += static_cast<char>(0x80 | (cp & 0x3F));
+        out += static_cast<char>(0xC0U | (cp >> 6U));
+        out += static_cast<char>(0x80U | (cp & 0x3FU));
     } else if (cp < 0x10000) {
-        out += static_cast<char>(0xE0 | (cp >> 12));
-        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-        out += static_cast<char>(0x80 | (cp & 0x3F));
+        out += static_cast<char>(0xE0U | (cp >> 12U));
+        out += static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+        out += static_cast<char>(0x80U | (cp & 0x3FU));
     } else {
-        out += static_cast<char>(0xF0 | (cp >> 18));
-        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-        out += static_cast<char>(0x80 | (cp & 0x3F));
+        out += static_cast<char>(0xF0U | (cp >> 18U));
+        out += static_cast<char>(0x80U | ((cp >> 12U) & 0x3FU));
+        out += static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+        out += static_cast<char>(0x80U | (cp & 0x3FU));
     }
 }
 
@@ -38,7 +47,9 @@ public:
     Node document() {
         Node n = value();
         ws();
-        if (p_ != t_.size()) fail("json: extra data");
+        if (p_ != t_.size()) {
+            fail("json: extra data");
+        }
         return n;
     }
 
@@ -47,29 +58,42 @@ private:
     size_t p_ = 0;
 
     void ws() {
-        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) ++p_;
+        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) {
+            ++p_;
+        }
     }
 
     char peek() {
-        if (p_ >= t_.size()) fail("json: unexpected end");
+        if (p_ >= t_.size()) {
+            fail("json: unexpected end");
+        }
         return t_[p_];
     }
 
     void expect_word(std::string_view w) {
-        if (t_.substr(p_, w.size()) != w) fail("json: bad literal");
+        if (t_.substr(p_, w.size()) != w) {
+            fail("json: bad literal");
+        }
         p_ += w.size();
     }
 
     unsigned hex4() {
-        if (p_ + 4 > t_.size()) fail("json: bad \\u escape");
+        if (p_ + 4 > t_.size()) {
+            fail("json: bad \\u escape");
+        }
         unsigned v = 0;
         for (int i = 0; i < 4; ++i) {
             char c = t_[p_++];
-            v <<= 4;
-            if (c >= '0' && c <= '9') v |= static_cast<unsigned>(c - '0');
-            else if (c >= 'a' && c <= 'f') v |= static_cast<unsigned>(c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F') v |= static_cast<unsigned>(c - 'A' + 10);
-            else fail("json: bad hex digit");
+            v <<= 4U;
+            if (c >= '0' && c <= '9') {
+                v |= static_cast<unsigned>(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                v |= static_cast<unsigned>(c - 'a' + 10);
+            } else if (c >= 'A' && c <= 'F') {
+                v |= static_cast<unsigned>(c - 'A' + 10);
+            } else {
+                fail("json: bad hex digit");
+            }
         }
         return v;
     }
@@ -80,7 +104,9 @@ private:
         while (true) {
             char c = peek();
             ++p_;
-            if (c == '"') break;
+            if (c == '"') {
+                break;
+            }
             if (c != '\\') {
                 out += c;
                 continue;
@@ -88,25 +114,42 @@ private:
             char e = peek();
             ++p_;
             switch (e) {
-                case '"': out += '"'; break;
-                case '\\': out += '\\'; break;
-                case '/': out += '/'; break;
-                case 'b': out += '\b'; break;
-                case 'f': out += '\f'; break;
-                case 'n': out += '\n'; break;
-                case 'r': out += '\r'; break;
-                case 't': out += '\t'; break;
+                case '"':
+                    out += '"';
+                    break;
+                case '\\':
+                    out += '\\';
+                    break;
+                case '/':
+                    out += '/';
+                    break;
+                case 'b':
+                    out += '\b';
+                    break;
+                case 'f':
+                    out += '\f';
+                    break;
+                case 'n':
+                    out += '\n';
+                    break;
+                case 'r':
+                    out += '\r';
+                    break;
+                case 't':
+                    out += '\t';
+                    break;
                 case 'u': {
                     unsigned cp = hex4();
                     if (cp >= 0xD800 && cp <= 0xDBFF && t_.substr(p_, 2) == "\\u") {
                         p_ += 2;
                         unsigned lo = hex4();
-                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
                     }
                     append_utf8(out, cp);
                     break;
                 }
-                default: fail("json: bad escape");
+                default:
+                    fail("json: bad escape");
             }
         }
         return out;
@@ -120,14 +163,21 @@ private:
             ++p_;
             n.kind = Node::Kind::Table;
             ws();
-            if (peek() == '}') { ++p_; return n; }
+            if (peek() == '}') {
+                ++p_;
+                return n;
+            }
             while (true) {
                 ws();
-                if (peek() != '"') fail("json: expected key");
+                if (peek() != '"') {
+                    fail("json: expected key");
+                }
                 ++p_;
                 std::string key = string_body();
                 ws();
-                if (peek() != ':') fail("json: expected ':'");
+                if (peek() != ':') {
+                    fail("json: expected ':'");
+                }
                 ++p_;
                 Node v = value();
                 n.keys.push_back(std::move(key));
@@ -135,21 +185,32 @@ private:
                 ws();
                 char d = peek();
                 ++p_;
-                if (d == '}') break;
-                if (d != ',') fail("json: expected ',' or '}'");
+                if (d == '}') {
+                    break;
+                }
+                if (d != ',') {
+                    fail("json: expected ',' or '}'");
+                }
             }
         } else if (c == '[') {
             ++p_;
             n.kind = Node::Kind::Array;
             ws();
-            if (peek() == ']') { ++p_; return n; }
+            if (peek() == ']') {
+                ++p_;
+                return n;
+            }
             while (true) {
                 n.items.push_back(value());
                 ws();
                 char d = peek();
                 ++p_;
-                if (d == ']') break;
-                if (d != ',') fail("json: expected ',' or ']'");
+                if (d == ']') {
+                    break;
+                }
+                if (d != ',') {
+                    fail("json: expected ',' or ']'");
+                }
             }
         } else if (c == '"') {
             ++p_;
@@ -166,12 +227,13 @@ private:
             expect_word("null");
         } else {
             size_t start = p_;
-            while (p_ < t_.size() && (t_[p_] == '-' || t_[p_] == '+' || t_[p_] == '.' ||
-                                      t_[p_] == 'e' || t_[p_] == 'E' ||
-                                      (t_[p_] >= '0' && t_[p_] <= '9'))) {
+            while (p_ < t_.size() && (t_[p_] == '-' || t_[p_] == '+' || t_[p_] == '.' || t_[p_] == 'e' ||
+                                      t_[p_] == 'E' || (t_[p_] >= '0' && t_[p_] <= '9'))) {
                 ++p_;
             }
-            if (start == p_) fail("json: unexpected character");
+            if (start == p_) {
+                fail("json: unexpected character");
+            }
             n.kind = Node::Kind::Number;
             n.s = std::string(t_.substr(start, p_ - start));
         }
@@ -189,36 +251,54 @@ void dump_string(std::string& out, const std::string& s) {
         unsigned cp = c;
         size_t len = 1;
         if (c >= 0x80) {
-            if ((c & 0xE0) == 0xC0) { len = 2; cp = c & 0x1F; }
-            else if ((c & 0xF0) == 0xE0) { len = 3; cp = c & 0x0F; }
-            else { len = 4; cp = c & 0x07; }
+            if ((c & 0xE0U) == 0xC0) {
+                len = 2;
+                cp = c & 0x1FU;
+            } else if ((c & 0xF0U) == 0xE0) {
+                len = 3;
+                cp = c & 0x0FU;
+            } else {
+                len = 4;
+                cp = c & 0x07U;
+            }
             for (size_t k = 1; k < len && i + k < s.size(); ++k) {
-                cp = (cp << 6) | (static_cast<unsigned char>(s[i + k]) & 0x3F);
+                cp = (cp << 6U) | (static_cast<unsigned char>(s[i + k]) & 0x3FU);
             }
         }
         i += len;
-        char buf[16];
         switch (cp) {
-            case '"': out += "\\\""; continue;
-            case '\\': out += "\\\\"; continue;
-            case '\n': out += "\\n"; continue;
-            case '\r': out += "\\r"; continue;
-            case '\t': out += "\\t"; continue;
-            case '\b': out += "\\b"; continue;
-            case '\f': out += "\\f"; continue;
-            default: break;
+            case '"':
+                out += "\\\"";
+                continue;
+            case '\\':
+                out += "\\\\";
+                continue;
+            case '\n':
+                out += "\\n";
+                continue;
+            case '\r':
+                out += "\\r";
+                continue;
+            case '\t':
+                out += "\\t";
+                continue;
+            case '\b':
+                out += "\\b";
+                continue;
+            case '\f':
+                out += "\\f";
+                continue;
+            default:
+                break;
         }
         if (cp >= 0x20 && cp <= 0x7E) {
             out += static_cast<char>(cp);
         } else if (cp >= 0x10000) {
             unsigned v = cp - 0x10000;
-            std::snprintf(buf, sizeof buf, "\\u%04x", 0xD800 + (v >> 10));
-            out += buf;
-            std::snprintf(buf, sizeof buf, "\\u%04x", 0xDC00 + (v & 0x3FF));
-            out += buf;
+            append_u_escape(out, 0xD800U + (v >> 10U));
+            append_u_escape(out, 0xDC00U + (v & 0x3FFU));
         } else {
-            std::snprintf(buf, sizeof buf, "\\u%04x", cp);
-            out += buf;
+            append_u_escape(out, cp);
         }
     }
     out += '"';
@@ -228,25 +308,43 @@ void dump_value(std::string& out, const Node& n, int level) {
     const std::string pad(static_cast<size_t>(level + 1) * 2, ' ');
     const std::string close_pad(static_cast<size_t>(level) * 2, ' ');
     switch (n.kind) {
-        case Node::Kind::Null: out += "null"; break;
-        case Node::Kind::Bool: out += n.b ? "true" : "false"; break;
-        case Node::Kind::Number: out += n.s; break;
-        case Node::Kind::String: dump_string(out, n.s); break;
+        case Node::Kind::Null:
+            out += "null";
+            break;
+        case Node::Kind::Bool:
+            out += n.b ? "true" : "false";
+            break;
+        case Node::Kind::Number:
+            out += n.s;
+            break;
+        case Node::Kind::String:
+            dump_string(out, n.s);
+            break;
         case Node::Kind::Array:
-            if (n.items.empty()) { out += "[]"; break; }
+            if (n.items.empty()) {
+                out += "[]";
+                break;
+            }
             out += "[\n";
             for (size_t i = 0; i < n.items.size(); ++i) {
-                if (i) out += ",\n";
+                if (i != 0U) {
+                    out += ",\n";
+                }
                 out += pad;
                 dump_value(out, n.items[i], level + 1);
             }
             out += "\n" + close_pad + "]";
             break;
         case Node::Kind::Table:
-            if (n.keys.empty()) { out += "{}"; break; }
+            if (n.keys.empty()) {
+                out += "{}";
+                break;
+            }
             out += "{\n";
             for (size_t i = 0; i < n.keys.size(); ++i) {
-                if (i) out += ",\n";
+                if (i != 0U) {
+                    out += ",\n";
+                }
                 out += pad;
                 dump_string(out, n.keys[i]);
                 out += ": ";
@@ -269,10 +367,14 @@ public:
         std::vector<std::string> section;
         while (true) {
             skip_blank();
-            if (p_ >= t_.size()) break;
+            if (p_ >= t_.size()) {
+                break;
+            }
             if (t_[p_] == '[') {
                 ++p_;
-                if (peek() == '[') fail("toml: array-of-tables is not supported");
+                if (peek() == '[') {
+                    fail("toml: array-of-tables is not supported");
+                }
                 section = dotted_key();
                 skip_inline_ws();
                 expect(']');
@@ -290,8 +392,12 @@ public:
                 target.set(last, std::move(v));
             }
             skip_inline_ws();
-            if (p_ < t_.size() && t_[p_] == '#') skip_comment();
-            if (p_ < t_.size() && t_[p_] != '\n' && t_[p_] != '\r') fail("toml: expected end of line");
+            if (p_ < t_.size() && t_[p_] == '#') {
+                skip_comment();
+            }
+            if (p_ < t_.size() && t_[p_] != '\n' && t_[p_] != '\r') {
+                fail("toml: expected end of line");
+            }
         }
         return root;
     }
@@ -300,35 +406,47 @@ private:
     std::string_view t_;
     size_t p_ = 0;
 
-    [[noreturn]] void bad(const char* what) {
+    [[noreturn]] void bad(const char* what) const {
         fail(std::string("toml: ") + what + " at byte " + std::to_string(p_));
     }
 
     char peek() {
-        if (p_ >= t_.size()) bad("unexpected end");
+        if (p_ >= t_.size()) {
+            bad("unexpected end");
+        }
         return t_[p_];
     }
 
     void expect(char c) {
-        if (peek() != c) bad("unexpected character");
+        if (peek() != c) {
+            bad("unexpected character");
+        }
         ++p_;
     }
 
     void skip_inline_ws() {
-        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t')) ++p_;
+        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t')) {
+            ++p_;
+        }
     }
 
     void skip_comment() {
-        while (p_ < t_.size() && t_[p_] != '\n') ++p_;
+        while (p_ < t_.size() && t_[p_] != '\n') {
+            ++p_;
+        }
     }
 
     // Whitespace, newlines and comments between statements and inside arrays.
     void skip_blank() {
         while (p_ < t_.size()) {
             char c = t_[p_];
-            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') ++p_;
-            else if (c == '#') skip_comment();
-            else break;
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                ++p_;
+            } else if (c == '#') {
+                skip_comment();
+            } else {
+                break;
+            }
         }
     }
 
@@ -343,8 +461,12 @@ private:
             return n.s;
         }
         size_t start = p_;
-        while (p_ < t_.size() && bare_char(t_[p_])) ++p_;
-        if (start == p_) bad("expected key");
+        while (p_ < t_.size() && bare_char(t_[p_])) {
+            ++p_;
+        }
+        if (start == p_) {
+            bad("expected key");
+        }
         return std::string(t_.substr(start, p_ - start));
     }
 
@@ -363,7 +485,9 @@ private:
     static Node& child_table(Node& t, const std::string& key) {
         for (size_t i = 0; i < t.keys.size(); ++i) {
             if (t.keys[i] == key) {
-                if (t.vals[i].kind != Node::Kind::Table) fail("toml: key is not a table: " + key);
+                if (t.vals[i].kind != Node::Kind::Table) {
+                    fail("toml: key is not a table: " + key);
+                }
                 return t.vals[i];
             }
         }
@@ -376,7 +500,9 @@ private:
 
     static Node& table_at(Node& root, const std::vector<std::string>& path) {
         Node* cur = &root;
-        for (const auto& seg : path) cur = &child_table(*cur, seg);
+        for (const auto& seg : path) {
+            cur = &child_table(*cur, seg);
+        }
         return *cur;
     }
 
@@ -387,18 +513,35 @@ private:
         if (t_.substr(p_, 3) == std::string(3, q)) {
             // Multi-line string: skip the first newline if present.
             p_ += 3;
-            if (p_ < t_.size() && t_[p_] == '\r') ++p_;
-            if (p_ < t_.size() && t_[p_] == '\n') ++p_;
+            if (p_ < t_.size() && t_[p_] == '\r') {
+                ++p_;
+            }
+            if (p_ < t_.size() && t_[p_] == '\n') {
+                ++p_;
+            }
             while (true) {
-                if (p_ >= t_.size()) bad("unterminated multi-line string");
-                if (t_.substr(p_, 3) == std::string(3, q)) { p_ += 3; break; }
+                if (p_ >= t_.size()) {
+                    bad("unterminated multi-line string");
+                }
+                if (t_.substr(p_, 3) == std::string(3, q)) {
+                    p_ += 3;
+                    break;
+                }
                 char c = t_[p_++];
                 if (q == '"' && c == '\\') {
                     char e = t_[p_++];
-                    if (e == 'n') n.s += '\n';
-                    else if (e == 't') n.s += '\t';
-                    else if (e == '\n') { while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) ++p_; }
-                    else n.s += e;
+                    if (e == 'n') {
+                        n.s += '\n';
+                    } else if (e == 't') {
+                        n.s += '\t';
+                    } else if (e == '\n') {
+                        while (p_ < t_.size() &&
+                               (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) {
+                            ++p_;
+                        }
+                    } else {
+                        n.s += e;
+                    }
                 } else {
                     n.s += c;
                 }
@@ -407,35 +550,59 @@ private:
         }
         ++p_;
         while (true) {
-            if (p_ >= t_.size() || t_[p_] == '\n') bad("unterminated string");
+            if (p_ >= t_.size() || t_[p_] == '\n') {
+                bad("unterminated string");
+            }
             char c = t_[p_++];
-            if (c == q) break;
+            if (c == q) {
+                break;
+            }
             if (q == '"' && c == '\\') {
                 char e = t_[p_++];
                 switch (e) {
-                    case 'n': n.s += '\n'; break;
-                    case 't': n.s += '\t'; break;
-                    case 'r': n.s += '\r'; break;
-                    case 'b': n.s += '\b'; break;
-                    case 'f': n.s += '\f'; break;
-                    case '"': n.s += '"'; break;
-                    case '\\': n.s += '\\'; break;
+                    case 'n':
+                        n.s += '\n';
+                        break;
+                    case 't':
+                        n.s += '\t';
+                        break;
+                    case 'r':
+                        n.s += '\r';
+                        break;
+                    case 'b':
+                        n.s += '\b';
+                        break;
+                    case 'f':
+                        n.s += '\f';
+                        break;
+                    case '"':
+                        n.s += '"';
+                        break;
+                    case '\\':
+                        n.s += '\\';
+                        break;
                     case 'u':
                     case 'U': {
                         size_t digits = e == 'u' ? 4 : 8;
                         unsigned cp = 0;
                         for (size_t k = 0; k < digits; ++k) {
                             char h = t_[p_++];
-                            cp <<= 4;
-                            if (h >= '0' && h <= '9') cp |= static_cast<unsigned>(h - '0');
-                            else if (h >= 'a' && h <= 'f') cp |= static_cast<unsigned>(h - 'a' + 10);
-                            else if (h >= 'A' && h <= 'F') cp |= static_cast<unsigned>(h - 'A' + 10);
-                            else bad("bad unicode escape");
+                            cp <<= 4U;
+                            if (h >= '0' && h <= '9') {
+                                cp |= static_cast<unsigned>(h - '0');
+                            } else if (h >= 'a' && h <= 'f') {
+                                cp |= static_cast<unsigned>(h - 'a' + 10);
+                            } else if (h >= 'A' && h <= 'F') {
+                                cp |= static_cast<unsigned>(h - 'A' + 10);
+                            } else {
+                                bad("bad unicode escape");
+                            }
                         }
                         append_utf8(n.s, cp);
                         break;
                     }
-                    default: bad("bad escape");
+                    default:
+                        bad("bad escape");
                 }
             } else {
                 n.s += c;
@@ -447,16 +614,24 @@ private:
     Node value() {
         char c = peek();
         Node n;
-        if (c == '"' || c == '\'') return string_value();
+        if (c == '"' || c == '\'') {
+            return string_value();
+        }
         if (c == '[') {
             ++p_;
             n.kind = Node::Kind::Array;
             while (true) {
                 skip_blank();
-                if (peek() == ']') { ++p_; break; }
+                if (peek() == ']') {
+                    ++p_;
+                    break;
+                }
                 n.items.push_back(value());
                 skip_blank();
-                if (peek() == ',') { ++p_; continue; }
+                if (peek() == ',') {
+                    ++p_;
+                    continue;
+                }
                 expect(']');
                 break;
             }
@@ -466,7 +641,10 @@ private:
             ++p_;
             n.kind = Node::Kind::Table;
             skip_inline_ws();
-            if (peek() == '}') { ++p_; return n; }
+            if (peek() == '}') {
+                ++p_;
+                return n;
+            }
             while (true) {
                 std::vector<std::string> path = dotted_key();
                 skip_inline_ws();
@@ -477,15 +655,19 @@ private:
                 path.pop_back();
                 table_at(n, path).set(last, std::move(v));
                 skip_inline_ws();
-                if (peek() == ',') { ++p_; skip_inline_ws(); continue; }
+                if (peek() == ',') {
+                    ++p_;
+                    skip_inline_ws();
+                    continue;
+                }
                 expect('}');
                 break;
             }
             return n;
         }
         size_t start = p_;
-        while (p_ < t_.size() && t_[p_] != ' ' && t_[p_] != '\t' && t_[p_] != '\n' && t_[p_] != '\r' &&
-               t_[p_] != ',' && t_[p_] != ']' && t_[p_] != '}' && t_[p_] != '#') {
+        while (p_ < t_.size() && t_[p_] != ' ' && t_[p_] != '\t' && t_[p_] != '\n' && t_[p_] != '\r' && t_[p_] != ',' &&
+               t_[p_] != ']' && t_[p_] != '}' && t_[p_] != '#') {
             ++p_;
         }
         std::string tok(t_.substr(start, p_ - start));
@@ -494,21 +676,27 @@ private:
             n.b = tok == "true";
             return n;
         }
-        if (tok.empty() || tok.find(':') != std::string::npos) bad("unsupported value");
+        if (tok.empty() || tok.contains(':')) {
+            bad("unsupported value");
+        }
         n.kind = Node::Kind::Number;
         n.s = tok;
         return n;
     }
 };
 
-}  // namespace
+} // namespace
 
 // ── Node ────────────────────────────────────────────────────────────────────
 
 const Node* Node::find(std::string_view key) const {
-    if (kind != Kind::Table) return nullptr;
+    if (kind != Kind::Table) {
+        return nullptr;
+    }
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (keys[i] == key) return &vals[i];
+        if (keys[i] == key) {
+            return &vals[i];
+        }
     }
     return nullptr;
 }
@@ -541,31 +729,43 @@ Node parse_toml(std::string_view text) {
 std::string py_str(const Node& n) {
     switch (n.kind) {
         case Node::Kind::String:
-        case Node::Kind::Number: return n.s;
-        case Node::Kind::Bool: return n.b ? "True" : "False";
-        default: return "";
+        case Node::Kind::Number:
+            return n.s;
+        case Node::Kind::Bool:
+            return n.b ? "True" : "False";
+        default:
+            return "";
     }
 }
 
 long long py_int(const Node& n) {
     switch (n.kind) {
         case Node::Kind::Number:
-        case Node::Kind::String: return std::stoll(n.s);
-        case Node::Kind::Bool: return n.b ? 1 : 0;
-        default: fail("int() argument must be a number or string");
+        case Node::Kind::String:
+            return std::stoll(n.s);
+        case Node::Kind::Bool:
+            return n.b ? 1 : 0;
+        default:
+            fail("int() argument must be a number or string");
     }
 }
 
 bool py_bool(const Node& n) {
     switch (n.kind) {
-        case Node::Kind::Bool: return n.b;
-        case Node::Kind::Number: return n.s != "0" && n.s != "0.0";
-        case Node::Kind::String: return !n.s.empty();
-        case Node::Kind::Array: return !n.items.empty();
-        case Node::Kind::Table: return !n.keys.empty();
-        case Node::Kind::Null: return false;
+        case Node::Kind::Bool:
+            return n.b;
+        case Node::Kind::Number:
+            return n.s != "0" && n.s != "0.0";
+        case Node::Kind::String:
+            return !n.s.empty();
+        case Node::Kind::Array:
+            return !n.items.empty();
+        case Node::Kind::Table:
+            return !n.keys.empty();
+        case Node::Kind::Null:
+            return false;
     }
     return false;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

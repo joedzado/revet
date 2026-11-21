@@ -2,6 +2,7 @@
 // Minimal ordered document tree for the two formats codegen reads or writes:
 // revet.toml (subset of TOML) and compile_commands.json.
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -9,14 +10,14 @@
 namespace revet::codegen {
 
 struct Node {
-    enum class Kind { Null, Bool, Number, String, Array, Table };
+    enum class Kind : std::uint8_t { Null, Bool, Number, String, Array, Table };
 
     Kind kind = Kind::Null;
     bool b = false;
-    std::string s;                  // String value, or raw text for Number
-    std::vector<Node> items;        // Array
-    std::vector<std::string> keys;  // Table, insertion order
-    std::vector<Node> vals;         // Table values, parallel to keys
+    std::string s;                 // String value, or raw text for Number
+    std::vector<Node> items;       // Array
+    std::vector<std::string> keys; // Table, insertion order
+    std::vector<Node> vals;        // Table values, parallel to keys
 
     // Table lookup; nullptr when missing or not a table.
     const Node* find(std::string_view key) const;
@@ -35,8 +36,8 @@ std::string dump_json_indent2(const Node& n);
 Node parse_toml(std::string_view text);
 
 // Conversions used by the generators.
-std::string py_str(const Node& n);   // str(value)
-long long py_int(const Node& n);     // int(value)
-bool py_bool(const Node& n);         // bool(value)
+std::string py_str(const Node& n); // str(value)
+long long py_int(const Node& n);   // int(value)
+bool py_bool(const Node& n);       // bool(value)
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

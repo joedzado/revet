@@ -1,18 +1,39 @@
 // CSS class/id constants and locale strings.
-#include "common.hpp"
-
 #include <cctype>
 #include <iostream>
 #include <map>
 #include <set>
 
+#include "common.hpp"
+
 namespace revet::codegen {
 namespace {
 
-
+// CSS name -> C++ identifier: dashes become underscores, and a C++ keyword or
+// alternative token (`or`, `not`, `float`, `default`...) gets a trailing underscore.
 std::string replace_dashes(std::string s) {
+    static const std::set<std::string, std::less<>> keywords{
+        "alignas",     "alignof",   "and",        "and_eq",    "asm",      "auto",         "bitand",
+        "bitor",       "bool",      "break",      "case",      "catch",    "char",         "char8_t",
+        "char16_t",    "char32_t",  "class",      "compl",     "concept",  "const",        "consteval",
+        "constexpr",   "constinit", "const_cast", "continue",  "co_await", "co_return",    "co_yield",
+        "decltype",    "default",   "delete",     "do",        "double",   "dynamic_cast", "else",
+        "enum",        "explicit",  "export",     "extern",    "false",    "float",        "for",
+        "friend",      "goto",      "if",         "inline",    "int",      "long",         "mutable",
+        "namespace",   "new",       "noexcept",   "not",       "not_eq",   "nullptr",      "operator",
+        "or",          "or_eq",     "private",    "protected", "public",   "register",     "reinterpret_cast",
+        "requires",    "return",    "short",      "signed",    "sizeof",   "static",       "static_assert",
+        "static_cast", "struct",    "switch",     "template",  "this",     "thread_local", "throw",
+        "true",        "try",       "typedef",    "typeid",    "typename", "union",        "unsigned",
+        "using",       "virtual",   "void",       "volatile",  "wchar_t",  "while",        "xor",
+        "xor_eq"};
     for (char& c : s) {
-        if (c == '-') c = '_';
+        if (c == '-') {
+            c = '_';
+        }
+    }
+    if (keywords.contains(s)) {
+        s += '_';
     }
     return s;
 }
@@ -30,7 +51,9 @@ std::vector<std::vector<std::string>> parse_csv(const std::string& text) {
         field.clear();
     };
     auto end_row = [&] {
-        if (row_has_data) rows.push_back(row);
+        if (row_has_data) {
+            rows.push_back(row);
+        }
         row.clear();
         row_has_data = false;
     };
@@ -82,12 +105,14 @@ const std::set<std::string>& iso_639_1() {
     return codes;
 }
 
-}  // namespace
+} // namespace
 
 int gen_styles(const Ctx& ctx) {
     fs::path out_path = setup(ctx, "styles.hpp");
     fs::path styles_dir = ctx.proj / "app" / "styles";
-    if (!file_exists(styles_dir)) throw GenError("gen_styles: styles directory not found: " + styles_dir.string());
+    if (!file_exists(styles_dir)) {
+        throw GenError("gen_styles: styles directory not found: " + styles_dir.string());
+    }
 
     const std::string named_class_t = tmpl(ctx, "styles_named_class.tmpl");
     const std::string id_t = tmpl(ctx, "styles_id.tmpl");
@@ -98,7 +123,7 @@ int gen_styles(const Ctx& ctx) {
 
     std::vector<std::string> all_css;
     std::set<std::string> defined_classes;
-    std::map<std::string, std::string> defined_ids;  // cpp name → css name
+    std::map<std::string, std::string> defined_ids; // cpp name → css name
 
     for (const auto& css_file : glob(styles_dir, ".css")) {
         std::string content = read_text(css_file);
@@ -114,7 +139,7 @@ int gen_styles(const Ctx& ctx) {
                 pending.clear();
                 continue;
             }
-            bool has_open = stripped.find('{') != std::string::npos;
+            bool has_open = stripped.contains('{');
             bool ends_comma = stripped.back() == ',';
             if (!has_open && !ends_comma) {
                 pending.clear();
@@ -128,7 +153,7 @@ int gen_styles(const Ctx& ctx) {
                     for (auto m : ctre::search_all<R"RE(\.([A-Za-z][A-Za-z0-9_\-]*))RE">(std::string_view(sel))) {
                         std::string css_name = m.get<1>().to_string();
                         std::string cpp_name = replace_dashes(css_name);
-                        if (!defined_classes.count(cpp_name)) {
+                        if (!defined_classes.contains(cpp_name)) {
                             out.push_back(subst(named_class_t, {{"line", std::to_string(li)},
                                                                 {"file", css_file.string()},
                                                                 {"cpp_name", cpp_name},
@@ -164,7 +189,9 @@ int gen_styles(const Ctx& ctx) {
     out.push_back("namespace html::detail {");
     std::string joined;
     for (size_t i = 0; i < all_css.size(); ++i) {
-        if (i) joined += "\n";
+        if (i != 0U) {
+            joined += '\n';
+        }
         joined += all_css[i];
     }
     out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(joined), "\";"));
@@ -187,26 +214,34 @@ int gen_i18n(const Ctx& ctx) {
     }
 
     auto rows = parse_csv(read_text(csv_path));
-    if (rows.empty()) throw GenError("gen_i18n: strings.csv has no header");
+    if (rows.empty()) {
+        throw GenError("gen_i18n: strings.csv has no header");
+    }
     const auto& header = rows.front();
 
     std::vector<std::string> locales;
     for (const auto& h : header) {
-        if (h != "key") locales.push_back(h);
+        if (h != "key") {
+            locales.push_back(h);
+        }
     }
 
     std::vector<std::map<std::string, std::string>> records;
     for (size_t r = 1; r < rows.size(); ++r) {
         std::map<std::string, std::string> rec;
         for (size_t c = 0; c < header.size(); ++c) {
-            if (c < rows[r].size()) rec[header[c]] = rows[r][c];
+            if (c < rows[r].size()) {
+                rec[header[c]] = rows[r][c];
+            }
         }
         records.push_back(std::move(rec));
     }
 
     Lines bad;
     for (const auto& l : locales) {
-        if (!iso_639_1().count(l)) bad.push_back(l);
+        if (static_cast<unsigned int>(iso_639_1().contains(l)) == 0U) {
+            bad.push_back(l);
+        }
     }
     if (!bad.empty()) {
         throw GenError("ERROR gen_i18n: unrecognized locale code(s): " + join(bad, ", ") +
@@ -218,8 +253,12 @@ int gen_i18n(const Ctx& ctx) {
     for (size_t i = 0; i < locales.size(); ++i) {
         const std::string& l = locales[i];
         std::string upper = l;
-        for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        if (i) picker += "\n        ";
+        for (char& c : upper) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        if (i != 0U) {
+            picker += "\n        ";
+        }
         picker += cat("html::button{html::attr.type(\"submit\"), html::attr.name(\"lang\"), html::attr.value(\"", l,
                       "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
                       " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
@@ -230,21 +269,32 @@ int gen_i18n(const Ctx& ctx) {
     for (size_t r = 0; r < records.size(); ++r) {
         const auto& rec = records[r];
         auto key_it = rec.find("key");
-        if (key_it == rec.end()) throw GenError("gen_i18n: row without a 'key' column");
+        if (key_it == rec.end()) {
+            throw GenError("gen_i18n: row without a 'key' column");
+        }
         std::string translations;
         for (size_t i = 0; i < locales.size(); ++i) {
             auto v = rec.find(locales[i]);
-            if (v == rec.end()) throw GenError("gen_i18n: missing translation for " + locales[i] + " in " + key_it->second);
-            if (i) translations += ", ";
+            if (v == rec.end()) {
+                throw GenError("gen_i18n: missing translation for " + locales[i] + " in " + key_it->second);
+            }
+            if (i != 0U) {
+                translations += ", ";
+            }
             translations += "\"" + escape_str(v->second) + "\"";
         }
-        if (r) str_consts += "\n";
-        str_consts += subst(str_const_t, {{"n", std::to_string(n)}, {"key", key_it->second}, {"translations", translations}});
+        if (r != 0U) {
+            str_consts += '\n';
+        }
+        str_consts +=
+            subst(str_const_t, {{"n", std::to_string(n)}, {"key", key_it->second}, {"translations", translations}});
     }
 
     std::string quoted_locales;
     for (size_t i = 0; i < locales.size(); ++i) {
-        if (i) quoted_locales += ", ";
+        if (i != 0U) {
+            quoted_locales += ", ";
+        }
         quoted_locales += "\"" + locales[i] + "\"";
     }
 
@@ -257,4 +307,4 @@ int gen_i18n(const Ctx& ctx) {
     return 0;
 }
 
-}  // namespace revet::codegen
+} // namespace revet::codegen

@@ -5,16 +5,15 @@
 //   revet new <name> [--empty|--blank|--clean]
 //   revet packages | add <pkg>[@version] | remove <pkg> | lock
 //   revet upgrade [--force] | tidy | format | clean | doctor
-#include "cli.hpp"
-
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <set>
-
 #include <unistd.h>
 
-using namespace revet::cli;
+#include "cli.hpp"
 
+namespace revet::cli {
 namespace {
 
 struct Args {
@@ -46,13 +45,19 @@ Args parse(int argc, char** argv) {
                 arg = arg.substr(0, eq);
             }
         }
-        auto value = [&]() -> std::string {
-            if (inline_value) return *inline_value;
-            if (i + 1 >= argc) usage_error("argument " + arg + ": expected one argument");
+        auto value = [&] -> std::string {
+            if (inline_value) {
+                return *inline_value;
+            }
+            if (i + 1 >= argc) {
+                usage_error("argument " + arg + ": expected one argument");
+            }
             return argv[++i];
         };
         auto flag = [&](bool& target) {
-            if (inline_value) usage_error("argument " + arg + ": ignored explicit argument '" + *inline_value + "'");
+            if (inline_value) {
+                usage_error("argument " + arg + ": ignored explicit argument '" + *inline_value + "'");
+            }
             target = true;
         };
 
@@ -60,12 +65,16 @@ Args parse(int argc, char** argv) {
             std::string v = value();
             char* end = nullptr;
             long n = std::strtol(v.c_str(), &end, 10);
-            if (v.empty() || *end != '\0' || n <= 0 || n > 65535) usage_error("argument --port: invalid int value: '" + v + "'");
+            if (v.empty() || *end != '\0' || n <= 0 || n > 65535) {
+                usage_error("argument --port: invalid int value: '" + v + "'");
+            }
             a.port = static_cast<int>(n);
         } else if (arg == "--logging") {
             std::string v = value();
             static const std::set<std::string> levels = {"debug", "info", "warn", "error"};
-            if (!levels.count(v)) usage_error("argument --logging: invalid choice: '" + v + "' (choose from debug, info, warn, error)");
+            if (!levels.contains(v)) {
+                usage_error("argument --logging: invalid choice: '" + v + "' (choose from debug, info, warn, error)");
+            }
             a.logging = v;
         } else if (arg == "--target") {
             a.target = value();
@@ -85,17 +94,15 @@ Args parse(int argc, char** argv) {
             flag(a.force);
         } else if (arg == "--empty" || arg == "--blank" || arg == "--clean") {
             flag(a.empty);
-        } else if (arg.starts_with("-") && arg != "-") {
+        } else if ((arg.starts_with('-') && arg != "-") || positional > 1) {
             usage_error("unrecognized arguments: " + arg);
         } else if (positional == 0) {
             a.command = arg;
             a.command_given = true;
             ++positional;
-        } else if (positional == 1) {
+        } else {
             a.extra = arg;
             ++positional;
-        } else {
-            usage_error("unrecognized arguments: " + arg);
         }
     }
     return a;
@@ -128,7 +135,8 @@ void print_help(const std::string& command) {
         info("Usage: revet [command] [options]");
         info("");
         info("Commands:");
-        info("  dev            — debug build with file watcher  [--port N] [--logging LEVEL] [--asan] [--lldb] [--profile] [--debug]");
+        info("  dev            — debug build with file watcher  [--port N] [--logging LEVEL] [--asan] [--lldb] "
+             "[--profile] [--debug]");
         info("  build          — release build for deployment  [--debug] [--target linux-arm64]");
         info("  packages       — interactive package manager TUI");
         info("  add <pkg>      — add a Conan package dependency  [pkg@version]");
@@ -143,14 +151,16 @@ void print_help(const std::string& command) {
     }
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-#if defined(__APPLE__)
+int main_impl(int argc, char** argv) {
+#ifdef __APPLE__
     // Apple's clang for everything revet runs (CMake, Conan builds) unless CC/CXX say otherwise:
     // `cc` on PATH can be a Homebrew GCC or LLVM that lacks the macOS SDK setup.
-    if (!std::getenv("CC") && access("/usr/bin/clang", X_OK) == 0) setenv("CC", "/usr/bin/clang", 1);
-    if (!std::getenv("CXX") && access("/usr/bin/clang++", X_OK) == 0) setenv("CXX", "/usr/bin/clang++", 1);
+    if (std::getenv("CC") == nullptr && access("/usr/bin/clang", X_OK) == 0) {
+        setenv("CC", "/usr/bin/clang", 1);
+    }
+    if (std::getenv("CXX") == nullptr && access("/usr/bin/clang++", X_OK) == 0) {
+        setenv("CXX", "/usr/bin/clang++", 1);
+    }
 #endif
     Args a = parse(argc, argv);
     if (a.version) {
@@ -164,12 +174,14 @@ int main(int argc, char** argv) {
 
     std::error_code ec;
     (void)fs::current_path(ec);
-    if (ec) fail("Current directory no longer exists. cd into your project directory and retry.");
+    if (ec) {
+        fail("Current directory no longer exists. cd into your project directory and retry.");
+    }
 
-    static const std::set<std::string> known = {"dev",     "build", "packages", "pkg",  "add",   "remove", "lock",
-                                                "new",     "upgrade", "tidy",   "format", "clean", "help",  "doctor"};
+    static const std::set<std::string> known = {"dev", "build",   "packages", "pkg",    "add",   "remove", "lock",
+                                                "new", "upgrade", "tidy",     "format", "clean", "help",   "doctor"};
     const std::string& cmd = a.command;
-    if (!known.count(cmd)) {
+    if (!known.contains(cmd)) {
         err("unknown command: " + cmd);
         info("");
         print_help("");
@@ -180,15 +192,23 @@ int main(int argc, char** argv) {
     }
 
     if (cmd == "add") {
-        if (!a.extra) fail("usage: revet add <package>[@version]");
+        if (!a.extra) {
+            fail("usage: revet add <package>[@version]");
+        }
         return cmd_add(*a.extra);
     }
     if (cmd == "remove") {
-        if (!a.extra) fail("usage: revet remove <package>");
+        if (!a.extra) {
+            fail("usage: revet remove <package>");
+        }
         return cmd_remove(*a.extra);
     }
-    if (cmd == "lock") return cmd_lock();
-    if (cmd == "packages" || cmd == "pkg") return cmd_packages();
+    if (cmd == "lock") {
+        return cmd_lock();
+    }
+    if (cmd == "packages" || cmd == "pkg") {
+        return cmd_packages();
+    }
     if (cmd == "dev") {
         DevOptions o;
         o.port = a.port ? *a.port : toml_port(fs::current_path()).value_or(8080);
@@ -201,23 +221,49 @@ int main(int argc, char** argv) {
     }
     if (cmd == "build") {
         Result r = cmake_build(true, false, a.debug, a.target);
-        std::fwrite(r.out.data(), 1, r.out.size(), stdout);
+        (void)std::fwrite(r.out.data(), 1, r.out.size(), stdout);
         if (r.rc != 0) {
-            std::fflush(stdout);
-            std::fwrite(r.err.data(), 1, r.err.size(), stderr);
+            (void)std::fflush(stdout);
+            (void)std::fwrite(r.err.data(), 1, r.err.size(), stderr);
             return 1;
         }
         return 0;
     }
     if (cmd == "new") {
-        if (!a.extra) fail("usage: revet new <name> [--empty|--blank|--clean]");
+        if (!a.extra) {
+            fail("usage: revet new <name> [--empty|--blank|--clean]");
+        }
         return cmd_new(*a.extra, a.empty);
     }
-    if (cmd == "upgrade") return cmd_upgrade(a.force);
-    if (cmd == "tidy") return cmd_tidy();
-    if (cmd == "format") return cmd_format();
-    if (cmd == "clean") return cmd_clean();
-    if (cmd == "doctor") return cmd_doctor();
+    if (cmd == "upgrade") {
+        return cmd_upgrade(a.force);
+    }
+    if (cmd == "tidy") {
+        return cmd_tidy();
+    }
+    if (cmd == "format") {
+        return cmd_format();
+    }
+    if (cmd == "clean") {
+        return cmd_clean();
+    }
+    if (cmd == "doctor") {
+        return cmd_doctor();
+    }
     print_help("");
     return 0;
+}
+
+} // namespace
+} // namespace revet::cli
+
+int main(int argc, char** argv) {
+    try {
+        return revet::cli::main_impl(argc, argv);
+    } catch (const std::exception& e) {
+        revet::cli::err(e.what());
+    } catch (...) {
+        revet::cli::err("unexpected error");
+    }
+    return 1;
 }
