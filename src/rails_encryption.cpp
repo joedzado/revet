@@ -1,7 +1,6 @@
-#include <revet/rails_encryption.hpp>
-
 #include <algorithm>
 #include <optional>
+#include <revet/rails_encryption.hpp>
 #include <simdjson.h>
 #include <sodium.h>
 #include <zlib.h>
@@ -13,23 +12,23 @@ constexpr int kPbkdf2Rounds = 1 << 16;      // ActiveSupport::KeyGenerator defau
 constexpr std::size_t kCompressAbove = 140; // Encryptor::THRESHOLD_TO_JUSTIFY_COMPRESSION
 constexpr std::size_t kMaxInflated = 256UL * 1024 * 1024;
 
-const unsigned char* bytes(std::string_view s) {
+auto bytes(std::string_view s) -> const unsigned char* {
     return reinterpret_cast<const unsigned char*>(s.data());
 }
 
-std::string base64_encode(std::string_view in) {
+auto base64_encode(std::string_view in) -> std::string {
     std::string out(sodium_base64_ENCODED_LEN(in.size(), sodium_base64_VARIANT_ORIGINAL), '\0');
     sodium_bin2base64(out.data(), out.size(), bytes(in), in.size(), sodium_base64_VARIANT_ORIGINAL);
     out.resize(out.size() - 1); // drop the terminating NUL
     return out;
 }
 
-std::string base64_decode(std::string_view in) {
+auto base64_decode(std::string_view in) -> std::string {
     std::string out(in.size() / 4 * 3 + 3, '\0');
     std::size_t len = 0;
     const char* end = nullptr;
-    if (sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), in.data(), in.size(), nullptr,
-                          &len, &end, sodium_base64_VARIANT_ORIGINAL) != 0 ||
+    if (sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), in.data(), in.size(), nullptr, &len,
+                          &end, sodium_base64_VARIANT_ORIGINAL) != 0 ||
         end != in.data() + in.size()) {
         throw EncryptionError("rails encryption: invalid base64");
     }
@@ -37,7 +36,7 @@ std::string base64_decode(std::string_view in) {
     return out;
 }
 
-std::string deflate_text(std::string_view in) {
+auto deflate_text(std::string_view in) -> std::string {
     uLongf len = compressBound(static_cast<uLong>(in.size()));
     std::string out(len, '\0');
     if (compress(reinterpret_cast<Bytef*>(out.data()), &len, bytes(in), static_cast<uLong>(in.size())) != Z_OK) {
@@ -47,7 +46,7 @@ std::string deflate_text(std::string_view in) {
     return out;
 }
 
-std::string inflate_text(std::string_view in) {
+auto inflate_text(std::string_view in) -> std::string {
     z_stream zs{};
     if (inflateInit(&zs) != Z_OK) {
         throw EncryptionError("rails encryption: inflate init failed");
@@ -83,7 +82,7 @@ struct Message {
     bool compressed = false;
 };
 
-std::optional<std::string_view> string_field(simdjson::dom::object obj, const char* key) {
+auto string_field(simdjson::dom::object obj, const char* key) -> std::optional<std::string_view> {
     std::string_view value;
     if (obj[key].get(value) != simdjson::SUCCESS) {
         return std::nullopt;
@@ -92,7 +91,7 @@ std::optional<std::string_view> string_field(simdjson::dom::object obj, const ch
 }
 
 // A jsonb column can hand back the message wrapped in a JSON string.
-std::optional<std::string> unwrap_json_string(std::string_view value) {
+auto unwrap_json_string(std::string_view value) -> std::optional<std::string> {
     simdjson::dom::parser parser;
     const simdjson::padded_string padded(value);
     std::string_view inner;
@@ -102,7 +101,7 @@ std::optional<std::string> unwrap_json_string(std::string_view value) {
     return std::string(inner);
 }
 
-std::optional<Message> parse_message(std::string_view value) {
+auto parse_message(std::string_view value) -> std::optional<Message> {
     simdjson::dom::parser parser;
     const simdjson::padded_string padded(value);
     simdjson::dom::object root;
@@ -136,7 +135,7 @@ std::optional<Message> parse_message(std::string_view value) {
     return m;
 }
 
-std::optional<Message> parse_any(std::string_view value) {
+auto parse_any(std::string_view value) -> std::optional<Message> {
     if (auto m = parse_message(value)) {
         return m;
     }
@@ -157,14 +156,14 @@ void require_sodium() {
 
 } // namespace
 
-std::array<unsigned char, Encryption::kKeyBytes> Encryption::derive_key(std::string_view password,
-                                                                         std::string_view salt) {
+auto Encryption::derive_key(std::string_view password,
+                            std::string_view salt) -> std::array<unsigned char, Encryption::kKeyBytes> {
     if (sodium_init() < 0) {
         throw EncryptionError("rails encryption: libsodium init failed");
     }
     static_assert(kKeyBytes == crypto_auth_hmacsha256_BYTES, "one PBKDF2 block yields exactly one key");
 
-    const auto hmac = [&](std::string_view message, unsigned char* out) {
+    const auto hmac = [&](std::string_view message, unsigned char* out) -> void {
         crypto_auth_hmacsha256_state state;
         crypto_auth_hmacsha256_init(&state, bytes(password), password.size());
         crypto_auth_hmacsha256_update(&state, bytes(message), message.size());
@@ -184,8 +183,9 @@ std::array<unsigned char, Encryption::kKeyBytes> Encryption::derive_key(std::str
         std::array<unsigned char, kKeyBytes> next{};
         hmac(previous, next.data());
         u = next;
-        std::transform(key.begin(), key.end(), u.begin(), key.begin(),
-                       [](unsigned char a, unsigned char b) { return static_cast<unsigned char>(a ^ b); });
+        std::ranges::transform(key, u, key.begin(), [](unsigned char a, unsigned char b) -> unsigned char {
+            return static_cast<unsigned char>(a ^ b);
+        });
     }
     sodium_memzero(u.data(), u.size());
     return key;
@@ -205,11 +205,11 @@ Encryption::~Encryption() {
     sodium_memzero(deterministic_.data(), deterministic_.size());
 }
 
-const std::array<unsigned char, Encryption::kKeyBytes>& Encryption::key_for(Scheme scheme) const {
+auto Encryption::key_for(Scheme scheme) const -> const std::array<unsigned char, Encryption::kKeyBytes>& {
     return scheme == Scheme::Deterministic ? deterministic_ : primary_;
 }
 
-bool Encryption::is_encrypted(std::string_view value) {
+auto Encryption::is_encrypted(std::string_view value) -> bool {
     try {
         return parse_any(value).has_value();
     } catch (const EncryptionError&) {
@@ -217,12 +217,13 @@ bool Encryption::is_encrypted(std::string_view value) {
     }
 }
 
-std::string Encryption::decrypt(std::string_view message, Scheme scheme) const {
+auto Encryption::decrypt(std::string_view message, Scheme scheme) const -> std::string {
     const auto parsed = parse_any(message);
     if (!parsed) {
         throw EncryptionError("rails encryption: not an encrypted message");
     }
-    if (parsed->iv.size() != crypto_aead_aes256gcm_NPUBBYTES || parsed->auth_tag.size() != crypto_aead_aes256gcm_ABYTES) {
+    if (parsed->iv.size() != crypto_aead_aes256gcm_NPUBBYTES ||
+        parsed->auth_tag.size() != crypto_aead_aes256gcm_ABYTES) {
         throw EncryptionError("rails encryption: bad IV or auth tag length");
     }
 
@@ -235,7 +236,7 @@ std::string Encryption::decrypt(std::string_view message, Scheme scheme) const {
     return parsed->compressed ? inflate_text(plain) : plain;
 }
 
-std::string Encryption::encrypt(std::string_view plaintext, Scheme scheme) const {
+auto Encryption::encrypt(std::string_view plaintext, Scheme scheme) const -> std::string {
     std::string text(plaintext);
     bool compressed = false;
     if (text.size() > kCompressAbove) {
@@ -270,7 +271,7 @@ std::string Encryption::encrypt(std::string_view plaintext, Scheme scheme) const
         throw EncryptionError("rails encryption: encryption failed");
     }
 
-    const auto view = [](const auto& a) {
+    const auto view = [](const auto& a) -> auto {
         return std::string_view(reinterpret_cast<const char*>(a.data()), a.size());
     };
     // Base64 needs no JSON escaping. Field order matches Rails' JSON.dump.

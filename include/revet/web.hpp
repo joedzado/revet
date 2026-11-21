@@ -2,21 +2,22 @@
 
 #include "states.hpp"
 
-#include <memory>
-#include <charconv>
-#include <cmath>
 #include <algorithm>
 #include <any>
 #include <array>
+#include <cerrno>
+#include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <charconv>
 #include <cstring>
+#include <expected>
 #include <filesystem>
 #include <flat_map>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <print>
@@ -32,14 +33,11 @@
 #include "css_utils.hpp"
 #include "task.hpp"
 #include "websocket.hpp"
-
-#include <cerrno>
-#include <expected>
 // Network headers
 #include <arpa/inet.h>
+#include <csignal>
 #include <netinet/in.h>
 #include <poll.h>
-#include <csignal>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -48,42 +46,52 @@ namespace web {
 struct ServerConfig {
     int port = 8080;
     std::vector<std::string> binds; // IPv4 addresses. Empty → every interface.
-    int request_threads = 0; // 0 → hardware_concurrency()
-    int io_threads = 0;      // 0 → 4 × hardware_concurrency()
+    int request_threads = 0;        // 0 → hardware_concurrency()
+    int io_threads = 0;             // 0 → 4 × hardware_concurrency()
 };
 
 namespace config {
 // Whether Set-Cookie headers should include `Secure`. Off by default so
 // localhost dev over plain HTTP works. Production deployments behind HTTPS
 // should turn this on at startup (or set env REVET_FORCE_SECURE_COOKIES=1).
-inline bool& secure_cookies_flag() {
-    static bool flag = []() {
+inline auto secure_cookies_flag() -> bool& {
+    static bool flag = []() -> bool {
         const char* env = std::getenv("REVET_FORCE_SECURE_COOKIES");
         return env != nullptr && std::string_view(env) == "1";
     }();
     return flag;
 }
-inline bool secure_cookies()             { return secure_cookies_flag(); }
-inline void secure_cookies(bool enabled) { secure_cookies_flag() = enabled; }
+inline auto secure_cookies() -> bool {
+    return secure_cookies_flag();
+}
+inline void secure_cookies(bool enabled) {
+    secure_cookies_flag() = enabled;
+}
 
 // Largest request body the server reads, in bytes. Bodies are buffered in memory, so this
 // is a memory bound, not a feature limit. Default 64 MiB. Sources, each overriding the one
 // before: revet.toml `max_body = "256MB"`, env REVET_MAX_BODY, --max-body; app code calling
 // max_body_bytes(n) after web::init overrides all of them.
 inline constexpr size_t DEFAULT_MAX_BODY_BYTES = 64UL * 1024UL * 1024UL;
-inline size_t& max_body_bytes_ref() {
+inline auto max_body_bytes_ref() -> size_t& {
     static size_t bytes = DEFAULT_MAX_BODY_BYTES;
     return bytes;
 }
-inline size_t max_body_bytes()           { return max_body_bytes_ref(); }
-inline void max_body_bytes(size_t bytes) { max_body_bytes_ref() = bytes; }
+inline auto max_body_bytes() -> size_t {
+    return max_body_bytes_ref();
+}
+inline void max_body_bytes(size_t bytes) {
+    max_body_bytes_ref() = bytes;
+}
 
 // Where the app keeps its files. Priority: --data-dir, REVET_DATA_DIR, revet.toml `data_dir`, "data".
-inline std::filesystem::path& data_dir_ref() {
+inline auto data_dir_ref() -> std::filesystem::path& {
     static std::filesystem::path dir = "data";
     return dir;
 }
-inline void data_dir(std::filesystem::path dir) { data_dir_ref() = std::move(dir); }
+inline void data_dir(std::filesystem::path dir) {
+    data_dir_ref() = std::move(dir);
+}
 } // namespace config
 
 // The app's data directory (see config::data_dir_ref), e.g. web::data_dir() / "snapshots".
@@ -110,10 +118,16 @@ inline auto server_config() -> ServerConfig& {
 namespace detail {
 // "64MB", "512k", "1.5GiB", "1048576" → bytes. Units are binary (K = 1024). Empty on bad input.
 inline auto parse_size(std::string_view text) -> std::optional<size_t> {
-    while (!text.empty() && text.front() == ' ') text.remove_prefix(1);
-    while (!text.empty() && text.back() == ' ') text.remove_suffix(1);
+    while (!text.empty() && text.front() == ' ') {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && text.back() == ' ') {
+        text.remove_suffix(1);
+    }
     size_t i = 0;
-    while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '.')) ++i;
+    while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '.')) {
+        ++i;
+    }
     if (i == 0) {
         return std::nullopt;
     }
@@ -125,14 +139,22 @@ inline auto parse_size(std::string_view text) -> std::optional<size_t> {
     }
     std::string unit;
     for (char c : text.substr(i)) {
-        if (c != ' ') unit += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (c != ' ') {
+            unit += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
     }
     double mult = 1;
-    if (unit.empty() || unit == "b") mult = 1;
-    else if (unit == "k" || unit == "kb" || unit == "kib") mult = 1024.0;
-    else if (unit == "m" || unit == "mb" || unit == "mib") mult = 1024.0 * 1024.0;
-    else if (unit == "g" || unit == "gb" || unit == "gib") mult = 1024.0 * 1024.0 * 1024.0;
-    else return std::nullopt;
+    if (unit.empty() || unit == "b") {
+        mult = 1;
+    } else if (unit == "k" || unit == "kb" || unit == "kib") {
+        mult = 1024.0;
+    } else if (unit == "m" || unit == "mb" || unit == "mib") {
+        mult = 1024.0 * 1024.0;
+    } else if (unit == "g" || unit == "gb" || unit == "gib") {
+        mult = 1024.0 * 1024.0 * 1024.0;
+    } else {
+        return std::nullopt;
+    }
     const double bytes = value * mult;
     if (!(bytes >= 1) || bytes > 1e15) {
         return std::nullopt;
@@ -215,11 +237,11 @@ struct Status {
     constexpr operator std::string_view() const {
         return text;
     }
-    auto to_string() const {
+    [[nodiscard]] auto to_string() const {
         return std::format("{} {}", code, text);
     }
-    constexpr bool operator==(const Status&) const = default;
-    constexpr bool operator<(const Status& o) const {
+    constexpr auto operator==(const Status&) const -> bool = default;
+    constexpr auto operator<(const Status& o) const -> bool {
         return code < o.code;
     }
 };
@@ -234,40 +256,40 @@ struct std::formatter<web::Status> : std::formatter<std::string> {
 
 namespace web::status {
 // 2xx Success
-constexpr Status ok = {200, "OK"};
-constexpr Status created = {201, "Created"};
-constexpr Status accepted = {202, "Accepted"};
-constexpr Status no_content = {204, "No Content"};
-constexpr Status partial_content = {206, "Partial Content"};
+constexpr Status ok = {.code = 200, .text = "OK"};
+constexpr Status created = {.code = 201, .text = "Created"};
+constexpr Status accepted = {.code = 202, .text = "Accepted"};
+constexpr Status no_content = {.code = 204, .text = "No Content"};
+constexpr Status partial_content = {.code = 206, .text = "Partial Content"};
 
 // 3xx Redirection
-constexpr Status moved_permanently = {301, "Moved Permanently"};
-constexpr Status found = {302, "Found"};
-constexpr Status see_other = {303, "See Other"};
-constexpr Status not_modified = {304, "Not Modified"};
-constexpr Status temporary_redirect = {307, "Temporary Redirect"};
-constexpr Status permanent_redirect = {308, "Permanent Redirect"};
+constexpr Status moved_permanently = {.code = 301, .text = "Moved Permanently"};
+constexpr Status found = {.code = 302, .text = "Found"};
+constexpr Status see_other = {.code = 303, .text = "See Other"};
+constexpr Status not_modified = {.code = 304, .text = "Not Modified"};
+constexpr Status temporary_redirect = {.code = 307, .text = "Temporary Redirect"};
+constexpr Status permanent_redirect = {.code = 308, .text = "Permanent Redirect"};
 
 // 4xx Client Errors
-constexpr Status bad_request = {400, "Bad Request"};
-constexpr Status unauthorized = {401, "Unauthorized"};
-constexpr Status payment_required = {402, "Payment Required"};
-constexpr Status forbidden = {403, "Forbidden"};
-constexpr Status not_found = {404, "Not Found"};
-constexpr Status method_not_allowed = {405, "Method Not Allowed"};
-constexpr Status not_acceptable = {406, "Not Acceptable"};
-constexpr Status conflict = {409, "Conflict"};
-constexpr Status gone = {410, "Gone"};
-constexpr Status unprocessable_entity = {422, "Unprocessable Entity"};
-constexpr Status payload_too_large = {413, "Payload Too Large"};
-constexpr Status too_many_requests = {429, "Too Many Requests"};
+constexpr Status bad_request = {.code = 400, .text = "Bad Request"};
+constexpr Status unauthorized = {.code = 401, .text = "Unauthorized"};
+constexpr Status payment_required = {.code = 402, .text = "Payment Required"};
+constexpr Status forbidden = {.code = 403, .text = "Forbidden"};
+constexpr Status not_found = {.code = 404, .text = "Not Found"};
+constexpr Status method_not_allowed = {.code = 405, .text = "Method Not Allowed"};
+constexpr Status not_acceptable = {.code = 406, .text = "Not Acceptable"};
+constexpr Status conflict = {.code = 409, .text = "Conflict"};
+constexpr Status gone = {.code = 410, .text = "Gone"};
+constexpr Status unprocessable_entity = {.code = 422, .text = "Unprocessable Entity"};
+constexpr Status payload_too_large = {.code = 413, .text = "Payload Too Large"};
+constexpr Status too_many_requests = {.code = 429, .text = "Too Many Requests"};
 
 // 5xx Server Errors
-constexpr Status internal_error = {500, "Internal Server Error"};
-constexpr Status not_implemented = {501, "Not Implemented"};
-constexpr Status bad_gateway = {502, "Bad Gateway"};
-constexpr Status service_unavailable = {503, "Service Unavailable"};
-constexpr Status gateway_timeout = {504, "Gateway Timeout"};
+constexpr Status internal_error = {.code = 500, .text = "Internal Server Error"};
+constexpr Status not_implemented = {.code = 501, .text = "Not Implemented"};
+constexpr Status bad_gateway = {.code = 502, .text = "Bad Gateway"};
+constexpr Status service_unavailable = {.code = 503, .text = "Service Unavailable"};
+constexpr Status gateway_timeout = {.code = 504, .text = "Gateway Timeout"};
 } // namespace web::status
 
 namespace web {
@@ -364,7 +386,7 @@ struct CookieJar : ParamMap {
 
 enum class Method : std::uint8_t { GET, POST, PUT, DEL, PATCH, HEAD, OPTIONS }; // DEL = DELETE (reserved keyword)
 
-constexpr std::string_view to_string(Method m) {
+constexpr auto to_string(Method m) -> std::string_view {
     switch (m) {
         case Method::GET:
             return "GET";
@@ -466,16 +488,16 @@ struct State {
     explicit operator bool() const {
         return data.has_value();
     }
-    const T* operator->() const {
+    auto operator->() const -> const T* {
         return &data.value();
     }
-    const T& operator*() const {
+    auto operator*() const -> const T& {
         return data.value();
     }
-    T* operator->() {
+    auto operator->() -> T* {
         return &data.value();
     }
-    T& operator*() {
+    auto operator*() -> T& {
         return data.value();
     }
 
@@ -494,16 +516,16 @@ struct Flash {
     explicit operator bool() const {
         return data.has_value();
     }
-    const T* operator->() const {
+    auto operator->() const -> const T* {
         return &data.value();
     }
-    const T& operator*() const {
+    auto operator*() const -> const T& {
         return data.value();
     }
-    T* operator->() {
+    auto operator->() -> T* {
         return &data.value();
     }
-    T& operator*() {
+    auto operator*() -> T& {
         return data.value();
     }
 
@@ -648,7 +670,7 @@ inline auto make_upload_tmp() -> std::filesystem::path {
     if (::mkdtemp(tmpl.data()) == nullptr) {
         throw std::runtime_error("failed to create upload tmp dir");
     }
-    return std::filesystem::path(tmpl);
+    return {tmpl};
 }
 
 inline auto parse_multipart(std::string_view body, std::string_view boundary, const std::filesystem::path& incoming_dir,
@@ -700,7 +722,7 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
             std::string hname(hdr.substr(0, colon));
             std::string hval(hdr.substr(colon + 1));
             std::ranges::transform(hname, hname.begin(),
-                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                   [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
             if (auto f = hval.find_first_not_of(" \t"); f != std::string::npos) {
                 hval = hval.substr(f);
             }
@@ -818,7 +840,7 @@ inline auto to_response(T&& val) -> Response {
 }
 
 inline auto match_route(std::string_view pattern, std::string_view path, ParamMap& out) -> bool {
-    auto split = [](std::string_view s) {
+    auto split = [](std::string_view s) -> std::vector<std::string_view> {
         std::vector<std::string_view> parts;
         size_t start = 0;
         while (start <= s.size()) {
@@ -857,7 +879,7 @@ inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decod
         if (size_t const sep = pair.find('='); sep != std::string_view::npos) {
             std::string key(pair.substr(0, sep));
             std::string val(pair.substr(sep + 1));
-            auto trim = [](std::string& str) {
+            auto trim = [](std::string& str) -> void {
                 str.erase(str.find_last_not_of(" \t\r\n") + 1);
                 str.erase(0, str.find_first_not_of(" \t\r\n"));
             };
@@ -956,7 +978,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     bool content_length_bad = false;
     bool saw_transfer_encoding = false;
     bool duplicate_routing_header = false;
-    auto routing_header = [](std::string_view key) {
+    auto routing_header = [](std::string_view key) -> bool {
         return key == "host" || key == "origin" || key == "upgrade" || key == "connection" ||
                key == "sec-websocket-key" || key == "sec-websocket-version";
     };
@@ -974,7 +996,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
         if (size_t const sep = line.find(':'); sep != std::string_view::npos) {
             std::string key(line.substr(0, sep));
             std::string val(line.substr(sep + 1));
-            auto trim = [](std::string& str) {
+            auto trim = [](std::string& str) -> void {
                 if (size_t last = str.find_last_not_of(" \t\r\n"); last != std::string::npos) {
                     str.erase(last + 1);
                 }
@@ -989,7 +1011,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
 
             std::string lkey = key;
             std::ranges::transform(lkey, lkey.begin(),
-                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                   [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
 
             if (routing_header(lkey) && req.headers.data.contains(lkey)) {
                 duplicate_routing_header = true;
@@ -1100,7 +1122,7 @@ inline void send_response(int fd, const Response& resp) {
 
     if (!resp.location.empty()) {
         std::string loc = resp.location;
-        std::erase_if(loc, [](char c) { return c == '\r' || c == '\n'; });
+        std::erase_if(loc, [](char c) -> bool { return c == '\r' || c == '\n'; });
         head += std::format("Location: {}\r\n", loc);
     }
     for (const auto& [k, v] : resp.headers.data) {
@@ -1160,7 +1182,7 @@ struct SSEWriter {
         ::send(fd, msg.data(), msg.size(), 0);
     }
 
-    [[nodiscard]] bool alive() const {
+    [[nodiscard]] auto alive() const -> bool {
         char buf;
         ssize_t r = ::recv(fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
         return r > 0 || (r < 0 && errno == EAGAIN);
@@ -1232,7 +1254,7 @@ inline auto error_handler_for(Status s) -> Handler {
         return error_handlers().at(s.code);
     }
     if (error_page_renderer()) {
-        return [s](const Request& req) { return error_page(req, s); };
+        return [s](const Request& req) -> Response { return error_page(req, s); };
     }
     return {};
 }
@@ -1251,13 +1273,13 @@ inline void clear_middlewares() {
     middlewares().clear();
 }
 
-inline auto dispatch(const Request& req, const Handler& handler, const std::vector<Middleware>& guards = {})
-    -> Response {
+inline auto dispatch(const Request& req, const Handler& handler,
+                     const std::vector<Middleware>& guards = {}) -> Response {
     const auto& global = middlewares();
     std::vector<const Middleware*> pipeline;
     pipeline.reserve(guards.size() + global.size());
-    std::ranges::transform(guards, std::back_inserter(pipeline), [](const auto& g) { return &g; });
-    std::ranges::transform(global, std::back_inserter(pipeline), [](const auto& mw) { return &mw; });
+    std::ranges::transform(guards, std::back_inserter(pipeline), [](const auto& g) -> auto { return &g; });
+    std::ranges::transform(global, std::back_inserter(pipeline), [](const auto& mw) -> auto { return &mw; });
 
     size_t idx = 0;
     Next next = [&idx, &pipeline, &handler, &req, &next]() -> Response {
@@ -1281,8 +1303,8 @@ inline auto internal_error_response(const Request& req) -> Response {
 }
 
 // Parameters are held in the coroutine frame, so req outlives every suspension.
-inline auto run_async_handler(std::shared_ptr<const Request> req, const AsyncHandler& handler, Response from_pipeline)
-    -> Task<Response> {
+inline auto run_async_handler(std::shared_ptr<const Request> req, const AsyncHandler& handler,
+                              Response from_pipeline) -> Task<Response> {
     Response resp;
     try {
         resp = co_await handler(*req);
@@ -1329,7 +1351,7 @@ inline void dispatch_async(std::shared_ptr<const Request> req, const AsyncHandle
         return;
     }
     detail::run_async_handler(std::move(req), handler, std::move(from_pipeline))
-        .start([done = std::move(done)](Response resp) { done(resp); });
+        .start([done = std::move(done)](Response resp) -> void { done(resp); });
 }
 
 struct Route {
@@ -1390,7 +1412,8 @@ inline auto sse_gate(const Request& req, const std::vector<Middleware>& guards) 
 
 inline auto ascii_lower(std::string_view s) -> std::string {
     std::string out(s);
-    std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::ranges::transform(out, out.begin(),
+                           [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
     return out;
 }
 
@@ -1437,7 +1460,6 @@ inline auto ws_origin_allowed(const Request& req) -> bool {
     return !host.empty() && origin_host == ascii_lower(host);
 }
 
-
 // One accepted connection. Tests call this with a socketpair; listen() is the poll loop.
 inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
     Context::current().reset();
@@ -1462,7 +1484,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
     }
 
     auto it = std::ranges::find_if(
-        all_routes, [&req](const Route& r) { return match_route(r.path, req.path.path, req.params); });
+        all_routes, [&req](const Route& r) -> bool { return match_route(r.path, req.path.path, req.params); });
 
     if (it == all_routes.end()) {
         Response resp;
@@ -1494,7 +1516,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         }
         if (req.headers.get("sec-websocket-version") != "13") {
             Response resp = to_response(std::string("Unsupported WebSocket version"));
-            resp.status = Status{426, "Upgrade Required"};
+            resp.status = Status{.code = 426, .text = "Upgrade Required"};
             resp.headers.data["Sec-WebSocket-Version"] = "13";
             send_response(client_fd, resp);
             close(client_fd);
@@ -1503,14 +1525,14 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         // Cap is checked before any thread or guard work, so floods can't exhaust threads.
         auto slot = ws::Slot::acquire();
         if (!slot) {
-            send_response(client_fd, Response{.body = "Too many WebSocket connections",
-                                              .status = status::service_unavailable});
+            send_response(client_fd,
+                          Response{.body = "Too many WebSocket connections", .status = status::service_unavailable});
             close(client_fd);
             return;
         }
         try {
-            std::thread([client_fd, slot = std::move(*slot), leftover = std::move(leftover),
-                         ws_fn = it->ws, guards = it->guards, req]() mutable {
+            std::thread([client_fd, slot = std::move(*slot), leftover = std::move(leftover), ws_fn = it->ws,
+                         guards = it->guards, req]() mutable -> void {
                 std::optional<Response> refused;
                 try {
                     refused = detail::sse_gate(req, guards);
@@ -1530,14 +1552,14 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                 const auto deflate = ws::negotiate_deflate(req.headers.get("sec-websocket-extensions"));
                 const std::string extensions =
                     deflate.enabled ? std::format("Sec-WebSocket-Extensions: {}\r\n", deflate.response) : "";
-                const std::string handshake = std::format(
-                    "HTTP/1.1 101 Switching Protocols\r\n"
-                    "Upgrade: websocket\r\n"
-                    "Connection: Upgrade\r\n"
-                    "Sec-WebSocket-Accept: {}\r\n"
-                    "{}"
-                    "\r\n",
-                    ws::accept_key(req.headers.get("sec-websocket-key")), extensions);
+                const std::string handshake =
+                    std::format("HTTP/1.1 101 Switching Protocols\r\n"
+                                "Upgrade: websocket\r\n"
+                                "Connection: Upgrade\r\n"
+                                "Sec-WebSocket-Accept: {}\r\n"
+                                "{}"
+                                "\r\n",
+                                ws::accept_key(req.headers.get("sec-websocket-key")), extensions);
                 size_t sent = 0;
                 while (sent < handshake.size()) {
                     const ssize_t n = ::send(client_fd, handshake.data() + sent, handshake.size() - sent, 0);
@@ -1566,7 +1588,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
 
     // SSE — detached thread so pool isn't held for connection duration
     if (req.method == Method::GET && it->sse) {
-        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() {
+        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() -> void {
             std::optional<Response> refused;
             try {
                 refused = detail::sse_gate(req, guards);
@@ -1585,7 +1607,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                                                   "X-Accel-Buffering: no\r\n"
                                                   "\r\n";
                 ::send(client_fd, sse_head.data(), sse_head.size(), 0);
-                SSEWriter writer{client_fd};
+                SSEWriter writer{.fd = client_fd};
                 try {
                     sse_fn(req, writer);
                 } catch (const std::exception& e) {
@@ -1613,7 +1635,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
 
     if (async_h) {
         dispatch_async(std::make_shared<const Request>(std::move(req)), *async_h, it->guards,
-                       [client_fd](const Response& resp) {
+                       [client_fd](const Response& resp) -> void {
                            send_response(client_fd, resp);
                            close(client_fd);
                        });
@@ -1663,7 +1685,8 @@ inline void listen(const std::vector<Route>& all_routes) {
     const auto& cfg = detail::server_config();
     // Found now rather than on the first login.
     if (crypto::key_required() && std::getenv("REVET_COOKIE_KEY") == nullptr) {
-        std::println(stderr, "REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback");
+        std::println(stderr,
+                     "REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback");
         std::exit(1);
     }
     const int rthreads =
@@ -1687,22 +1710,23 @@ inline void listen(const std::vector<Route>& all_routes) {
 
     std::println("Server running on port {} at {} "
                  "(request-threads={}, io-threads={})",
-                 cfg.port, cfg.binds.empty() ? std::string("every interface") : std::format("{}", cfg.binds), rthreads, ithreads);
+                 cfg.port, cfg.binds.empty() ? std::string("every interface") : std::format("{}", cfg.binds), rthreads,
+                 ithreads);
 
     while (true) {
         if (poll(listeners.data(), static_cast<nfds_t>(listeners.size()), -1) <= 0) {
             continue;
         }
         for (const auto& listener : listeners) {
-        if ((listener.revents & POLLIN) == 0) {
-            continue;
-        }
-        int const client_fd = accept(listener.fd, nullptr, nullptr);
-        if (client_fd < 0) {
-            continue;
-        }
+            if ((listener.revents & POLLIN) == 0) {
+                continue;
+            }
+            int const client_fd = accept(listener.fd, nullptr, nullptr);
+            if (client_fd < 0) {
+                continue;
+            }
 
-        detail::request_pool()->submit([client_fd, &all_routes]() { on_client(client_fd, all_routes); });
+            detail::request_pool()->submit([client_fd, &all_routes]() -> void { on_client(client_fd, all_routes); });
         }
     }
 }
@@ -1801,7 +1825,9 @@ inline auto principal() -> const T& {
 inline auto bearer_static(std::string expected) -> Middleware {
     // Empty expected → fail closed.
     return bearer([e = std::move(expected)](std::string_view tok) -> bool {
-        if (e.empty()) return false;
+        if (e.empty()) {
+            return false;
+        }
         return web::crypto::secure_eq(tok, e);
     });
 }

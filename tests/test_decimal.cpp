@@ -7,7 +7,7 @@ using revet::DecimalError;
 using revet::Rounding;
 
 namespace {
-Decimal d(const char* s) {
+auto d(const char* s) -> Decimal {
     return Decimal::parse(s);
 }
 } // namespace
@@ -106,6 +106,5 @@ TEST_CASE("decimal: Sure's largest column shapes fit") {
     CHECK(sum.to_string() == "99999999999999999990.0000");
 
     // numeric(34,18) qty times numeric(19,10) price at realistic sizes.
-    CHECK((d("1234.567890123456789012") * d("512.3456789012")).to_string() ==
-          "632525.5238149245548493153483936144");
+    CHECK((d("1234.567890123456789012") * d("512.3456789012")).to_string() == "632525.5238149245548493153483936144");
 }

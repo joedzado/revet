@@ -98,8 +98,8 @@ struct TempCwd {
     }
     TempCwd(const TempCwd&) = delete;
     TempCwd(TempCwd&&) = delete;
-    TempCwd& operator=(const TempCwd&) = delete;
-    TempCwd& operator=(TempCwd&&) = delete;
+    auto operator=(const TempCwd&) -> TempCwd& = delete;
+    auto operator=(TempCwd&&) -> TempCwd& = delete;
     ~TempCwd() {
         fs::current_path(prev);
         std::error_code ec;

@@ -61,7 +61,7 @@ inline void write_impl(Level lvl, std::string_view tag, std::string_view msg) {
     }
 
     std::string output = std::format("[{}] {} [{}] {}", timestamp(), level_name(lvl), tag, msg);
-    std::lock_guard<std::mutex> lock(log_mutex);
+    std::scoped_lock lock(log_mutex);
     std::println(stderr, "{}", output);
 }
 } // namespace detail

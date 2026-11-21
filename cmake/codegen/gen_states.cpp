@@ -8,11 +8,11 @@
 namespace revet::codegen {
 namespace {
 
-bool is_str_type(const std::string& t) {
+auto is_str_type(const std::string& t) -> bool {
     return t == "std::string" || t == "std::string_view";
 }
 
-bool is_num_type(const std::string& t) {
+auto is_num_type(const std::string& t) -> bool {
     static const std::set<std::string> nums{"int",      "int32_t",  "int64_t", "int16_t", "uint32_t",
                                             "uint64_t", "uint16_t", "size_t",  "float",   "double"};
     std::string_view bare = t;
@@ -23,7 +23,7 @@ bool is_num_type(const std::string& t) {
 }
 
 // Returns "" for unsupported types.
-std::string pack_field(const std::string& ft, const std::string& fn) {
+auto pack_field(const std::string& ft, const std::string& fn) -> std::string {
     if (is_str_type(ft)) {
         return cat("    { uint32_t len = (uint32_t)s.", fn, ".size(); out.append((char*)&len, 4); out.append(s.", fn,
                    "); }");
@@ -37,7 +37,7 @@ std::string pack_field(const std::string& ft, const std::string& fn) {
     return "";
 }
 
-std::string unpack_field(const std::string& ft, const std::string& fn) {
+auto unpack_field(const std::string& ft, const std::string& fn) -> std::string {
     if (is_str_type(ft)) {
         return cat("    if (p + 4 <= end) { uint32_t len; memcpy(&len, p, 4); p += 4; if (p + len <= end) { out.", fn,
                    " = std::string(p, len); p += len; } }");
@@ -58,7 +58,7 @@ struct Field {
 };
 
 // Strips a trailing `= ...` initializer from a single declaration.
-std::string drop_default(const std::string& line) {
+auto drop_default(const std::string& line) -> std::string {
     size_t eq = line.find('=');
     if (eq == std::string::npos || line.find('\n', eq) != std::string::npos) {
         return line;
@@ -70,17 +70,17 @@ std::string drop_default(const std::string& line) {
     return line.substr(0, cut);
 }
 
-std::vector<Field> struct_fields(const std::string& body) {
+auto struct_fields(const std::string& body) -> std::vector<Field> {
     std::vector<Field> fields;
     std::string piece;
-    auto handle = [&](const std::string& raw) {
+    auto handle = [&](const std::string& raw) -> void {
         std::string line = strip(raw);
         if (line.empty()) {
             return;
         }
         line = drop_default(line);
         if (auto m = ctre::search<R"RE(([\w:<>]+)\s+(\w+)$)RE">(line)) {
-            fields.push_back({m.get<1>().to_string(), m.get<2>().to_string()});
+            fields.push_back({.type = m.get<1>().to_string(), .name = m.get<2>().to_string()});
         }
     };
     for (char c : body) {
@@ -97,7 +97,7 @@ std::vector<Field> struct_fields(const std::string& body) {
 
 } // namespace
 
-int gen_states(const Ctx& ctx) {
+auto gen_states(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "states.hpp");
     fs::path site = ctx.proj / "app" / "routes";
     fs::path layouts = ctx.proj / "app" / "layouts";
@@ -136,7 +136,7 @@ int gen_states(const Ctx& ctx) {
         "#include <revet/crypto.hpp>",
     };
     if (has_models(models_dir)) {
-        hpp.push_back("#include \"models.hpp\"");
+        hpp.emplace_back("#include \"models.hpp\"");
     }
     if (file_exists(models_site)) {
         hpp.push_back(rel_include(models_site, ctx.proj));
@@ -191,7 +191,7 @@ int gen_states(const Ctx& ctx) {
         }
         const auto& fields = it->second;
         hpp.push_back(subst(traits_t, {{"t", t}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
 
         Lines pack_lines;
         for (const auto& fd : fields) {
@@ -201,10 +201,10 @@ int gen_states(const Ctx& ctx) {
             }
         }
         hpp.push_back(subst(pack_plain_fn_t, {{"t", t}, {"body", join(pack_lines, "\n")}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
 
         hpp.push_back(subst(pack_enc_t, {{"t", t}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
 
         Lines unpack_lines;
         for (const auto& fd : fields) {
@@ -214,28 +214,28 @@ int gen_states(const Ctx& ctx) {
             }
         }
         hpp.push_back(subst(unpack_plain_fn_t, {{"t", t}, {"body", join(unpack_lines, "\n")}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
 
         hpp.push_back(subst(unpack_enc_t, {{"t", t}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
 
         hpp.push_back(subst(specializations_t, {{"t", t}}));
-        hpp.push_back("");
+        hpp.emplace_back("");
     }
 
-    hpp.push_back("");
-    hpp.push_back("// Type-safe cookie helpers");
+    hpp.emplace_back("");
+    hpp.emplace_back("// Type-safe cookie helpers");
     for (const auto& t : types) {
         hpp.push_back(subst(cookie_helper_t, {{"t", t}}));
     }
 
-    hpp.push_back("");
-    hpp.push_back("// has<T>: check if a state cookie is present (for use in route_guards before state injection)");
-    hpp.push_back("template<typename T>");
-    hpp.push_back("[[nodiscard]] inline bool has(const web::ParamMap& cookies) {");
-    hpp.push_back("    return !cookies.get(std::string(cookie_prefix).append(Traits<T>::name)).empty();");
-    hpp.push_back("}");
-    hpp.push_back("} // namespace web::states");
+    hpp.emplace_back("");
+    hpp.emplace_back("// has<T>: check if a state cookie is present (for use in route_guards before state injection)");
+    hpp.emplace_back("template<typename T>");
+    hpp.emplace_back("[[nodiscard]] inline bool has(const web::ParamMap& cookies) {");
+    hpp.emplace_back("    return !cookies.get(std::string(cookie_prefix).append(Traits<T>::name)).empty();");
+    hpp.emplace_back("}");
+    hpp.emplace_back("} // namespace web::states");
     write_lines(out_path, hpp);
     return 0;
 }

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -12,7 +13,6 @@
 #include <mutex>
 #include <poll.h>
 #include <set>
-#include <signal.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <thread>
@@ -63,7 +63,7 @@ void stop_server(bool wait) {
     }
 }
 
-bool server_running() {
+auto server_running() -> bool {
     pid_t pid = g_server;
     return pid > 0 && waitpid(pid, nullptr, WNOHANG) == 0;
 }
@@ -98,7 +98,7 @@ public:
 
     // Polls every 250 ms; collects changed or new files until take() is called.
     void start() {
-        std::thread([this] {
+        std::thread([this] -> void {
             while (true) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 scan(false);
@@ -106,18 +106,18 @@ public:
         }).detach();
     }
 
-    std::vector<std::string> take() {
-        std::lock_guard lock(mu_);
+    auto take() -> std::vector<std::string> {
+        std::scoped_lock lock(mu_);
         std::vector<std::string> out(pending_.begin(), pending_.end());
         pending_.clear();
         return out;
     }
 
 private:
-    static bool skipped_dir(const std::string& name) {
+    static auto skipped_dir(const std::string& name) -> bool {
         return name == "build" || name == "__pycache__" || name[0] == '.'; // includes .git, .cache
     }
-    static bool skipped_file(const fs::path& p) {
+    static auto skipped_file(const fs::path& p) -> bool {
         std::string name = p.filename().string();
         if (name.empty() || name[0] == '.') {
             return true;
@@ -158,7 +158,7 @@ private:
             }
         }
         if (!changed.empty()) {
-            std::lock_guard lock(mu_);
+            std::scoped_lock lock(mu_);
             pending_.insert(changed.begin(), changed.end());
         }
     }
@@ -194,11 +194,11 @@ void print_keys() {
 void tee_server_log(int fd, const fs::path& log_path) {
     // Only allocation failure can throw in here.
     // NOLINTNEXTLINE(bugprone-exception-escape)
-    std::thread([fd, log_path] {
+    std::thread([fd, log_path] -> void {
         std::ofstream log(log_path, std::ios::binary | std::ios::trunc);
         std::string pending;
         std::array<char, 4096> buf{};
-        auto emit = [&](std::string_view line) {
+        auto emit = [&](std::string_view line) -> void {
             log << line << std::flush;
             std::string out = "\r\033[K" + std::string(line);
             (void)std::fflush(stdout);
@@ -219,7 +219,7 @@ void tee_server_log(int fd, const fs::path& log_path) {
     }).detach();
 }
 
-std::string chomp(std::string s) {
+auto chomp(std::string s) -> std::string {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
         s.pop_back();
     }
@@ -302,7 +302,7 @@ void rebuild(const DevOptions& o, const std::string& reason) {
     print_keys();
 }
 
-std::string changed_reason(const std::vector<std::string>& files) {
+auto changed_reason(const std::vector<std::string>& files) -> std::string {
     std::string names;
     for (const auto& f : files) {
         names += (names.empty() ? "" : ", ") + fs::path(f).filename().string();
@@ -312,7 +312,7 @@ std::string changed_reason(const std::vector<std::string>& files) {
 
 } // namespace
 
-int cmd_dev(const DevOptions& o) {
+auto cmd_dev(const DevOptions& o) -> int {
     if (o.logging) {
         setenv("LOG_LEVEL", o.logging->c_str(), 1);
     }
@@ -367,7 +367,7 @@ int cmd_dev(const DevOptions& o) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
-        pollfd pfd{STDIN_FILENO, POLLIN, 0};
+        pollfd pfd{.fd = STDIN_FILENO, .events = POLLIN, .revents = 0};
         if (poll(&pfd, 1, 100) <= 0) {
             continue;
         }

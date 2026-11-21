@@ -21,7 +21,7 @@ namespace {
 
 // First line of revet.toml matching `key = <value>` (anywhere in the file, as the old CLI did).
 template<ctll::fixed_string Pattern>
-std::optional<std::string> toml_first(const fs::path& project) {
+auto toml_first(const fs::path& project) -> std::optional<std::string> {
     auto content = read_file(project / "revet.toml");
     if (!content) {
         return std::nullopt;
@@ -34,12 +34,12 @@ std::optional<std::string> toml_first(const fs::path& project) {
     return std::nullopt;
 }
 
-bool is_dep_section(std::string_view line) {
+auto is_dep_section(std::string_view line) -> bool {
     return static_cast<bool>(ctre::starts_with<R"RE(\s*\[build\.dependencies\])RE">(line));
 }
 
 // `<ws>["']?name["']?<ws>=` at the start of the line.
-bool is_dep_line(std::string_view line, std::string_view name) {
+auto is_dep_line(std::string_view line, std::string_view name) -> bool {
     size_t i = 0;
     while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
         ++i;
@@ -62,7 +62,7 @@ bool is_dep_line(std::string_view line, std::string_view name) {
 
 } // namespace
 
-std::optional<int> toml_port(const fs::path& project) {
+auto toml_port(const fs::path& project) -> std::optional<int> {
     auto v = toml_first<R"RE(\s*port\s*=\s*(\d+))RE">(project);
     if (!v) {
         return std::nullopt;
@@ -72,7 +72,7 @@ std::optional<int> toml_port(const fs::path& project) {
     return port;
 }
 
-std::string project_binary_name(const fs::path& project) {
+auto project_binary_name(const fs::path& project) -> std::string {
     auto name = toml_first<R"RE(\s*binary\s*=\s*"([^"]+)")RE">(project);
     if (!name) {
         return "revet";
@@ -83,7 +83,7 @@ std::string project_binary_name(const fs::path& project) {
     return *name;
 }
 
-std::string read_toml() {
+auto read_toml() -> std::string {
     auto content = read_file("revet.toml");
     if (!content) {
         fail("cannot read revet.toml");
@@ -95,7 +95,7 @@ void write_toml(std::string_view content) {
     write_file("revet.toml", content);
 }
 
-Deps deps_from_toml(std::string_view content) {
+auto deps_from_toml(std::string_view content) -> Deps {
     Deps deps;
     bool in_deps = false;
     for (const auto& raw : split_lines_keepends(content)) {
@@ -121,7 +121,7 @@ Deps deps_from_toml(std::string_view content) {
         } else {
             continue;
         }
-        auto it = std::find_if(deps.begin(), deps.end(), [&](const auto& d) { return d.first == key; });
+        auto it = std::ranges::find_if(deps, [&](const auto& d) -> auto { return d.first == key; });
         if (it != deps.end()) {
             it->second = ref;
         } else {
@@ -131,7 +131,7 @@ Deps deps_from_toml(std::string_view content) {
     return deps;
 }
 
-const std::string* find_dep(const Deps& deps, std::string_view name) {
+auto find_dep(const Deps& deps, std::string_view name) -> const std::string* {
     for (const auto& [k, v] : deps) {
         if (k == name) {
             return &v;
@@ -140,7 +140,7 @@ const std::string* find_dep(const Deps& deps, std::string_view name) {
     return nullptr;
 }
 
-std::string upsert_dep(std::string_view content, std::string_view name, std::string_view ref) {
+auto upsert_dep(std::string_view content, std::string_view name, std::string_view ref) -> std::string {
     auto lines = split_lines_keepends(content);
     std::optional<size_t> section_start;
     std::optional<size_t> section_end;
@@ -186,7 +186,7 @@ std::string upsert_dep(std::string_view content, std::string_view name, std::str
     return out;
 }
 
-std::pair<std::string, bool> remove_dep(std::string_view content, std::string_view name) {
+auto remove_dep(std::string_view content, std::string_view name) -> std::pair<std::string, bool> {
     std::string out;
     bool in_deps = false;
     bool found = false;
@@ -210,7 +210,7 @@ std::pair<std::string, bool> remove_dep(std::string_view content, std::string_vi
 
 // ── Conan ───────────────────────────────────────────────────────────────────
 
-std::vector<std::string> framework_requirements() {
+auto framework_requirements() -> std::vector<std::string> {
     std::vector<std::string> reqs;
     auto content = read_file(framework_dir() / "conanfile.txt");
     if (!content) {
@@ -233,7 +233,7 @@ std::vector<std::string> framework_requirements() {
     return reqs;
 }
 
-fs::path project_conanfile(const Deps& deps) {
+auto project_conanfile(const Deps& deps) -> fs::path {
     if (deps.empty()) {
         return framework_dir() / "conanfile.txt";
     }
@@ -249,7 +249,7 @@ fs::path project_conanfile(const Deps& deps) {
     }
     for (const auto& [name, ref] : deps) {
         (void)name;
-        if (std::find(names.begin(), names.end(), ref.substr(0, ref.find('/'))) == names.end()) {
+        if (std::ranges::find(names, ref.substr(0, ref.find('/'))) == names.end()) {
             content += ref + "\n";
         }
     }
@@ -261,7 +261,7 @@ fs::path project_conanfile(const Deps& deps) {
 
 namespace {
 // Python's repr() of a str, as the hash below was defined with it.
-std::string py_repr(std::string_view s) {
+auto py_repr(std::string_view s) -> std::string {
     bool has_single = s.contains('\'');
     bool has_double = s.contains('"');
     char q = has_single && !has_double ? '"' : '\'';
@@ -278,9 +278,9 @@ std::string py_repr(std::string_view s) {
 
 // First 8 hex digits of md5 over the app's deps and the framework's requirements, so a
 // framework upgrade that changes conanfile.txt re-runs Conan too.
-std::string deps_hash(const Deps& deps) {
+auto deps_hash(const Deps& deps) -> std::string {
     Deps sorted = deps;
-    std::sort(sorted.begin(), sorted.end());
+    std::ranges::sort(sorted);
     std::string s = "[";
     for (size_t i = 0; i < sorted.size(); ++i) {
         if (i != 0U) {
@@ -295,7 +295,7 @@ std::string deps_hash(const Deps& deps) {
     return md5_hex(s).substr(0, 8);
 }
 
-bool conan_needs_update(const Deps& deps, const fs::path& conan_dir) {
+auto conan_needs_update(const Deps& deps, const fs::path& conan_dir) -> bool {
     // Any file Conan always writes; a missing one means the install never finished.
     if (!fs::exists(conan_dir / "conan_toolchain.cmake")) {
         return true;
@@ -330,7 +330,7 @@ void conan_update_lockfile(const fs::path& conanfile) {
     fs::remove(tmpl, ec);
 }
 
-std::vector<std::string> conan_refs(std::string_view list_output, std::string_view name) {
+auto conan_refs(std::string_view list_output, std::string_view name) -> std::vector<std::string> {
     std::vector<std::string> refs;
     for (const auto& raw : split_lines_keepends(list_output)) {
         std::string line = strip(raw);
@@ -346,14 +346,14 @@ std::vector<std::string> conan_refs(std::string_view list_output, std::string_vi
     return refs;
 }
 
-std::string ref_version(std::string_view ref) {
+auto ref_version(std::string_view ref) -> std::string {
     size_t slash = ref.find('/');
     return std::string(slash == std::string_view::npos ? ref : ref.substr(slash + 1));
 }
 
 namespace {
 // Numeric parts of the version, split on '.' and '-'; non-numeric parts are dropped.
-std::vector<long long> version_key(std::string_view ref) {
+auto version_key(std::string_view ref) -> std::vector<long long> {
     std::string v = !ref.contains('/') ? "0" : ref_version(ref);
     std::vector<long long> key;
     size_t start = 0;
@@ -364,7 +364,7 @@ std::vector<long long> version_key(std::string_view ref) {
         }
         std::string_view part = std::string_view(v).substr(start, end - start);
         if (!part.empty() &&
-            std::all_of(part.begin(), part.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+            std::ranges::all_of(part, [](char c) -> int { return std::isdigit(static_cast<unsigned char>(c)); })) {
             key.push_back(part.size() > 18 ? LLONG_MAX : std::stoll(std::string(part)));
         }
         start = end + 1;
@@ -374,11 +374,11 @@ std::vector<long long> version_key(std::string_view ref) {
 } // namespace
 
 void sort_refs_newest_first(std::vector<std::string>& refs) {
-    std::stable_sort(refs.begin(), refs.end(),
-                     [](const std::string& a, const std::string& b) { return version_key(a) > version_key(b); });
+    std::ranges::stable_sort(
+        refs, [](const std::string& a, const std::string& b) -> bool { return version_key(a) > version_key(b); });
 }
 
-std::optional<std::string> conan_latest(std::string_view name, int timeout_s) {
+auto conan_latest(std::string_view name, int timeout_s) -> std::optional<std::string> {
     Result r = run({"conan", "list", std::string(name) + "/*", "-r", "conancenter"}, {}, timeout_s);
     if (r.rc != 0) {
         return std::nullopt;
@@ -391,14 +391,14 @@ std::optional<std::string> conan_latest(std::string_view name, int timeout_s) {
     return refs.front();
 }
 
-fs::path install_deps_script() {
+auto install_deps_script() -> fs::path {
     return framework_dir() / "scripts" / "install_deps.sh";
 }
 
 // revet's own Conan profile ("revet"), detected once with the compiler revet builds with
 // (CC/CXX; Apple clang on macOS, see main). The user's default profile can name any
 // compiler — `cc` on PATH may even be GCC — and must not decide how revet's packages build.
-std::optional<std::string> conan_profile() {
+auto conan_profile() -> std::optional<std::string> {
     static std::optional<std::string> cached;
     if (cached) {
         return cached;
@@ -421,7 +421,7 @@ std::optional<std::string> conan_profile() {
 
 namespace {
 // The last `n` lines of `s`.
-std::string tail_lines(const std::string& s, size_t n) {
+auto tail_lines(const std::string& s, size_t n) -> std::string {
     size_t at = s.size();
     for (size_t count = 0; at > 0 && count <= n; --at) {
         if (s[at - 1] == '\n') {
@@ -445,7 +445,7 @@ void generate_cmakelists() {
     }
 
     std::string name = toml_first<R"RE(\s*name\s*=\s*"([^"]+)")RE">(project).value_or(project.filename().string());
-    auto replace_all = [](std::string s, std::string_view from, std::string_view to) {
+    auto replace_all = [](std::string s, std::string_view from, std::string_view to) -> std::string {
         for (size_t at = s.find(from); at != std::string::npos; at = s.find(from, at + to.size())) {
             s.replace(at, from.size(), to);
         }
@@ -464,7 +464,7 @@ void generate_cmakelists() {
     }
 }
 
-fs::path binary_path() {
+auto binary_path() -> fs::path {
     return fs::path(k_build_dir) / project_binary_name(fs::current_path());
 }
 
@@ -472,12 +472,12 @@ fs::path binary_path() {
 
 namespace {
 
-fs::path targets_dir() {
+auto targets_dir() -> fs::path {
     return framework_dir() / "cmake" / "targets";
 }
 
 // A bundled target name (cmake/targets/<name>/profile) or a Conan profile path.
-fs::path target_profile(const std::string& target) {
+auto target_profile(const std::string& target) -> fs::path {
     std::error_code ec;
     if (fs::is_regular_file(target, ec)) {
         return fs::canonical(target, ec);
@@ -492,7 +492,7 @@ fs::path target_profile(const std::string& target) {
                 }
             }
         }
-        std::sort(known.begin(), known.end());
+        std::ranges::sort(known);
         std::string list;
         for (const auto& k : known) {
             list += (list.empty() ? "" : ", ") + k;
@@ -503,7 +503,7 @@ fs::path target_profile(const std::string& target) {
 }
 
 // Profile files are keyed by resolved path: two profiles named "rpi.profile" must not share a tree.
-fs::path build_dir_for(const std::string& target) {
+auto build_dir_for(const std::string& target) -> fs::path {
     std::error_code ec;
     if (fs::is_regular_file(target, ec)) {
         std::string digest = sha1_hex(fs::canonical(target, ec).string()).substr(0, 8);
@@ -536,14 +536,14 @@ public:
     }
     BuildLock(const BuildLock&) = delete;
     BuildLock(BuildLock&&) = delete;
-    BuildLock& operator=(BuildLock&&) = delete;
-    BuildLock& operator=(const BuildLock&) = delete;
+    auto operator=(BuildLock&&) -> BuildLock& = delete;
+    auto operator=(const BuildLock&) -> BuildLock& = delete;
 
 private:
     int fd_ = -1;
 };
 
-Result cmake_build_locked(bool release, bool asan, bool debug, const std::optional<std::string>& target) {
+auto cmake_build_locked(bool release, bool asan, bool debug, const std::optional<std::string>& target) -> Result {
     generate_cmakelists();
 
     // Cross builds get their own tree under build/ so they never clobber the host build.
@@ -560,14 +560,14 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
     if (conan_needs_update(deps, conan_dir)) {
         if (!which("conan")) {
             err("conan not found. Run: bash " + install_deps_script().string());
-            return {1, "", "conan not found", true};
+            return {.rc = 1, .out = "", .err = "conan not found", .started = true};
         }
         info("Fetching dependencies via Conan…");
         fs::path conanfile = project_conanfile(deps);
         bool fresh_tree = !fs::exists(conan_dir / ".revet_deps_hash");
         auto revet_profile = conan_profile();
         if (!revet_profile) {
-            return {1, "", "no usable Conan profile", true};
+            return {.rc = 1, .out = "", .err = "no usable Conan profile", .started = true};
         }
         // Release packages always: Debug builds map to the Release imports (CMAKE_MAP_IMPORTED_CONFIG_DEBUG).
         std::vector<std::string> cmd = {
@@ -578,7 +578,7 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
         // Fresh clone with a committed lockfile: use it. It describes the host graph, so cross builds skip it.
         bool with_lock = fs::exists("revet.lock") && fresh_tree && !profile;
         if (with_lock) {
-            cmd.push_back("--lockfile=revet.lock");
+            cmd.emplace_back("--lockfile=revet.lock");
         }
         Result conan = run(cmd);
         if (conan.rc != 0 && with_lock) {
@@ -620,7 +620,7 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
         configure.push_back("-DCMAKE_TOOLCHAIN_FILE=" + fs::absolute(conan_dir / "conan_toolchain.cmake").string());
     }
     if (asan) {
-        configure.push_back("-DREVET_ASAN=ON");
+        configure.emplace_back("-DREVET_ASAN=ON");
     }
     Result cfg = run(configure);
     if (cfg.rc != 0) {
@@ -630,7 +630,7 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
     Result result = run({"cmake", "--build", build_dir.string(), "--", "-j" + std::to_string(cpu_count())});
     if (result.rc != 0) {
         std::string lower = result.err;
-        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+        std::ranges::transform(lower, lower.begin(), [](unsigned char c) -> int { return std::tolower(c); });
         if (lower.contains("not found") || lower.contains("could not find")) {
             result.err += "\n\n✗ Build failed — missing dependency?\n";
             result.err += "Run: bash " + install_deps_script().string() + "\n";
@@ -658,14 +658,14 @@ Result cmake_build_locked(bool release, bool asan, bool debug, const std::option
 
 } // namespace
 
-Result cmake_build(bool release, bool asan, bool debug, const std::optional<std::string>& target) {
+auto cmake_build(bool release, bool asan, bool debug, const std::optional<std::string>& target) -> Result {
     BuildLock lock;
     return cmake_build_locked(release, asan, debug, target);
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-std::vector<Route> parse_routes(std::string_view routes_cpp) {
+auto parse_routes(std::string_view routes_cpp) -> std::vector<Route> {
     std::vector<Route> routes;
     for (auto block : ctre::search_all<R"RE(\{\s*web::Route r;[\s\S]*?out\.push_back\(r\);[\s\S]*?\})RE">(routes_cpp)) {
         std::string_view b = block.to_view();
@@ -673,7 +673,7 @@ std::vector<Route> parse_routes(std::string_view routes_cpp) {
         if (!path) {
             continue;
         }
-        Route r{path.get<1>().to_string(), {}};
+        Route r{.path = path.get<1>().to_string(), .methods = {}};
         static constexpr auto fields = std::to_array<std::pair<const char*, std::array<const char*, 2>>>({
             {"GET", {"r.get", "r.async_get"}},
             {"POST", {"r.post", "r.async_post"}},

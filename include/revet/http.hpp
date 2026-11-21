@@ -3,6 +3,7 @@
 #include <revet/http_client.hpp>
 #include <revet/thread_pool.hpp>
 #include <string>
+#include <utility>
 
 namespace http {
 
@@ -10,21 +11,22 @@ namespace http {
 template<typename ResultType = Response>
 class Awaitable {
 public:
-    explicit Awaitable(const std::string& method, const std::string& url, Client* client = nullptr)
-        : method_(method), url_(url), client_(client != nullptr ? client : &global::default_client()) {}
+    explicit Awaitable(std::string method, std::string url, Client* client = nullptr)
+        : method_(std::move(method)), url_(std::move(url)),
+          client_(client != nullptr ? client : &global::default_client()) {}
 
-    bool await_ready() const {
+    [[nodiscard]] auto await_ready() const -> bool {
         return false;
     }
 
     void await_suspend(std::coroutine_handle<> h) {
-        web::detail::io_submit([this, h]() mutable {
+        web::detail::io_submit([this, h]() mutable -> auto {
             response_ = client_->execute(method_, url_, {}, "");
             h.resume();
         });
     }
 
-    ResultType await_resume() {
+    auto await_resume() -> ResultType {
         return response_;
     }
 
@@ -36,31 +38,31 @@ private:
 };
 
 // Helper functions
-inline Awaitable<Response> get(const std::string& url, Client* client = nullptr) {
+inline auto get(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("GET", url, client);
 }
 
-inline Awaitable<Response> post(const std::string& url, Client* client = nullptr) {
+inline auto post(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("POST", url, client);
 }
 
-inline Awaitable<Response> put(const std::string& url, Client* client = nullptr) {
+inline auto put(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("PUT", url, client);
 }
 
-inline Awaitable<Response> delete_(const std::string& url, Client* client = nullptr) {
+inline auto delete_(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("DELETE", url, client);
 }
 
-inline Awaitable<Response> patch(const std::string& url, Client* client = nullptr) {
+inline auto patch(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("PATCH", url, client);
 }
 
-inline Awaitable<Response> head(const std::string& url, Client* client = nullptr) {
+inline auto head(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("HEAD", url, client);
 }
 
-inline Awaitable<Response> options(const std::string& url, Client* client = nullptr) {
+inline auto options(const std::string& url, Client* client = nullptr) -> Awaitable<Response> {
     return Awaitable<Response>("OPTIONS", url, client);
 }
 

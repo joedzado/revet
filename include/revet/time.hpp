@@ -2,6 +2,7 @@
 // Dates and times as apps show them: local calendar days, ISO dates, "3 h ago".
 // Times are Unix epoch milliseconds (int64) unless a type says otherwise.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -19,14 +20,14 @@ inline auto now_ms() -> int64_t {
 
 // Local broken-down time (honours TZ).
 inline auto local_tm(int64_t ms) -> std::tm {
-    const std::time_t t = static_cast<std::time_t>(ms / 1000);
+    const auto t = static_cast<std::time_t>(ms / 1000);
     std::tm out{};
     localtime_r(&t, &out);
     return out;
 }
 
 inline auto utc_tm(int64_t ms) -> std::tm {
-    const std::time_t t = static_cast<std::time_t>(ms / 1000);
+    const auto t = static_cast<std::time_t>(ms / 1000);
     std::tm out{};
     gmtime_r(&t, &out);
     return out;
@@ -35,9 +36,9 @@ inline auto utc_tm(int64_t ms) -> std::tm {
 // strftime over local time: format_local(ms, "%H:%M") -> "07:05".
 inline auto format_local(int64_t ms, const char* fmt) -> std::string {
     const std::tm tm = local_tm(ms);
-    char buf[128];
-    const size_t n = std::strftime(buf, sizeof(buf), fmt, &tm);
-    return {buf, n};
+    std::array<char, 128> buf{};
+    const size_t n = std::strftime(buf.data(), buf.size(), fmt, &tm);
+    return {buf.data(), n};
 }
 
 // Seconds east of UTC in effect at that instant (DST-aware).

@@ -12,12 +12,12 @@
 namespace revet::codegen {
 namespace {
 
-Node load_toml(const Ctx& ctx) {
+auto load_toml(const Ctx& ctx) -> Node {
     return parse_toml(read_text(ctx.proj / "revet.toml"));
 }
 
-const Node* table_or_empty(const Node& root, std::string_view key) {
-    static const Node empty_table = [] {
+auto table_or_empty(const Node& root, std::string_view key) -> const Node* {
+    static const Node empty_table = [] -> Node {
         Node n;
         n.kind = Node::Kind::Table;
         return n;
@@ -33,11 +33,11 @@ struct Pair {
     const Node* value;
 };
 
-std::vector<Pair> items_of(const Node& table) {
+auto items_of(const Node& table) -> std::vector<Pair> {
     std::vector<Pair> out;
     out.reserve(table.keys.size());
     for (size_t i = 0; i < table.keys.size(); ++i) {
-        out.push_back({table.keys[i], &table.vals[i]});
+        out.push_back({.key = table.keys[i], .value = &table.vals[i]});
     }
     return out;
 }
@@ -46,13 +46,13 @@ std::vector<Pair> items_of(const Node& table) {
 
 // ── resources ───────────────────────────────────────────────────────────────
 
-int gen_resources(const Ctx& ctx) {
+auto gen_resources(const Ctx& ctx) -> int {
     fs::path out = setup(ctx, "resources.hpp");
     fs::path toml = ctx.proj / "revet.toml";
     fs::path backends_out = ctx.proj / "build" / "generated" / "db_backends.cmake";
     const std::string paths_block = tmpl(ctx, "resources_paths_block.tmpl");
 
-    auto exit_empty = [&](const std::string& msg) {
+    auto exit_empty = [&](const std::string& msg) -> int {
         write_file(out, "// Auto-generated — do not edit\n#pragma once\n\n" + paths_block + "\n\n" + msg + "\n");
         write_file(backends_out, "set(REVET_DB_BACKENDS)\n");
         return 0;
@@ -144,25 +144,25 @@ int gen_resources(const Ctx& ctx) {
         backends.insert(r.type);
         pool_lines.push_back(
             subst(pool_fn_t, {{"ns", ns}, {"name", r.name}, {"path", r.path}, {"pool", std::to_string(r.pool)}}));
-        pool_lines.push_back("");
+        pool_lines.emplace_back("");
         handle_lines.push_back(subst(handle_fn_t, {{"ns", ns}, {"name", r.name}}));
     }
     for (const auto& l : pool_lines) {
         lines.push_back(l);
     }
-    lines.push_back("} // namespace _pools");
-    lines.push_back("");
+    lines.emplace_back("} // namespace _pools");
+    lines.emplace_back("");
     for (const auto& l : handle_lines) {
         lines.push_back(l);
     }
 
     if (dflt != "db") {
-        lines.push_back("");
+        lines.emplace_back("");
         lines.push_back(subst(db_alias_t, {{"ns", dflt_ns}, {"default", dflt}}));
     }
-    lines.push_back("");
-    lines.push_back("} // namespace resources");
-    lines.push_back("");
+    lines.emplace_back("");
+    lines.emplace_back("} // namespace resources");
+    lines.emplace_back("");
     write_lines(out, lines);
 
     std::string list;
@@ -178,7 +178,7 @@ int gen_resources(const Ctx& ctx) {
 
 // ── uploads ─────────────────────────────────────────────────────────────────
 
-int gen_uploads(const Ctx& ctx) {
+auto gen_uploads(const Ctx& ctx) -> int {
     fs::path out = setup(ctx, "uploads.hpp");
     fs::path toml = ctx.proj / "revet.toml";
     const std::string empty = "#pragma once\n// no [uploads.*] in revet.toml\nnamespace uploads {}\n";
@@ -222,21 +222,21 @@ int gen_uploads(const Ctx& ctx) {
 
     const std::string ns_t = tmpl(ctx, "uploads_namespace.tmpl");
     Lines lines = file_header({"#include <filesystem>", "#include <string_view>"});
-    lines.push_back("namespace uploads {");
-    lines.push_back("");
+    lines.emplace_back("namespace uploads {");
+    lines.emplace_back("");
     for (const auto& b : dirs) {
         lines.push_back(subst(ns_t, {{"name", b.name}, {"incoming", b.incoming}, {"validated", b.validated}}));
-        lines.push_back("");
+        lines.emplace_back("");
     }
-    lines.push_back("} // namespace uploads");
-    lines.push_back("");
+    lines.emplace_back("} // namespace uploads");
+    lines.emplace_back("");
     write_lines(out, lines);
     return 0;
 }
 
 // ── dependencies ────────────────────────────────────────────────────────────
 
-int gen_dependencies(const Ctx& ctx) {
+auto gen_dependencies(const Ctx& ctx) -> int {
     fs::path toml = ctx.proj / "revet.toml";
     fs::path out = setup(ctx, "dependencies.cmake");
     const std::string dep_t = tmpl(ctx, "dependencies_dep.tmpl");
@@ -312,16 +312,16 @@ int gen_dependencies(const Ctx& ctx) {
         cmake.push_back(cat("if(DEFINED ", pkg, "_COMPONENT_NAMES AND TARGET ", pkg, "::", pkg, ")"));
         cmake.push_back(cat("    set_property(TARGET ", pkg, "::", pkg, " APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${",
                             pkg, "_COMPONENT_NAMES})"));
-        cmake.push_back("endif()");
+        cmake.emplace_back("endif()");
     }
-    cmake.push_back("");
+    cmake.emplace_back("");
     write_file(out, join(cmake, "\n"));
     return 0;
 }
 
 // ── toggles ─────────────────────────────────────────────────────────────────
 
-int gen_toggles(const Ctx& ctx) {
+auto gen_toggles(const Ctx& ctx) -> int {
     fs::path out = setup(ctx, "toggles.hpp");
 
     struct Toggle {
@@ -332,7 +332,7 @@ int gen_toggles(const Ctx& ctx) {
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
         for (auto m : find_toggles(std::string_view(content))) {
-            toggles.push_back({m.get<3>().to_string(), m.get<2>().to_view() == "true"});
+            toggles.push_back({.name = m.get<3>().to_string(), .default_on = m.get<2>().to_view() == "true"});
         }
     }
 

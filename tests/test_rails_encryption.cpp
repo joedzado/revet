@@ -7,6 +7,7 @@
 #include <simdjson.h>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using rails::Encryption;
@@ -29,7 +30,7 @@ struct Fixture {
     std::vector<Vector> deterministic;
 };
 
-std::string read_fixture_text() {
+auto read_fixture_text() -> std::string {
     const auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "rails_encryption_vectors.json";
     const std::ifstream in(path);
     REQUIRE(in.good());
@@ -38,27 +39,29 @@ std::string read_fixture_text() {
     return ss.str();
 }
 
-std::string str(simdjson::dom::element e, const char* key) {
+auto str(simdjson::dom::element e, const char* key) -> std::string {
     return std::string(std::string_view(e[key]));
 }
 
-std::vector<Vector> vectors(simdjson::dom::element root, const char* key) {
+auto vectors(simdjson::dom::element root, const char* key) -> std::vector<Vector> {
     std::vector<Vector> out;
     for (simdjson::dom::element v : simdjson::dom::array(root[key])) {
-        out.push_back({str(v, "name"), str(v, "plain"), str(v, "cipher")});
+        out.push_back({.name = str(v, "name"), .plain = str(v, "plain"), .cipher = str(v, "cipher")});
     }
     return out;
 }
 
-const Fixture& fixture() {
-    static const Fixture f = [] {
+auto fixture() -> const Fixture& {
+    static const Fixture f = [] -> Fixture {
         const auto text = read_fixture_text();
         simdjson::dom::parser parser;
         const simdjson::padded_string padded(text);
         const simdjson::dom::element root = parser.parse(padded);
         const simdjson::dom::element keys = root["keys"];
         Fixture x;
-        x.config = {str(keys, "primary"), str(keys, "deterministic"), str(keys, "salt")};
+        x.config = {.primary_key = str(keys, "primary"),
+                    .deterministic_key = str(keys, "deterministic"),
+                    .key_derivation_salt = str(keys, "salt")};
         x.primary_derived_hex = str(keys, "primary_derived_hex");
         x.deterministic_derived_hex = str(keys, "deterministic_derived_hex");
         x.primary = vectors(root, "primary");
@@ -68,8 +71,8 @@ const Fixture& fixture() {
     return f;
 }
 
-std::string hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) {
-    static constexpr char digits[] = "0123456789abcdef";
+auto hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) -> std::string {
+    static constexpr std::string_view digits = "0123456789abcdef";
     std::string out;
     for (const unsigned char c : key) {
         out += digits[c >> 4];
@@ -79,13 +82,13 @@ std::string hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) {
 }
 
 // Flips one payload character, keeping the base64 valid.
-std::string tamper(std::string message) {
+auto tamper(std::string message) -> std::string {
     const auto start = message.find(R"("p":")") + 5;
     message[start] = message[start] == 'A' ? 'B' : 'A';
     return message;
 }
 
-const Vector& by_name(const std::vector<Vector>& all, const std::string& name) {
+auto by_name(const std::vector<Vector>& all, const std::string& name) -> const Vector& {
     for (const auto& v : all) {
         if (v.name == name) {
             return v;

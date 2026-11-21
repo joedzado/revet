@@ -30,7 +30,7 @@ public:
 
     // Accepts [+-]digits[.digits], the form Postgres prints. NaN, Infinity and
     // exponents are rejected.
-    static Decimal parse(std::string_view text) {
+    static auto parse(std::string_view text) -> Decimal {
         std::string_view s = text;
         bool negative = false;
         if (!s.empty() && (s.front() == '-' || s.front() == '+')) {
@@ -61,21 +61,21 @@ public:
         return {negative ? -value : value, static_cast<int>(frac.size())};
     }
 
-    static Decimal from_int(std::int64_t value) {
+    static auto from_int(std::int64_t value) -> Decimal {
         return {value, 0};
     }
 
-    [[nodiscard]] int scale() const {
+    [[nodiscard]] auto scale() const -> int {
         return scale_;
     }
-    [[nodiscard]] bool is_zero() const {
+    [[nodiscard]] auto is_zero() const -> bool {
         return value_ == 0;
     }
-    [[nodiscard]] bool is_negative() const {
+    [[nodiscard]] auto is_negative() const -> bool {
         return value_ < 0;
     }
 
-    [[nodiscard]] std::string to_string() const {
+    [[nodiscard]] auto to_string() const -> std::string {
         std::string digits;
         wide v = value_ < 0 ? -value_ : value_;
         do {
@@ -92,43 +92,43 @@ public:
         return value_ < 0 ? "-" + digits : digits;
     }
 
-    friend Decimal operator+(const Decimal& a, const Decimal& b) {
+    friend auto operator+(const Decimal& a, const Decimal& b) -> Decimal {
         const auto [x, y, scale] = aligned(a, b);
         return {add_checked(x, y), scale};
     }
-    friend Decimal operator-(const Decimal& a, const Decimal& b) {
+    friend auto operator-(const Decimal& a, const Decimal& b) -> Decimal {
         const auto [x, y, scale] = aligned(a, b);
         return {add_checked(x, -y), scale};
     }
-    friend Decimal operator*(const Decimal& a, const Decimal& b) {
+    friend auto operator*(const Decimal& a, const Decimal& b) -> Decimal {
         const int scale = a.scale_ + b.scale_;
         if (scale > kMaxScale) {
             throw DecimalError("decimal: scale too large");
         }
         return {mul_checked(a.value_, b.value_), scale};
     }
-    Decimal operator-() const {
+    auto operator-() const -> Decimal {
         return {-value_, scale_};
     }
-    Decimal& operator+=(const Decimal& o) {
+    auto operator+=(const Decimal& o) -> Decimal& {
         return *this = *this + o;
     }
-    Decimal& operator-=(const Decimal& o) {
+    auto operator-=(const Decimal& o) -> Decimal& {
         return *this = *this - o;
     }
 
     // Value comparison: 1.50 equals 1.5.
-    friend bool operator==(const Decimal& a, const Decimal& b) {
+    friend auto operator==(const Decimal& a, const Decimal& b) -> bool {
         return (a <=> b) == std::strong_ordering::equal;
     }
-    friend std::strong_ordering operator<=>(const Decimal& a, const Decimal& b) {
+    friend auto operator<=>(const Decimal& a, const Decimal& b) -> std::strong_ordering {
         const auto [x, y, scale] = aligned(a, b);
         (void)scale;
         return x <=> y;
     }
 
     // Changes scale, rounding if digits are dropped.
-    [[nodiscard]] Decimal rescale(int new_scale, Rounding mode = Rounding::HalfUp) const {
+    [[nodiscard]] auto rescale(int new_scale, Rounding mode = Rounding::HalfUp) const -> Decimal {
         check_scale(new_scale);
         if (new_scale >= scale_) {
             return {mul_checked(value_, pow10(new_scale - scale_)), new_scale};
@@ -137,7 +137,8 @@ public:
     }
 
     // a / b at the requested scale. Throws on division by zero.
-    [[nodiscard]] Decimal divide(const Decimal& divisor, int result_scale, Rounding mode = Rounding::HalfUp) const {
+    [[nodiscard]] auto divide(const Decimal& divisor, int result_scale,
+                              Rounding mode = Rounding::HalfUp) const -> Decimal {
         check_scale(result_scale);
         if (divisor.value_ == 0) {
             throw DecimalError("decimal: division by zero");
@@ -151,8 +152,8 @@ public:
     }
 
 private:
-    __extension__ typedef __int128 wide;
-    __extension__ typedef unsigned __int128 uwide;
+    __extension__ using wide = __int128;
+    __extension__ using uwide = unsigned __int128;
 
     static constexpr int kMaxScale = 38;
     static constexpr wide kMax = static_cast<wide>((static_cast<uwide>(1) << 127) - 1);
@@ -165,7 +166,7 @@ private:
         }
     }
 
-    static wide pow10(int n) {
+    static auto pow10(int n) -> wide {
         wide r = 1;
         for (int i = 0; i < n; ++i) {
             r = mul_checked(r, 10);
@@ -173,14 +174,14 @@ private:
         return r;
     }
 
-    static wide add_checked(wide a, wide b) {
+    static auto add_checked(wide a, wide b) -> wide {
         if ((b > 0 && a > kMax - b) || (b < 0 && a < -kMax - b)) {
             throw DecimalError("decimal: overflow");
         }
         return a + b;
     }
 
-    static wide mul_checked(wide a, wide b) {
+    static auto mul_checked(wide a, wide b) -> wide {
         if (a == 0 || b == 0) {
             return 0;
         }
@@ -192,7 +193,7 @@ private:
         return a * b;
     }
 
-    static wide divide_rounded(wide n, wide d, Rounding mode) {
+    static auto divide_rounded(wide n, wide d, Rounding mode) -> wide {
         wide q = n / d;
         const wide r = n % d;
         if (r == 0) {
@@ -215,14 +216,14 @@ private:
         wide y;
         int scale;
     };
-    static Aligned aligned(const Decimal& a, const Decimal& b) {
+    static auto aligned(const Decimal& a, const Decimal& b) -> Aligned {
         if (a.scale_ == b.scale_) {
-            return {a.value_, b.value_, a.scale_};
+            return {.x = a.value_, .y = b.value_, .scale = a.scale_};
         }
         if (a.scale_ > b.scale_) {
-            return {a.value_, mul_checked(b.value_, pow10(a.scale_ - b.scale_)), a.scale_};
+            return {.x = a.value_, .y = mul_checked(b.value_, pow10(a.scale_ - b.scale_)), .scale = a.scale_};
         }
-        return {mul_checked(a.value_, pow10(b.scale_ - a.scale_)), b.value_, b.scale_};
+        return {.x = mul_checked(a.value_, pow10(b.scale_ - a.scale_)), .y = b.value_, .scale = b.scale_};
     }
 
     wide value_ = 0;

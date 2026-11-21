@@ -1,4 +1,3 @@
-#include <zlib.h>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -12,6 +11,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <zlib.h>
 
 namespace {
 
@@ -24,7 +24,7 @@ auto make_socketpair() -> std::pair<int, int> {
 auto read_all(int fd, int timeout_ms = 200) -> std::string {
     std::string out;
     std::array<char, 4096> buf{};
-    timeval tv{0, timeout_ms * 1000};
+    timeval tv{.tv_sec = 0, .tv_usec = timeout_ms * 1000};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     while (true) {
         const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
@@ -68,7 +68,7 @@ auto client_frame(uint8_t first_byte, std::string_view payload,
 auto read_headers(int fd, int timeout_ms = 1000) -> std::string {
     std::string out;
     std::array<char, 512> buf{};
-    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+    timeval tv{.tv_sec = timeout_ms / 1000, .tv_usec = (timeout_ms % 1000) * 1000};
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     while (out.find("\r\n\r\n") == std::string::npos && out.size() < 65536) {
         const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
@@ -259,7 +259,7 @@ TEST_CASE("Conn::recv decodes a minimal 64-bit client frame") {
     auto [server_fd, client_fd] = make_socketpair();
     const std::string payload(65536, 'z');
     const auto frame = client_frame(0x82, payload);
-    std::thread sender([client_fd, &frame] {
+    std::thread sender([client_fd, &frame] -> void {
         size_t sent = 0;
         while (sent < frame.size()) {
             const ssize_t n = ::send(client_fd, frame.data() + sent, frame.size() - sent, 0);
@@ -564,7 +564,7 @@ TEST_CASE("utf8_tail_ok accepts only prefixes that can still complete") {
 TEST_CASE("Conn::close from another thread wakes a blocked recv") {
     auto [server_fd, client_fd] = make_socketpair();
     auto conn = web::ws::Conn::make(server_fd, 0); // no idle timeout: recv blocks until woken
-    std::thread closer([&conn] {
+    std::thread closer([&conn] -> void {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         conn->close();
     });
@@ -599,7 +599,7 @@ TEST_CASE("on_client completes a same-origin upgrade and echoes a coalesced fram
     std::atomic<bool> echoed{false};
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) -> void {
         if (auto msg = conn.recv()) {
             conn.send_text(msg->data);
             echoed = msg->data == "hi";
@@ -629,7 +629,7 @@ TEST_CASE("on_client echoes a frame sent after the 101") {
     std::atomic<bool> echoed{false};
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) -> void {
         if (auto msg = conn.recv()) {
             conn.send_text(msg->data);
             echoed = msg->data == "hi";
@@ -654,13 +654,13 @@ TEST_CASE("on_client runs global middleware when the route has no guards") {
     ResetMw reset;
     std::atomic<int> hits{0};
     std::atomic<bool> ran{false};
-    web::use([&](const web::Request&, const web::Next& next) {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         hits.fetch_add(1);
         return next();
     });
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn&) { ran = true; };
+    route.ws = [&](const web::Request&, web::ws::Conn&) -> void { ran = true; };
     std::vector<web::Route> routes{std::move(route)};
 
     Client client;
@@ -679,10 +679,10 @@ TEST_CASE("on_client refuses an upgrade when a guard does not call next") {
     std::atomic<bool> ran{false};
     web::Route route;
     route.path = "/ws";
-    route.guards.push_back([](const web::Request&, const web::Next&) {
+    route.guards.emplace_back([](const web::Request&, const web::Next&) -> web::Response {
         return web::Response{.body = "nope", .status = web::status::forbidden};
     });
-    route.ws = [&](const web::Request&, web::ws::Conn&) { ran = true; };
+    route.ws = [&](const web::Request&, web::ws::Conn&) -> void { ran = true; };
     std::vector<web::Route> routes{std::move(route)};
 
     Client client;
@@ -701,7 +701,7 @@ TEST_CASE("on_client turns a middleware exception into 500 and no 101") {
     web::use([](const web::Request&, const web::Next&) -> web::Response { throw std::runtime_error("boom"); });
     web::Route route;
     route.path = "/ws";
-    route.ws = [](const web::Request&, web::ws::Conn&) {};
+    route.ws = [](const web::Request&, web::ws::Conn&) -> void {};
     std::vector<web::Route> routes{std::move(route)};
 
     Client client;
@@ -718,7 +718,7 @@ TEST_CASE("on_client rejects cross-origin and lookalike origins before 101") {
     std::atomic<int> ran{0};
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn&) { ran.fetch_add(1); };
+    route.ws = [&](const web::Request&, web::ws::Conn&) -> void { ran.fetch_add(1); };
     std::vector<web::Route> routes{std::move(route)};
 
     for (const char* origin :
@@ -740,7 +740,7 @@ TEST_CASE("on_client rejects a bad version, HTTP/1.0, a missing Host, and Conten
     std::atomic<int> ran{0};
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn&) { ran.fetch_add(1); };
+    route.ws = [&](const web::Request&, web::ws::Conn&) -> void { ran.fetch_add(1); };
     std::vector<web::Route> routes{std::move(route)};
 
     {
@@ -795,7 +795,7 @@ TEST_CASE("on_client returns 503 when the connection cap is full") {
     }
     web::Route route;
     route.path = "/ws";
-    route.ws = [](const web::Request&, web::ws::Conn&) {};
+    route.ws = [](const web::Request&, web::ws::Conn&) -> void {};
     std::vector<web::Route> routes{std::move(route)};
 
     send_raw(client.fd, ws_upgrade());
@@ -811,11 +811,11 @@ TEST_CASE("on_client serves an ordinary GET and a 413 without upgrading") {
     ResetMw reset;
     web::Route hello;
     hello.path = "/hello";
-    hello.get = [](const web::Request&) { return web::to_response("world"); };
+    hello.get = [](const web::Request&) -> web::Response { return web::to_response("world"); };
     web::Route upload;
     upload.path = "/up";
     std::atomic<bool> posted{false};
-    upload.post = [&](const web::Request&) {
+    upload.post = [&](const web::Request&) -> web::Response {
         posted = true;
         return web::to_response("no");
     };
@@ -847,7 +847,7 @@ TEST_CASE("a throwing WebSocket handler still releases its slot") {
     ResetMw reset;
     web::Route route;
     route.path = "/ws";
-    route.ws = [](const web::Request&, web::ws::Conn&) { throw std::runtime_error("handler"); };
+    route.ws = [](const web::Request&, web::ws::Conn&) -> void { throw std::runtime_error("handler"); };
     std::vector<web::Route> routes{std::move(route)};
 
     Client client;
@@ -970,7 +970,7 @@ TEST_CASE("on_client negotiates permessage-deflate and round-trips a compressed 
     std::atomic<bool> echoed{false};
     web::Route route;
     route.path = "/ws";
-    route.ws = [&](const web::Request&, web::ws::Conn& conn) {
+    route.ws = [&](const web::Request&, web::ws::Conn& conn) -> void {
         if (auto msg = conn.recv()) {
             echoed = msg->data == "hello";
             conn.send_text(msg->data);
@@ -981,8 +981,7 @@ TEST_CASE("on_client negotiates permessage-deflate and round-trips a compressed 
     // RSV1 set: a compressed text frame, masked as clients must send it.
     const std::string packed = deflate_message("hello");
     Client client;
-    send_raw(client.fd, ws_upgrade("Sec-WebSocket-Extensions: permessage-deflate\r\n") +
-                            client_frame(0xC1, packed));
+    send_raw(client.fd, ws_upgrade("Sec-WebSocket-Extensions: permessage-deflate\r\n") + client_frame(0xC1, packed));
     web::on_client(client.server, routes);
 
     std::string resp = read_headers(client.fd);
@@ -1010,8 +1009,8 @@ TEST_CASE("Conn::recv closes 1013 when a message would exceed the process-wide b
     auto& total = web::ws::detail::buffered_total();
     struct Fill {
         std::atomic<size_t>& total;
-        size_t n;
-        explicit Fill(std::atomic<size_t>& t) : total(t), n(web::ws::k_max_buffered - 100) {
+        size_t n{web::ws::k_max_buffered - 100};
+        explicit Fill(std::atomic<size_t>& t) : total(t) {
             total.fetch_add(n);
         }
         ~Fill() {

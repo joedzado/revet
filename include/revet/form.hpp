@@ -227,12 +227,12 @@ struct Field {
 
         html::Node input_node;
         if constexpr (FieldType::is_textarea) {
-            input_node = html::Node{html::raw_tag{}, "<textarea name=\"" + name + "\" rows=\"5\"" + class_attr + extra +
+            input_node = html::Node{html::raw_tag{}, "<textarea name=\"" + name + R"(" rows="5")" + class_attr + extra +
                                                          ">" + sanitize::html_escape(value) + "</textarea>"};
         } else {
-            input_node = html::Node{html::raw_tag{}, std::format("<input type=\"{}\" name=\"{}\" value=\"{}\"{}{}>",
-                                                                 FieldType::input_type, name,
-                                                                 sanitize::html_escape(value), class_attr, extra)};
+            input_node = html::Node{html::raw_tag{},
+                                    std::format(R"(<input type="{}" name="{}" value="{}"{}{}>)", FieldType::input_type,
+                                                name, sanitize::html_escape(value), class_attr, extra)};
         }
 
         html::Node error_node;

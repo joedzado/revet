@@ -194,14 +194,14 @@ template<typename T = int>
     requires std::integral<T> || std::floating_point<T>
 struct increment {
     T by = 1;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         if constexpr (std::floating_point<T>) {
             return std::format("revet.opt.incrFloat('{}',{})", id, by);
         } else {
             return std::format("revet.opt.incrInt('{}',{})", id, by);
         }
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.restoreText('{}')", id);
     }
 };
@@ -210,54 +210,54 @@ template<typename T = int>
     requires std::integral<T> || std::floating_point<T>
 struct decrement {
     T by = 1;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         if constexpr (std::floating_point<T>) {
             return std::format("revet.opt.decrFloat('{}',{})", id, by);
         } else {
             return std::format("revet.opt.decrInt('{}',{})", id, by);
         }
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.restoreText('{}')", id);
     }
 };
 
 struct set_text {
     std::string_view value;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.setText('{}','{}')", id, value);
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.restoreText('{}')", id);
     }
 };
 
 struct toggle_class {
     std::string_view cls;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.toggleClass('{}','{}')", id, cls);
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.rollbackClass('{}','{}')", id, cls);
     }
 };
 
 struct add_class {
     std::string_view cls;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.addClass('{}','{}')", id, cls);
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.removeClass('{}','{}')", id, cls);
     }
 };
 
 struct remove_class {
     std::string_view cls;
-    auto to_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.removeClass('{}','{}')", id, cls);
     }
-    auto rollback_js(std::string_view id) const -> std::string {
+    [[nodiscard]] auto rollback_js(std::string_view id) const -> std::string {
         return std::format("revet.opt.addClass('{}','{}')", id, cls);
     }
 };
@@ -290,7 +290,7 @@ inline auto optimistic(const html::typed_id<T>& id, T delta) -> html::Node {
 
 // Bool shorthand: toggles a CSS class; rolls back on network error.
 inline auto optimistic(const html::typed_id<bool>& id) -> html::Node {
-    const js::toggle_class op{id.cls};
+    const js::toggle_class op{.cls = id.cls};
     return html::fragment(attr::on("htmx:before-request", op.to_js(id.name)),
                           attr::on("htmx:send-error", op.rollback_js(id.name)));
 }

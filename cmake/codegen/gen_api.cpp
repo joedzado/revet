@@ -24,23 +24,23 @@ struct External {
 };
 
 // Splits on commas outside <>, (), [] and drops empties.
-Lines split_top_commas(const std::string& s) {
+auto split_top_commas(const std::string& s) -> Lines {
     return split_args(s);
 }
 
-std::vector<Param> parse_params(const std::string& s) {
+auto parse_params(const std::string& s) -> std::vector<Param> {
     std::vector<Param> params;
     for (const auto& raw : split_top_commas(s)) {
         auto m = ctre::match<R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*([^\n]+?))?\s*)RE">(raw);
         if (!m) {
             continue;
         }
-        params.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
+        params.push_back({.type = collapse_ws(strip(m.get<1>().to_view())), .name = m.get<2>().to_string()});
     }
     return params;
 }
 
-std::string task_inner(const std::string& ret) {
+auto task_inner(const std::string& ret) -> std::string {
     std::string stripped = strip(ret);
     if (auto m = ctre::match<R"RE(\s*web::Task\s*<\s*([\s\S]+)\s*>\s*)RE">(stripped)) {
         return strip(m.get<1>().to_view());
@@ -49,7 +49,7 @@ std::string task_inner(const std::string& ret) {
 }
 
 // Namespace tracking: a brace walk over the whole text.
-std::vector<External> scan_file(const fs::path& path) {
+auto scan_file(const fs::path& path) -> std::vector<External> {
     std::string text = read_text(path);
 
     struct Ev {
@@ -60,21 +60,21 @@ std::vector<External> scan_file(const fs::path& path) {
     };
     std::vector<Ev> events;
     const std::string_view view = text;
-    auto offset = [&](std::string_view part) { return static_cast<size_t>(part.data() - view.data()); };
+    auto offset = [&](std::string_view part) -> size_t { return static_cast<size_t>(part.data() - view.data()); };
     for (auto m : ctre::search_all<R"RE(\bnamespace\s+(\w+)\s*\{)RE">(view)) {
         size_t pos = offset(m.get<0>().to_view());
-        events.push_back({pos, 0, m.get<1>().to_string(), pos + m.get<0>().size()});
+        events.push_back({.pos = pos, .kind = 0, .payload = m.get<1>().to_string(), .end = pos + m.get<0>().size()});
     }
     for (size_t i = 0; i < text.size(); ++i) {
         if (text[i] == '}') {
-            events.push_back({i, 1, "", i + 1});
+            events.push_back({.pos = i, .kind = 1, .payload = "", .end = i + 1});
         }
     }
     for (auto m : ctre::search_all<R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE">(view)) {
         size_t pos = offset(m.get<0>().to_view());
-        events.push_back({pos, 2, m.get<1>().to_string(), pos + m.get<0>().size()});
+        events.push_back({.pos = pos, .kind = 2, .payload = m.get<1>().to_string(), .end = pos + m.get<0>().size()});
     }
-    std::stable_sort(events.begin(), events.end(), [](const Ev& a, const Ev& b) { return a.pos < b.pos; });
+    std::ranges::stable_sort(events, [](const Ev& a, const Ev& b) -> bool { return a.pos < b.pos; });
 
     std::vector<External> out;
     std::vector<std::string> ns_stack;
@@ -82,7 +82,7 @@ std::vector<External> scan_file(const fs::path& path) {
     int depth = 0;
     size_t last = 0;
 
-    auto consume_braces = [&](size_t upto) {
+    auto consume_braces = [&](size_t upto) -> void {
         for (size_t k = last; k < upto; ++k) {
             if (text[k] == '{') {
                 ++depth;
@@ -138,21 +138,27 @@ std::vector<External> scan_file(const fs::path& path) {
                 }
                 ns += n;
             }
-            out.push_back({method, url, ns, name, ret, task_inner(ret), parse_params(params_s)});
+            out.push_back({.method = method,
+                           .url = url,
+                           .ns = ns,
+                           .func_name = name,
+                           .return_type = ret,
+                           .response_type = task_inner(ret),
+                           .params = parse_params(params_s)});
             last = ev.end;
         }
     }
     return out;
 }
 
-std::string to_string_expr(const std::string& ptype, const std::string& name) {
+auto to_string_expr(const std::string& ptype, const std::string& name) -> std::string {
     if (lower(ptype).contains("string")) {
         return cat("std::string(", name, ")");
     }
     return cat("std::to_string(", name, ")");
 }
 
-std::string json_str_literal(const std::string& s) {
+auto json_str_literal(const std::string& s) -> std::string {
     std::string out = "\"";
     for (char c : s) {
         if (c == '\\' || c == '"') {
@@ -164,7 +170,7 @@ std::string json_str_literal(const std::string& s) {
 }
 
 // Builds the URL expression: path params substituted, remaining params appended as a query string.
-std::string url_expr(const std::string& url, const std::vector<Param>& params) {
+auto url_expr(const std::string& url, const std::vector<Param>& params) -> std::string {
     std::set<std::string> path_names;
     for (auto m : ctre::search_all<R"RE(\{(\w+)\})RE">(url)) {
         path_names.insert(m.get<1>().to_string());
@@ -194,12 +200,12 @@ std::string url_expr(const std::string& url, const std::vector<Param>& params) {
     return expr;
 }
 
-std::string http_helper(const std::string& method) {
+auto http_helper(const std::string& method) -> std::string {
     std::string m = lower(method);
     return m == "delete" ? "delete_" : m;
 }
 
-Lines emit_definition(const External& e) {
+auto emit_definition(const External& e) -> Lines {
     std::string sig;
     for (size_t i = 0; i < e.params.size(); ++i) {
         if (i != 0U) {
@@ -211,16 +217,16 @@ Lines emit_definition(const External& e) {
     lines.push_back(cat("inline auto ", e.func_name, "(", sig, ") -> ", e.return_type, " {"));
     lines.push_back(cat("    auto url  = ", url_expr(e.url, e.params), ";"));
     lines.push_back(cat("    auto resp = co_await http::", http_helper(e.method), "(url);"));
-    lines.push_back("    if (!resp.ok()) throw http::Error(resp.status_code, resp.body);");
-    lines.push_back("    revet::json::Document doc(resp.body);");
+    lines.emplace_back("    if (!resp.ok()) throw http::Error(resp.status_code, resp.body);");
+    lines.emplace_back("    revet::json::Document doc(resp.body);");
     lines.push_back(cat("    co_return revet::json::from_json<", e.response_type, ">(doc);"));
-    lines.push_back("}");
+    lines.emplace_back("}");
     return lines;
 }
 
 } // namespace
 
-int gen_api(const Ctx& ctx) {
+auto gen_api(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "apis.hpp");
     fs::path apis_dir = ctx.proj / "app" / "apis";
 
@@ -236,7 +242,7 @@ int gen_api(const Ctx& ctx) {
     for (const auto& hpp : glob(apis_dir, ".hpp")) {
         lines.push_back(rel_include(hpp, ctx.proj));
     }
-    lines.push_back("");
+    lines.emplace_back("");
 
     // Group by namespace, emitted in sorted namespace order.
     std::map<std::string, std::vector<External>> by_ns;
@@ -266,11 +272,11 @@ int gen_api(const Ctx& ctx) {
             for (const auto& l : emit_definition(e)) {
                 lines.push_back(l);
             }
-            lines.push_back("");
+            lines.emplace_back("");
         }
         if (!ns.empty()) {
             lines.push_back(std::string(depth, '}') + " // namespace " + ns);
-            lines.push_back("");
+            lines.emplace_back("");
         }
     }
 

@@ -33,7 +33,7 @@ struct Args {
     std::exit(1);
 }
 
-Args parse(int argc, char** argv) {
+auto parse(int argc, char** argv) -> Args {
     Args a;
     int positional = 0;
     for (int i = 1; i < argc; ++i) {
@@ -54,7 +54,7 @@ Args parse(int argc, char** argv) {
             }
             return argv[++i];
         };
-        auto flag = [&](bool& target) {
+        auto flag = [&](bool& target) -> void {
             if (inline_value) {
                 usage_error("argument " + arg + ": ignored explicit argument '" + *inline_value + "'");
             }
@@ -151,7 +151,7 @@ void print_help(const std::string& command) {
     }
 }
 
-int main_impl(int argc, char** argv) {
+auto main_impl(int argc, char** argv) -> int {
 #ifdef __APPLE__
     // Apple's clang for everything revet runs (CMake, Conan builds) unless CC/CXX say otherwise:
     // `cc` on PATH can be a Homebrew GCC or LLVM that lacks the macOS SDK setup.
@@ -257,7 +257,7 @@ int main_impl(int argc, char** argv) {
 } // namespace
 } // namespace revet::cli
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     try {
         return revet::cli::main_impl(argc, argv);
     } catch (const std::exception& e) {

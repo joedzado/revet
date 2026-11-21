@@ -13,13 +13,13 @@ public:
     explicit WorkerPool(int n) {
         workers_.reserve(static_cast<size_t>(n));
         for (int i = 0; i < n; ++i) {
-            workers_.emplace_back([this] { run(); });
+            workers_.emplace_back([this] -> void { run(); });
         }
     }
 
     ~WorkerPool() {
         {
-            std::lock_guard lock(mu_);
+            std::scoped_lock lock(mu_);
             stop_ = true;
         }
         cv_.notify_all();
@@ -29,17 +29,17 @@ public:
     }
 
     WorkerPool(const WorkerPool&) = delete;
-    WorkerPool& operator=(const WorkerPool&) = delete;
+    auto operator=(const WorkerPool&) -> WorkerPool& = delete;
 
     void submit(std::function<void()> f) {
         {
-            std::lock_guard lock(mu_);
+            std::scoped_lock lock(mu_);
             queue_.push(std::move(f));
         }
         cv_.notify_one();
     }
 
-    [[nodiscard]] int size() const {
+    [[nodiscard]] auto size() const -> int {
         return static_cast<int>(workers_.size());
     }
 
@@ -49,7 +49,7 @@ private:
             std::function<void()> task;
             {
                 std::unique_lock lock(mu_);
-                cv_.wait(lock, [this] { return stop_ || !queue_.empty(); });
+                cv_.wait(lock, [this] -> bool { return stop_ || !queue_.empty(); });
                 if (stop_ && queue_.empty()) {
                     return;
                 }

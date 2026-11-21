@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <string>
 
-static std::string exception_message(std::exception_ptr p) {
+static auto exception_message(std::exception_ptr p) -> std::string {
     try {
         std::rethrow_exception(p);
     } catch (const std::exception& e) {
@@ -39,7 +39,7 @@ TEST_CASE("Task<int> exception propagates via co_await", "[task]") {
         }
     };
 
-    std::move(driver()).start([&](int) { done.store(true); });
+    std::move(driver()).start([&](int) -> void { done.store(true); });
 
     REQUIRE(done.load());
     REQUIRE(caught != nullptr);
@@ -64,7 +64,7 @@ TEST_CASE("Task<void> exception propagates via co_await", "[task]") {
         co_return;
     };
 
-    std::move(driver()).start([&]() { done.store(true); });
+    std::move(driver()).start([&]() -> void { done.store(true); });
 
     REQUIRE(done.load());
     REQUIRE(caught != nullptr);
@@ -79,7 +79,7 @@ TEST_CASE("Task<int> returns value normally", "[task]") {
 
     auto driver = [&]() -> web::Task<int> { co_return co_await producer(); };
 
-    std::move(driver()).start([&](int v) {
+    std::move(driver()).start([&](int v) -> void {
         result = v;
         done.store(true);
     });
@@ -120,14 +120,14 @@ TEST_CASE("IOAwaitable exception propagates via co_await", "[task]") {
         co_return 0;
     };
 
-    std::move(driver()).start([&](int) {
+    std::move(driver()).start([&](int) -> void {
         std::unique_lock lk(m);
         done.store(true);
         cv.notify_one();
     });
 
     std::unique_lock lk(m);
-    cv.wait_for(lk, std::chrono::seconds(5), [&] { return done.load(); });
+    cv.wait_for(lk, std::chrono::seconds(5), [&] -> bool { return done.load(); });
 
     REQUIRE(done.load());
     REQUIRE(caught != nullptr);
@@ -143,7 +143,7 @@ TEST_CASE("IOAwaitable returns value normally", "[task]") {
 
     auto driver = [&]() -> web::Task<int> { co_return co_await web::run_on_io([]() -> int { return 99; }); };
 
-    std::move(driver()).start([&](int v) {
+    std::move(driver()).start([&](int v) -> void {
         std::unique_lock lk(m);
         result = v;
         done.store(true);
@@ -151,7 +151,7 @@ TEST_CASE("IOAwaitable returns value normally", "[task]") {
     });
 
     std::unique_lock lk(m);
-    cv.wait_for(lk, std::chrono::seconds(5), [&] { return done.load(); });
+    cv.wait_for(lk, std::chrono::seconds(5), [&] -> bool { return done.load(); });
 
     REQUIRE(done.load());
     REQUIRE(result == 99);

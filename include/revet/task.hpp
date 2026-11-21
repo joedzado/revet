@@ -25,19 +25,19 @@ public:
         std::function<void(T)> on_done;       // fire-and-forget completion
         std::coroutine_handle<> continuation; // parent when co_awaited
 
-        Task get_return_object() {
+        auto get_return_object() -> Task {
             return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
-        std::suspend_always initial_suspend() noexcept {
+        auto initial_suspend() noexcept -> std::suspend_always {
             return {};
         }
 
         struct Final {
-            bool await_ready() noexcept {
+            auto await_ready() noexcept -> bool {
                 return false;
             }
             void await_resume() noexcept {}
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+            auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<> {
                 auto& p = h.promise();
                 if (p.continuation) {
                     return p.continuation; // resume parent
@@ -50,7 +50,7 @@ public:
                 return std::noop_coroutine();
             }
         };
-        Final final_suspend() noexcept {
+        auto final_suspend() noexcept -> Final {
             return {};
         }
 
@@ -72,7 +72,7 @@ public:
         }
     }
     Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    auto operator=(const Task&) -> Task& = delete;
 
     // Fire-and-forget: attach callback, start coroutine, release ownership.
     // The coroutine self-destructs in Final::await_suspend when done.
@@ -82,14 +82,14 @@ public:
     }
 
     // Awaitable interface for co_await Task inside another coroutine
-    bool await_ready() const noexcept {
+    [[nodiscard]] auto await_ready() const noexcept -> bool {
         return false;
     }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> cont) noexcept {
+    auto await_suspend(std::coroutine_handle<> cont) noexcept -> std::coroutine_handle<> {
         h_.promise().continuation = cont;
         return h_; // symmetric transfer — don't release h_ (destructor cleans up)
     }
-    T await_resume() {
+    auto await_resume() -> T {
         if (h_.promise().exception) {
             std::rethrow_exception(h_.promise().exception);
         }
@@ -109,19 +109,19 @@ public:
         std::function<void()> on_done;
         std::coroutine_handle<> continuation;
 
-        Task get_return_object() {
+        auto get_return_object() -> Task {
             return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
-        std::suspend_always initial_suspend() noexcept {
+        auto initial_suspend() noexcept -> std::suspend_always {
             return {};
         }
 
         struct Final {
-            bool await_ready() noexcept {
+            auto await_ready() noexcept -> bool {
                 return false;
             }
             void await_resume() noexcept {}
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+            auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<> {
                 auto& p = h.promise();
                 if (p.continuation) {
                     return p.continuation;
@@ -133,7 +133,7 @@ public:
                 return std::noop_coroutine();
             }
         };
-        Final final_suspend() noexcept {
+        auto final_suspend() noexcept -> Final {
             return {};
         }
 
@@ -153,17 +153,17 @@ public:
         }
     }
     Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    auto operator=(const Task&) -> Task& = delete;
 
     void start(std::function<void()> cb) && {
         h_.promise().on_done = std::move(cb);
         std::exchange(h_, {}).resume();
     }
 
-    bool await_ready() const noexcept {
+    [[nodiscard]] auto await_ready() const noexcept -> bool {
         return false;
     }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> cont) noexcept {
+    auto await_suspend(std::coroutine_handle<> cont) noexcept -> std::coroutine_handle<> {
         h_.promise().continuation = cont;
         return h_;
     }
@@ -188,12 +188,12 @@ class IOAwaitable {
 public:
     explicit IOAwaitable(F fn) : fn_(std::move(fn)) {}
 
-    bool await_ready() {
+    auto await_ready() -> bool {
         return false;
     }
 
     void await_suspend(std::coroutine_handle<> h) {
-        detail::io_submit([this, h]() mutable {
+        detail::io_submit([this, h]() mutable -> auto {
             try {
                 if constexpr (std::is_void_v<R>) {
                     fn_();
@@ -207,7 +207,7 @@ public:
         });
     }
 
-    R await_resume() {
+    auto await_resume() -> R {
         if (exception_) {
             std::rethrow_exception(exception_);
         }

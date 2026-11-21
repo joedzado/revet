@@ -9,6 +9,7 @@
 #include <ftxui/dom/elements.hpp>
 #include <map>
 #include <thread>
+#include <utility>
 
 #include "cli.hpp"
 
@@ -59,7 +60,7 @@ std::atomic<bool> g_bg_failed{false};
 // Runs `f` on a detached thread. An exception escaping it would call std::terminate.
 template<class F>
 void in_background(F f) {
-    std::thread([f = std::move(f)] mutable noexcept {
+    std::thread([f = std::move(f)] mutable noexcept -> auto {
         try {
             f();
         } catch (...) {
@@ -74,17 +75,17 @@ void post(std::function<void()> task) {
 }
 
 void bg_latest(std::vector<std::string> names) {
-    in_background([names = std::move(names)] {
+    in_background([names = std::move(names)] -> void {
         for (const auto& name : names) {
             if (auto ref = conan_latest(name, 12)) {
-                post([name, ref = *ref] { g_st->latest[name] = ref; });
+                post([name, ref = *ref] -> void { g_st->latest[name] = ref; });
             }
         }
     });
 }
 
 void bg_search(const std::string& q) {
-    in_background([q] {
+    in_background([q] -> void {
         Result r = run({"conan", "list", q + "*", "-r", "conancenter"}, {}, 15);
         std::map<std::string, std::vector<std::string>> by_pkg;
         if (r.rc == 0) {
@@ -100,7 +101,7 @@ void bg_search(const std::string& q) {
                 break;
             }
         }
-        post([q, found] {
+        post([q, found] -> void {
             State& st = *g_st;
             if (q != st.query) {
                 return;
@@ -118,11 +119,11 @@ void bg_search(const std::string& q) {
 }
 
 void bg_versions(const std::string& pkg) {
-    in_background([pkg] {
+    in_background([pkg] -> void {
         Result r = run({"conan", "list", pkg + "/*", "-r", "conancenter"}, {}, 15);
         std::vector<std::string> refs = r.rc == 0 ? conan_refs(r.out, pkg) : std::vector<std::string>{};
         sort_refs_newest_first(refs);
-        post([pkg, refs] {
+        post([pkg, refs] -> void {
             State& st = *g_st;
             if (pkg != st.ver_pkg) {
                 return;
@@ -130,7 +131,7 @@ void bg_versions(const std::string& pkg) {
             st.versions = refs;
             st.ver_loading = false;
             const std::string* cur = find_dep(st.installed, pkg);
-            auto it = cur ? std::find(refs.begin(), refs.end(), *cur) : refs.end();
+            auto it = cur ? std::ranges::find(refs, *cur) : refs.end();
             st.ver_cur = it == refs.end() ? 0 : static_cast<int>(it - refs.begin());
         });
     });
@@ -153,7 +154,7 @@ void set_dep(State& st, const std::string& name, const std::string& ref) {
 }
 
 void drop_installed_from_results(State& st) {
-    std::erase_if(st.results, [&](const auto& r) { return find_dep(st.installed, r.first) != nullptr; });
+    std::erase_if(st.results, [&](const auto& r) -> auto { return find_dep(st.installed, r.first) != nullptr; });
     st.srch_cur = std::clamp(st.srch_cur, 0, std::max(0, static_cast<int>(st.results.size()) - 1));
 }
 
@@ -169,16 +170,16 @@ void open_versions(State& st, const std::string& pkg, View origin) {
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 
-Element cell(const std::string& s, int width) {
+auto cell(const std::string& s, int width) -> Element {
     return text(s) | size(WIDTH, EQUAL, width);
 }
 
-Element tab(const std::string& label, bool active) {
+auto tab(const std::string& label, bool active) -> Element {
     Element e = text(" " + label + " ");
     return active ? (e | bold | underlined) : (e | ftxui::dim);
 }
 
-Element render_installed(const State& st) {
+auto render_installed(const State& st) -> Element {
     if (st.installed.empty()) {
         return text("    No packages installed.  Press [tab] to search.") | ftxui::dim;
     }
@@ -200,13 +201,13 @@ Element render_installed(const State& st) {
         }
         Element row = hbox({text("  "), cell(name, k_name_w), text("  "), cell(ref_version(ref), k_ver_w), text("  "),
                             cell(lat_ver, k_lat_w), text("  "), sym});
-        bool sel = static_cast<int>(i) == st.inst_cur;
+        bool sel = std::cmp_equal(i, st.inst_cur);
         rows.push_back(sel ? (row | color(Color::Cyan) | inverted | focus) : row);
     }
     return vbox(std::move(rows)) | yframe;
 }
 
-Element render_search(const State& st) {
+auto render_search(const State& st) -> Element {
     Elements rows;
     rows.push_back(hbox({text("  Search ▸ ") | bold, text(st.query), text(" ") | inverted}));
     if (st.searching) {
@@ -217,7 +218,7 @@ Element render_search(const State& st) {
                        ftxui::dim);
         Elements list;
         for (size_t j = 0; j < st.results.size(); ++j) {
-            bool sel = static_cast<int>(j) == st.srch_cur;
+            bool sel = std::cmp_equal(j, st.srch_cur);
             Element row = hbox({text(sel ? "  ▶ " : "    "), cell(st.results[j].first, k_name_w), text("  "),
                                 cell(ref_version(st.results[j].second), k_ver_w)});
             list.push_back(sel ? (row | color(Color::Cyan) | inverted | focus) : row);
@@ -230,7 +231,7 @@ Element render_search(const State& st) {
     return vbox(std::move(rows));
 }
 
-Element render_versions(const State& st) {
+auto render_versions(const State& st) -> Element {
     Elements rows;
     if (st.ver_loading) {
         rows.push_back(text("  loading versions…") | color(Color::Yellow));
@@ -240,7 +241,7 @@ Element render_versions(const State& st) {
         const std::string* cur = find_dep(st.installed, st.ver_pkg);
         for (size_t i = 0; i < st.versions.size(); ++i) {
             bool installed = cur != nullptr && *cur == st.versions[i];
-            bool sel = static_cast<int>(i) == st.ver_cur;
+            bool sel = std::cmp_equal(i, st.ver_cur);
             Element row = text(std::string("  ") + (installed ? " ✔ " : "   ") + ref_version(st.versions[i]));
             if (installed) {
                 row = row | color(Color::Green);
@@ -254,7 +255,7 @@ Element render_versions(const State& st) {
            clear_under | center;
 }
 
-Element render(const State& st) {
+auto render(const State& st) -> Element {
     View tab_view = st.view == View::Versions ? st.ver_origin : st.view;
     std::string hints;
     Element content;
@@ -296,9 +297,9 @@ Element render(const State& st) {
 void schedule_search(State& st) {
     unsigned gen = ++st.query_gen;
     st.status.clear();
-    in_background([gen] {
+    in_background([gen] -> void {
         std::this_thread::sleep_for(std::chrono::milliseconds(450));
-        post([gen] {
+        post([gen] -> void {
             State& s = *g_st;
             if (gen != s.query_gen || s.view != View::Search) {
                 return;
@@ -312,8 +313,8 @@ void schedule_search(State& st) {
     });
 }
 
-bool on_installed(State& st, const Event& e) {
-    int n = static_cast<int>(st.installed.size());
+auto on_installed(State& st, const Event& e) -> bool {
+    auto n = static_cast<int>(st.installed.size());
     if (e == Event::Character('q') || e == Event::Escape) {
         g_screen->Exit();
     } else if (e == Event::Tab) {
@@ -351,8 +352,8 @@ bool on_installed(State& st, const Event& e) {
     return true;
 }
 
-bool on_search(State& st, const Event& e) {
-    int n = static_cast<int>(st.results.size());
+auto on_search(State& st, const Event& e) -> bool {
+    auto n = static_cast<int>(st.results.size());
     if ((e == Event::Escape && st.query.empty()) || e == Event::Tab) {
         st.view = View::Installed;
         st.status.clear();
@@ -385,8 +386,8 @@ bool on_search(State& st, const Event& e) {
     return true;
 }
 
-bool on_versions(State& st, const Event& e) {
-    int n = static_cast<int>(st.versions.size());
+auto on_versions(State& st, const Event& e) -> bool {
+    auto n = static_cast<int>(st.versions.size());
     if (e == Event::Escape || e == Event::Character('q')) {
         st.view = st.ver_origin;
         st.status.clear();
@@ -410,7 +411,7 @@ bool on_versions(State& st, const Event& e) {
 
 } // namespace
 
-int cmd_packages() {
+auto cmd_packages() -> int {
     // Never freed: background threads may still post to them after the screen closes.
     g_screen = new App(App::Fullscreen()); // NOLINT(cppcoreguidelines-owning-memory)
     g_st = new State();                    // NOLINT(cppcoreguidelines-owning-memory)
@@ -424,7 +425,7 @@ int cmd_packages() {
         bg_latest(names);
     }
 
-    auto ui = Renderer([] { return render(*g_st); }) | CatchEvent([](const Event& e) {
+    auto ui = Renderer([] -> Element { return render(*g_st); }) | CatchEvent([](const Event& e) -> bool {
                   State& s = *g_st;
                   if (e == Event::Custom) {
                       return true;

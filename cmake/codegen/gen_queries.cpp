@@ -10,16 +10,16 @@
 namespace revet::codegen {
 namespace {
 
-const std::set<std::string>& exec_verbs() {
+auto exec_verbs() -> const std::set<std::string>& {
     static const std::set<std::string> values = {"insert", "update", "delete", "create", "drop", "alter", "truncate"};
     return values;
 }
-const std::set<std::string>& valid_directives() {
+auto valid_directives() -> const std::set<std::string>& {
     static const std::set<std::string> values = {"name", "model", "raw", "param", "returns", "scalar"};
     return values;
 }
 
-const std::map<std::string, std::string>& param_types() {
+auto param_types() -> const std::map<std::string, std::string>& {
     static const std::map<std::string, std::string> values = {
         {"int", "int"},         {"int32", "int32_t"},          {"int64", "int64_t"}, {"uint32", "uint32_t"},
         {"uint64", "uint64_t"}, {"double", "double"},          {"float", "float"},   {"string", "std::string"},
@@ -32,15 +32,15 @@ const std::map<std::string, std::string>& param_types() {
     throw GenError("error: " + msg);
 }
 
-bool is_word(char c) {
+auto is_word(char c) -> bool {
     return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
 }
 
 // Scrub mode (params == nullptr) blanks literals and comments
 // to spaces; sub mode rewrites :name → ? for declared params (outside literals/comments).
-std::string process_sql(const std::string& sql, const std::set<std::string>* params) {
+auto process_sql(const std::string& sql, const std::set<std::string>* params) -> std::string {
     std::string out;
-    auto keep = [&](char c) { return params == nullptr ? ' ' : c; };
+    auto keep = [&](char c) -> char { return params == nullptr ? ' ' : c; };
     size_t i = 0;
     while (i < sql.size()) {
         if (sql[i] == '-' && i + 1 < sql.size() && sql[i + 1] == '-') {
@@ -83,7 +83,7 @@ std::string process_sql(const std::string& sql, const std::set<std::string>* par
     return out;
 }
 
-std::string snake_to_camel(const std::string& s) {
+auto snake_to_camel(const std::string& s) -> std::string {
     std::string out;
     size_t start = 0;
     while (start <= s.size()) {
@@ -104,7 +104,7 @@ std::string snake_to_camel(const std::string& s) {
 }
 
 // 'int64' -> 'int64_t', 'string?' -> 'std::optional<std::string>'.
-std::string cpp_type(const std::string& t, const std::string& file, const std::string& name) {
+auto cpp_type(const std::string& t, const std::string& file, const std::string& name) -> std::string {
     bool nullable = !t.empty() && t.back() == '?';
     std::string base = nullable ? t.substr(0, t.size() - 1) : t;
     auto it = param_types().find(base);
@@ -124,7 +124,7 @@ std::string cpp_type(const std::string& t, const std::string& file, const std::s
 }
 
 // For `WITH a AS (...), b AS (...) <stmt>`, the first verb of <stmt> outside parentheses.
-std::optional<std::string> main_verb_after_with(const std::string& sql) {
+auto main_verb_after_with(const std::string& sql) -> std::optional<std::string> {
     const std::string scrubbed = lower(process_sql(sql, nullptr));
     int depth = 0;
     for (auto m : ctre::search_all<R"RE([()]|\b(?:select|insert|update|delete)\b)RE">(std::string_view(scrubbed))) {
@@ -140,7 +140,7 @@ std::optional<std::string> main_verb_after_with(const std::string& sql) {
     return std::nullopt;
 }
 
-std::string infer_verb(const std::string& sql, const std::string& file, const std::string& name) {
+auto infer_verb(const std::string& sql, const std::string& file, const std::string& name) -> std::string_view {
     for (const auto& line : splitlines(sql)) {
         std::string stripped = strip(line);
         if (stripped.empty() || starts_with(stripped, "--")) {
@@ -174,42 +174,42 @@ std::string infer_verb(const std::string& sql, const std::string& file, const st
     die(cat(file, ": block '", name, "': no SQL statement found"));
 }
 
-Lines emit_pair(const std::string& fn, const std::string& opts, const std::string& async_ret,
-                const std::string& sync_ret, const Lines& async_body, const Lines& sync_body) {
+auto emit_pair(const std::string& fn, const std::string& opts, const std::string& async_ret,
+               const std::string& sync_ret, const Lines& async_body, const Lines& sync_body) -> Lines {
     Lines out;
     out.push_back(cat("inline auto ", fn, "(auto& db", opts, ") -> ", async_ret, " {"));
     for (const auto& l : async_body) {
         out.push_back(l);
     }
-    out.push_back("}");
-    out.push_back("");
+    out.emplace_back("}");
+    out.emplace_back("");
     out.push_back(cat("inline auto sync_", fn, "(auto& db", opts, ") -> ", sync_ret, " {"));
     for (const auto& l : sync_body) {
         out.push_back(l);
     }
-    out.push_back("}");
-    out.push_back("");
+    out.emplace_back("}");
+    out.emplace_back("");
     return out;
 }
 
-Lines emit_exec(const std::string& fn, const std::string& sql, const std::string& args_decl,
-                const std::string& call_args) {
+auto emit_exec(const std::string& fn, const std::string& sql, const std::string& args_decl,
+               const std::string& call_args) -> Lines {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     return emit_pair(fn, opts, "web::Task<void>", "void",
                      {cat("    co_await db.async_exec(\"", sql, "\"", call_args, ");")},
                      {cat("    db.exec(\"", sql, "\"", call_args, ");")});
 }
 
-Lines emit_query_raw(const std::string& fn, const std::string& sql, const std::string& args_decl,
-                     const std::string& call_args) {
+auto emit_query_raw(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                    const std::string& call_args) -> Lines {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     return emit_pair(fn, opts, "web::Task<db::Result>", "db::Result",
                      {cat("    co_return co_await db.async_query(\"", sql, "\"", call_args, ");")},
                      {cat("    return db.query(\"", sql, "\"", call_args, ");")});
 }
 
-Lines emit_query_typed(const std::string& fn, const std::string& sql, const std::string& args_decl,
-                       const std::string& call_args, const std::vector<std::string>& cols) {
+auto emit_query_typed(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                      const std::string& call_args, const std::vector<std::string>& cols) -> Lines {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     std::string types = join(cols, ", ");
     std::string ret = "std::vector<std::tuple<" + types + ">>";
@@ -219,12 +219,12 @@ Lines emit_query_typed(const std::string& fn, const std::string& sql, const std:
                      {cat("    return db::typed<", types, ">(db.query_nullable(\"", sql, "\"", call_args, "));")});
 }
 
-Lines emit_query_scalar(const std::string& fn, const std::string& sql, const std::string& args_decl,
-                        const std::string& call_args, const std::string& col) {
+auto emit_query_scalar(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                       const std::string& call_args, const std::string& col) -> Lines {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     // A nullable scalar type is already optional; don't wrap it twice.
     const std::string prefix = "std::optional<";
-    bool already = col.rfind(prefix, 0) == 0;
+    bool already = col.starts_with(prefix);
     std::string ret = already ? col : prefix + col + ">";
     std::string inner = already ? col.substr(prefix.size(), col.size() - prefix.size() - 1) : col;
     return emit_pair(fn, opts, "web::Task<" + ret + ">", ret,
@@ -236,8 +236,8 @@ Lines emit_query_scalar(const std::string& fn, const std::string& sql, const std
                       cat("    return db::detail::convert<", inner, ">(raw[0][0], 0);")});
 }
 
-Lines emit_query_model(const std::string& fn, const std::string& sql, const std::string& args_decl,
-                       const std::string& call_args, const std::string& mdl) {
+auto emit_query_model(const std::string& fn, const std::string& sql, const std::string& args_decl,
+                      const std::string& call_args, const std::string& mdl) -> Lines {
     std::string opts = args_decl.empty() ? "" : ", " + args_decl;
     Lines map_rows = {
         cat("    std::vector<", mdl, "> out;"),
@@ -248,19 +248,19 @@ Lines emit_query_model(const std::string& fn, const std::string& sql, const std:
     for (const auto& l : map_rows) {
         async_body.push_back(l);
     }
-    async_body.push_back("    co_return out;");
+    async_body.emplace_back("    co_return out;");
     Lines sync_body = {cat("    auto raw = db.query(\"", sql, "\"", call_args, ");")};
     for (const auto& l : map_rows) {
         sync_body.push_back(l);
     }
-    sync_body.push_back("    return out;");
+    sync_body.emplace_back("    return out;");
     return emit_pair(fn, opts, cat("web::Task<std::vector<", mdl, ">>"), cat("std::vector<", mdl, ">"), async_body,
                      sync_body);
 }
 
 } // namespace
 
-int gen_queries(const Ctx& ctx) {
+auto gen_queries(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "queries.hpp");
     fs::path queries_dir = ctx.proj / "app" / "queries";
 
@@ -273,8 +273,8 @@ int gen_queries(const Ctx& ctx) {
     Lines out = file_header({"#include <revet/db.hpp>", "#include <revet/task.hpp>", "#include <revet/decimal.hpp>",
                              "#include \"models.hpp\"", "#include <optional>", "#include <string>", "#include <tuple>",
                              "#include <utility>", "#include <vector>"});
-    out.push_back("namespace queries {");
-    out.push_back("");
+    out.emplace_back("namespace queries {");
+    out.emplace_back("");
 
     for (const auto& sql_file : sql_files) {
         std::string ns = sql_file.stem().string();
@@ -403,8 +403,8 @@ int gen_queries(const Ctx& ctx) {
                 for (const auto& f : fields) {
                     ns_out.push_back(f);
                 }
-                ns_out.push_back("};");
-                ns_out.push_back("");
+                ns_out.emplace_back("};");
+                ns_out.emplace_back("");
 
                 args_decl = "const " + struct_name + "& p";
                 for (const auto& ref : sql_param_refs) {
@@ -428,20 +428,20 @@ int gen_queries(const Ctx& ctx) {
                 sql_escaped = escape_str(sql);
             }
 
-            std::string verb = infer_verb(sql, file, name);
+            std::string verb(infer_verb(sql, file, name));
 
             std::vector<std::string> shapes;
             if (!model.empty()) {
-                shapes.push_back("model");
+                shapes.emplace_back("model");
             }
             if (is_raw) {
-                shapes.push_back("raw");
+                shapes.emplace_back("raw");
             }
             if (!returns.empty()) {
-                shapes.push_back("returns");
+                shapes.emplace_back("returns");
             }
             if (!scalar.empty()) {
-                shapes.push_back("scalar");
+                shapes.emplace_back("scalar");
             }
             if (shapes.size() > 1) {
                 die(cat(file, ": block '", name,
@@ -476,17 +476,17 @@ int gen_queries(const Ctx& ctx) {
 
         if (!ns_out.empty()) {
             out.push_back("namespace " + ns + " {");
-            out.push_back("");
+            out.emplace_back("");
             for (const auto& l : ns_out) {
                 out.push_back(l);
             }
             out.push_back("} // namespace " + ns);
-            out.push_back("");
+            out.emplace_back("");
         }
     }
 
-    out.push_back("} // namespace queries");
-    out.push_back("");
+    out.emplace_back("} // namespace queries");
+    out.emplace_back("");
     write_lines(out_path, out);
     return 0;
 }

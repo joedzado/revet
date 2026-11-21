@@ -14,7 +14,7 @@ struct FormStruct {
     std::string body;
 };
 
-std::vector<FormStruct> find_form_structs(const std::string& src) {
+auto find_form_structs(const std::string& src) -> std::vector<FormStruct> {
     std::vector<FormStruct> out;
     for (auto m : ctre::search_all<R"RE(struct\s+\[\[revet::form\]\]\s+(\w+)\s*\{)RE">(std::string_view(src))) {
         size_t start = offset_in(src, m.to_view()) + m.size();
@@ -29,16 +29,16 @@ std::vector<FormStruct> find_form_structs(const std::string& src) {
             ++i;
         }
         // Drops the closing brace.
-        out.push_back({m.get<1>().to_string(), src.substr(start, i - 1 - start)});
+        out.push_back({.name = m.get<1>().to_string(), .body = src.substr(start, i - 1 - start)});
     }
     return out;
 }
 
-bool is_ws(char c) {
+auto is_ws(char c) -> bool {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-std::vector<Member> parse_members(const std::string& body) {
+auto parse_members(const std::string& body) -> std::vector<Member> {
     std::vector<Member> members;
     size_t i = 0;
     while (i < body.size()) {
@@ -69,7 +69,7 @@ std::vector<Member> parse_members(const std::string& body) {
         bool optional = starts_with(decl, "std::optional");
         std::string no_init = strip(replace_all<R"RE(\{[^}]*\})RE">(decl, ""));
         if (auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) {
-            members.push_back({m.get<1>().to_string(), optional});
+            members.push_back({.name = m.get<1>().to_string(), .optional = optional});
         }
     }
     return members;
@@ -77,7 +77,7 @@ std::vector<Member> parse_members(const std::string& body) {
 
 } // namespace
 
-int gen_forms(const Ctx& ctx) {
+auto gen_forms(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "forms.hpp");
     fs::path forms_dir = ctx.proj / "app" / "forms";
     std::vector<fs::path> form_files = glob(forms_dir, ".hpp");

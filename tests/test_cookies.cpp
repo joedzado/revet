@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static std::string capture_response(const web::Response& resp) {
+static auto capture_response(const web::Response& resp) -> std::string {
     std::array<int, 2> fds{};
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
     web::send_response(fds[0], resp);
@@ -98,7 +98,7 @@ TEST_CASE("send_response delivers complete large body", "[web]") {
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
 
     // Send in a thread to avoid deadlock when body exceeds socket buffer
-    std::jthread sender([&]() {
+    std::jthread sender([&]() -> void {
         web::send_response(fds[0], resp);
         close(fds[0]);
     });

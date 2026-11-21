@@ -27,15 +27,15 @@ using db::postgres::Transaction;
 
 namespace {
 
-const char* test_url() {
+auto test_url() -> const char* {
     return std::getenv("REVET_TEST_PG_URL");
 }
 
-#define REQUIRE_PG()                                       \
-    do {                                                   \
-        if (test_url() == nullptr) {                       \
-            SKIP("REVET_TEST_PG_URL not set");             \
-        }                                                  \
+#define REQUIRE_PG()                                                                                                   \
+    do {                                                                                                               \
+        if (test_url() == nullptr) {                                                                                   \
+            SKIP("REVET_TEST_PG_URL not set");                                                                         \
+        }                                                                                                              \
     } while (false)
 
 // Drives a Task<void> to completion on the I/O pool.
@@ -45,14 +45,14 @@ void run_task(MakeTask make_task) {
     std::mutex m;
     std::condition_variable cv;
     bool done = false;
-    std::move(make_task()).start([&] {
-        std::lock_guard lk(m);
+    std::move(make_task()).start([&] -> void {
+        std::scoped_lock lk(m);
         done = true;
         cv.notify_one();
     });
     {
         std::unique_lock lk(m);
-        cv.wait_for(lk, std::chrono::seconds(10), [&] { return done; });
+        cv.wait_for(lk, std::chrono::seconds(10), [&] -> bool { return done; });
     }
     web::detail::io_pool().reset();
     REQUIRE(done);
@@ -113,10 +113,9 @@ TEST_CASE("postgres: uuid, date, timestamp and jsonb read as text", "[postgres]"
     REQUIRE_PG();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
-    const auto r = h.query(
-        "select ?::uuid, ?::date, ?::timestamp, ?::jsonb->>'k'",
-        std::string("7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11"), std::string("2026-11-05"),
-        std::string("2026-11-05 12:34:56"), std::string(R"({"k":"v"})"));
+    const auto r = h.query("select ?::uuid, ?::date, ?::timestamp, ?::jsonb->>'k'",
+                           std::string("7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11"), std::string("2026-11-05"),
+                           std::string("2026-11-05 12:34:56"), std::string(R"({"k":"v"})"));
     CHECK(r[0][0] == "7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11");
     CHECK(r[0][1] == "2026-11-05");
     CHECK(r[0][2] == "2026-11-05 12:34:56");
@@ -267,7 +266,7 @@ TEST_CASE("postgres: concurrent readers and writers lose nothing", "[postgres]")
     std::atomic<int> failures{0};
     std::vector<std::thread> threads;
     for (int t = 0; t < kThreads; ++t) {
-        threads.emplace_back([&, t] {
+        threads.emplace_back([&, t] -> void {
             for (int i = 0; i < kPerThread; ++i) {
                 try {
                     if (t % 2 == 0) {
@@ -301,10 +300,27 @@ TEST_CASE("postgres: Decimal arithmetic matches the server byte for byte", "[pos
     Handle<> h(pool);
 
     using revet::Decimal;
-    const std::vector<std::string> values = {
-        "0",      "0.00",   "1",       "-1",     "0.0001",   "-0.0001", "1.005",  "-1.005", "2.5",
-        "-2.5",   "12.3400", "99999.99", "0.1",   "0.2",      "3.14159", "1000000", "1234.5678",
-        "999999999999999.9999", "-999999999999999.9999", "1234.567890123456789012", "512.3456789012"};
+    const std::vector<std::string> values = {"0",
+                                             "0.00",
+                                             "1",
+                                             "-1",
+                                             "0.0001",
+                                             "-0.0001",
+                                             "1.005",
+                                             "-1.005",
+                                             "2.5",
+                                             "-2.5",
+                                             "12.3400",
+                                             "99999.99",
+                                             "0.1",
+                                             "0.2",
+                                             "3.14159",
+                                             "1000000",
+                                             "1234.5678",
+                                             "999999999999999.9999",
+                                             "-999999999999999.9999",
+                                             "1234.567890123456789012",
+                                             "512.3456789012"};
 
     for (const auto& a : values) {
         for (const auto& b : values) {
@@ -316,7 +332,8 @@ TEST_CASE("postgres: Decimal arithmetic matches the server byte for byte", "[pos
             CHECK((da + db_).to_string() == row[0]);
             CHECK((da - db_).to_string() == row[1]);
             // Over 38 digits a product may not fit: throwing is correct, a wrong value is not.
-            const auto digits = std::count_if(row[2].begin(), row[2].end(), [](char c) { return c >= '0' && c <= '9'; });
+            const auto digits =
+                std::count_if(row[2].begin(), row[2].end(), [](char c) { return c >= '0' && c <= '9'; });
             std::optional<std::string> product;
             try {
                 product = (da * db_).to_string();

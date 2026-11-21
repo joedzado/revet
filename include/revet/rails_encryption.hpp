@@ -41,24 +41,24 @@ public:
     explicit Encryption(const EncryptionConfig& config);
     ~Encryption();
     Encryption(const Encryption&) = delete;
-    Encryption& operator=(const Encryption&) = delete;
+    auto operator=(const Encryption&) -> Encryption& = delete;
 
     // Accepts the stored message as text, or as a jsonb column reads back: either
     // a JSON object, or a JSON string that holds one. Throws EncryptionError.
-    std::string decrypt(std::string_view message, Scheme scheme) const;
+    [[nodiscard]] auto decrypt(std::string_view message, Scheme scheme) const -> std::string;
 
     // Returns the message as Rails serializes it. Throws EncryptionError.
-    std::string encrypt(std::string_view plaintext, Scheme scheme) const;
+    [[nodiscard]] auto encrypt(std::string_view plaintext, Scheme scheme) const -> std::string;
 
     // True if the value is shaped like an encrypted message. Does not check that
     // it decrypts. Useful where Rails allows unencrypted legacy values.
-    static bool is_encrypted(std::string_view value);
+    static auto is_encrypted(std::string_view value) -> bool;
 
     // PBKDF2-HMAC-SHA256 as ActiveSupport::KeyGenerator does it, for tests.
-    static std::array<unsigned char, kKeyBytes> derive_key(std::string_view password, std::string_view salt);
+    static auto derive_key(std::string_view password, std::string_view salt) -> std::array<unsigned char, kKeyBytes>;
 
 private:
-    const std::array<unsigned char, kKeyBytes>& key_for(Scheme scheme) const;
+    [[nodiscard]] auto key_for(Scheme scheme) const -> const std::array<unsigned char, kKeyBytes>&;
 
     std::array<unsigned char, kKeyBytes> primary_{};
     std::array<unsigned char, kKeyBytes> deterministic_{};

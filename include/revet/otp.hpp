@@ -9,9 +9,6 @@
 //   if (throttle.locked(username)) return locked_page();
 //   ok ? throttle.reset(username) : throttle.fail(username);
 
-#include "crypto.hpp"
-#include "hash.hpp"
-
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -19,6 +16,9 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+
+#include "crypto.hpp"
+#include "hash.hpp"
 
 namespace web::otp {
 
@@ -88,8 +88,8 @@ inline auto code(std::string_view secret, std::uint64_t counter) -> std::string 
 }
 
 // The step `code` matches, allowing one step of clock drift either way; 0 if none.
-inline auto matching_step(std::string_view secret, std::string_view submitted, std::uint64_t now = now_step())
-    -> std::uint64_t {
+inline auto matching_step(std::string_view secret, std::string_view submitted,
+                          std::uint64_t now = now_step()) -> std::uint64_t {
     for (const std::uint64_t step : {now - 1, now, now + 1}) {
         if (crypto::secure_eq(code(secret, step), submitted)) {
             return step;
@@ -102,7 +102,7 @@ inline auto matching_step(std::string_view secret, std::string_view submitted, s
 class ReplayGuard {
 public:
     auto verify(std::string_view secret, std::string_view submitted, std::uint64_t now = now_step()) -> bool {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         const auto step = matching_step(secret, submitted, now);
         if (step == 0 || step <= last_) {
             return false;
@@ -122,16 +122,16 @@ public:
     Throttle(int max_failures, std::chrono::seconds lockout) : max_(max_failures), lockout_(lockout) {}
 
     auto locked(const std::string& key) -> bool {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         auto it = entries_.find(key);
         return it != entries_.end() && it->second.until > std::chrono::steady_clock::now();
     }
     void fail(const std::string& key) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         // Keys can be attacker-chosen (usernames), so don't let the map grow without bound.
         if (entries_.size() >= 10000) {
             const auto now = std::chrono::steady_clock::now();
-            std::erase_if(entries_, [&](const auto& kv) { return kv.second.until <= now; });
+            std::erase_if(entries_, [&](const auto& kv) -> auto { return kv.second.until <= now; });
         }
         auto& e = entries_[key];
         if (++e.failures >= max_) {
@@ -140,7 +140,7 @@ public:
         }
     }
     void reset(const std::string& key) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         entries_.erase(key);
     }
 

@@ -7,7 +7,7 @@ namespace revet::codegen {
 namespace {
 
 // str.split() with no arguments.
-Lines split_ws(const std::string& s) {
+auto split_ws(const std::string& s) -> Lines {
     Lines out;
     std::string cur;
     for (char c : s) {
@@ -30,7 +30,7 @@ constexpr std::string_view k_export_attr = "[[revet::export]]";
 
 } // namespace
 
-int gen_components(const Ctx& ctx) {
+auto gen_components(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "components.hpp");
     fs::path components_dir = ctx.proj / "app" / "components";
     fs::path layouts_dir = ctx.proj / "app" / "layouts";
@@ -56,7 +56,7 @@ int gen_components(const Ctx& ctx) {
         "#include \"states.hpp\"",
     };
     if (has_models(models_dir)) {
-        out.push_back("#include \"models.hpp\"");
+        out.emplace_back("#include \"models.hpp\"");
     }
     for (const auto& hpp : glob(components_dir, ".hpp")) {
         out.push_back(rel_include(hpp, ctx.proj));
@@ -64,7 +64,7 @@ int gen_components(const Ctx& ctx) {
     for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) {
         out.push_back(rel_include(hpp, ctx.proj));
     }
-    out.push_back("");
+    out.emplace_back("");
 
     struct Deps {
         std::string name;
@@ -132,14 +132,14 @@ int gen_components(const Ctx& ctx) {
                     }
                 }
                 if (!replaced) {
-                    comp_deps.push_back({name, deps});
+                    comp_deps.push_back({.name = name, .items = deps});
                 }
             }
         }
     }
 
-    out.push_back("");
-    out.push_back("namespace web::components {");
+    out.emplace_back("");
+    out.emplace_back("namespace web::components {");
     for (const auto& d : comp_deps) {
         std::string dep_list;
         for (size_t i = 0; i < d.items.size(); ++i) {
@@ -150,7 +150,7 @@ int gen_components(const Ctx& ctx) {
         }
         out.push_back(subst(traits_t, {{"name", d.name}, {"dep_list", dep_list}}));
     }
-    out.push_back("}");
+    out.emplace_back("}");
     write_lines(out_path, out);
     return 0;
 }

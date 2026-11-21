@@ -1,16 +1,15 @@
 // Typed results (query_as, scalar), Decimal binding and backups on SQLite.
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
+#include <fstream>
 #include <revet/db/sqlite.hpp>
 #include <revet/decimal.hpp>
-
-#include <atomic>
-#include <fstream>
-#include <unistd.h>
-#include <filesystem>
 #include <string>
+#include <unistd.h>
 
 namespace {
-std::string unique_db_path() {
+auto unique_db_path() -> std::string {
     static std::atomic<int> seq{0};
     return std::format("/tmp/revet_typed_{}_{}.db", ::getpid(), seq++);
 }

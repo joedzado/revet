@@ -8,7 +8,7 @@
 namespace revet::codegen {
 namespace {
 
-std::string shell_quote(const std::string& s) {
+auto shell_quote(const std::string& s) -> std::string {
     std::string out = "'";
     for (char c : s) {
         if (c == '\'') {
@@ -20,7 +20,7 @@ std::string shell_quote(const std::string& s) {
     return out + "'";
 }
 
-fs::path find_bun() {
+auto find_bun() -> fs::path {
     if (const char* path = std::getenv("PATH")) {
         std::string p = path;
         size_t start = 0;
@@ -45,7 +45,7 @@ fs::path find_bun() {
 
 } // namespace
 
-int gen_htmx(const Ctx& ctx) {
+auto gen_htmx(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "htmx_asset.hpp");
 
     std::string version = "2.0.11";
@@ -75,16 +75,16 @@ int gen_htmx(const Ctx& ctx) {
     }
 
     Lines out = file_header({"#include <string_view>"});
-    out.push_back("namespace revet::detail {");
+    out.emplace_back("namespace revet::detail {");
     out.push_back(cat("inline constexpr std::string_view htmx_version = \"", version, "\";"));
     out.push_back(cat("inline constexpr std::string_view htmx_js = \"", escape_str(read_text(vendor_file)), "\";"));
-    out.push_back("} // namespace revet::detail");
-    out.push_back("");
+    out.emplace_back("} // namespace revet::detail");
+    out.emplace_back("");
     write_lines(out_path, out);
     return 0;
 }
 
-int gen_optimistic(const Ctx& ctx) {
+auto gen_optimistic(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "optimistic_asset.hpp");
     fs::path ts_file = ctx.framework / "static" / "optimistic.ts";
     if (!file_exists(ts_file)) {
@@ -116,10 +116,10 @@ int gen_optimistic(const Ctx& ctx) {
     fs::remove_all(tmp_dir);
 
     Lines out = file_header({"#include <string_view>"});
-    out.push_back("namespace revet::detail {");
+    out.emplace_back("namespace revet::detail {");
     out.push_back(cat("inline constexpr std::string_view optimistic_js = \"", escape_str(js), "\";"));
-    out.push_back("} // namespace revet::detail");
-    out.push_back("");
+    out.emplace_back("} // namespace revet::detail");
+    out.emplace_back("");
     write_lines(out_path, out);
     return 0;
 }

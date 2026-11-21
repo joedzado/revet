@@ -19,10 +19,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <utility>
+#include <zlib.h>
 
 #include "hash.hpp"
-
-#include <zlib.h>
 
 // RFC 6455 WebSocket: handshake, frame codec, and a server-side connection.
 
@@ -34,7 +33,7 @@ inline constexpr int k_idle_timeout_ms = 30'000;                   // ping after
 inline constexpr int k_max_connections = 256;                      // process-wide cap on open sockets
 inline constexpr int k_send_timeout_ms = 5'000;                    // a stalled peer can't hold the write lock forever
 inline constexpr auto k_frame_deadline = std::chrono::seconds(10); // bounds a slow-drip frame, not just one recv
-inline constexpr size_t k_max_buffered = size_t{256} << 20;       // bytes held by in-flight messages, process-wide
+inline constexpr size_t k_max_buffered = size_t{256} << 20;        // bytes held by in-flight messages, process-wide
 
 enum class Opcode : uint8_t {
     Continuation = 0x0,
@@ -79,7 +78,9 @@ public:
     auto operator=(const Budget&) -> Budget& = delete;
     Budget(Budget&&) = delete;
     auto operator=(Budget&&) -> Budget& = delete;
-    ~Budget() { buffered_total().fetch_sub(held_); }
+    ~Budget() {
+        buffered_total().fetch_sub(held_);
+    }
 
     [[nodiscard]] auto reserve(size_t n) -> bool {
         if (buffered_total().fetch_add(n) + n > k_max_buffered) {
@@ -276,7 +277,7 @@ inline auto window_bits(std::string_view v) -> std::optional<int> {
     if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
         v = v.substr(1, v.size() - 2);
     }
-    if (v.empty() || v.size() > 2 || !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+    if (v.empty() || v.size() > 2 || !std::ranges::all_of(v, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
         return std::nullopt;
     }
     const int n = std::stoi(std::string(v));
@@ -406,10 +407,10 @@ public:
     [[nodiscard]] static auto make(int fd, Slot slot,
                                    int idle_timeout_ms = k_idle_timeout_ms) -> std::shared_ptr<Conn> {
         if (idle_timeout_ms > 0) {
-            timeval tv{idle_timeout_ms / 1000, (idle_timeout_ms % 1000) * 1000};
+            timeval tv{.tv_sec = idle_timeout_ms / 1000, .tv_usec = (idle_timeout_ms % 1000) * 1000};
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         }
-        timeval send_tv{k_send_timeout_ms / 1000, (k_send_timeout_ms % 1000) * 1000};
+        timeval send_tv{.tv_sec = k_send_timeout_ms / 1000, .tv_usec = (k_send_timeout_ms % 1000) * 1000};
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send_tv, sizeof(send_tv));
         return std::shared_ptr<Conn>(new Conn(fd, std::move(slot)));
     }
@@ -452,13 +453,13 @@ public:
     auto recv() -> std::optional<Message> {
         Message msg;
         bool in_fragment = false;
-        bool compressed = false;   // the current message arrived with RSV1 set
+        bool compressed = false; // the current message arrived with RSV1 set
         bool ping_outstanding = false;
-        std::string utf8_pending;  // trailing bytes of a text message split mid-codepoint
-        detail::Budget held;       // what this message holds in the process-wide budget
+        std::string utf8_pending; // trailing bytes of a text message split mid-codepoint
+        detail::Budget held;      // what this message holds in the process-wide budget
 
         // Appends decoded message bytes; text is checked for UTF-8 as it arrives.
-        auto absorb = [&](std::string_view bytes) {
+        auto absorb = [&](std::string_view bytes) -> void {
             if (msg.data.size() + bytes.size() > k_max_message) {
                 fail(CloseCode::TooBig, "message too large");
             }
@@ -478,7 +479,7 @@ public:
         };
 
         // Runs compressed bytes through the inflater. Z_SYNC_FLUSH only at the end of a message.
-        auto inflate_into = [&](std::string_view input, int flush) {
+        auto inflate_into = [&](std::string_view input, int flush) -> void {
             zin_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(input.data()));
             zin_.avail_in = static_cast<uInt>(input.size());
             std::array<unsigned char, 16384> out{};
@@ -562,9 +563,10 @@ public:
                 fail(CloseCode::TooBig, "message too large");
             }
 
-            const bool ok = compressed
-                                ? read_payload(*head, st, [&](std::string_view bytes) { inflate_into(bytes, Z_NO_FLUSH); })
-                                : read_payload(*head, st, [&](std::string_view bytes) { absorb(bytes); });
+            const bool ok =
+                compressed
+                    ? read_payload(*head, st, [&](std::string_view bytes) -> void { inflate_into(bytes, Z_NO_FLUSH); })
+                    : read_payload(*head, st, [&](std::string_view bytes) -> void { absorb(bytes); });
             if (!ok) {
                 open_ = false;
                 return std::nullopt;
@@ -594,7 +596,7 @@ public:
     void close(CloseCode code = CloseCode::Normal) {
         const auto raw = static_cast<uint16_t>(code);
         const std::string payload{static_cast<char>(raw >> 8), static_cast<char>(raw & 0xFF)};
-        std::lock_guard lock(write_mu_);
+        std::scoped_lock lock(write_mu_);
         if (!open_.exchange(false)) {
             return;
         }
@@ -759,7 +761,7 @@ private:
     }
 
     // Reads and unmasks a payload in pieces; on_bytes sees each piece before the rest of the frame arrives.
-    template <typename OnBytes>
+    template<typename OnBytes>
     auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> bool {
         std::array<char, 16384> buf{};
         uint64_t done = 0;
@@ -784,14 +786,14 @@ private:
     // Control frames are at most 125 bytes, so they can be held whole.
     auto read_control(const Header& h, IoStatus& st) -> std::optional<std::string> {
         std::string out;
-        if (!read_payload(h, st, [&](std::string_view bytes) { out.append(bytes); })) {
+        if (!read_payload(h, st, [&](std::string_view bytes) -> void { out.append(bytes); })) {
             return std::nullopt;
         }
         return out;
     }
 
     // A timeout after the frame has started is a dead peer, not an idle one.
-    template <typename T>
+    template<typename T>
     static auto fail_mid_frame(IoStatus& st) -> std::optional<T> {
         if (st == IoStatus::Timeout) {
             st = IoStatus::Closed;
@@ -800,7 +802,7 @@ private:
     }
 
     auto write(Opcode op, std::string_view payload) -> bool {
-        std::lock_guard lock(write_mu_);
+        std::scoped_lock lock(write_mu_);
         if (!open_.load()) {
             return false;
         }
@@ -826,7 +828,7 @@ private:
             out.append(reinterpret_cast<const char*>(buf.data()), buf.size() - zout_.avail_out);
         } while (zout_.avail_out == 0);
         constexpr std::string_view kTail("\0\0\xff\xff", 4);
-        if (out.size() >= kTail.size() && out.compare(out.size() - kTail.size(), kTail.size(), kTail) == 0) {
+        if (out.size() >= kTail.size() && out.ends_with(kTail)) {
             out.resize(out.size() - kTail.size());
         }
         return out;

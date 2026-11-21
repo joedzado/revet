@@ -13,15 +13,13 @@
 // Mirror of the production formatting branch in write_response(). If the
 // production code drifts, this helper must drift with it — otherwise the
 // tests would be lying. Keep the strings in lockstep.
-static std::string format_cookie(const std::string& name, const std::string& value) {
+static auto format_cookie(const std::string& name, const std::string& value) -> std::string {
     const bool secure = web::config::secure_cookies();
     const std::string_view suffix = secure ? "; Secure" : "";
     if (value.empty()) {
-        return std::format("Set-Cookie: {}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
-                           name, suffix);
+        return std::format("Set-Cookie: {}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}", name, suffix);
     }
-    return std::format("Set-Cookie: {}={}; Path=/; HttpOnly; SameSite=Lax{}",
-                       name, value, suffix);
+    return std::format("Set-Cookie: {}={}; Path=/; HttpOnly; SameSite=Lax{}", name, value, suffix);
 }
 
 TEST_CASE("cookies: Secure flag off by default (dev)", "[cookies]") {
@@ -51,6 +49,6 @@ TEST_CASE("cookies: Secure flag also applied to clear-cookie lines", "[cookies]"
     web::config::secure_cookies(true);
     const auto line = format_cookie("k", "");
     REQUIRE(line.find("Max-Age=0") != std::string::npos);
-    REQUIRE(line.find("; Secure")  != std::string::npos);
+    REQUIRE(line.find("; Secure") != std::string::npos);
     web::config::secure_cookies(prev);
 }

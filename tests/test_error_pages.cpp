@@ -6,7 +6,7 @@ TEST_CASE("Custom Error Handler Registry", "[web]") {
     web::error_handlers().clear();
 
     SECTION("Register 404 handler") {
-        web::on_error(web::status::not_found, [](const web::Request&) {
+        web::on_error(web::status::not_found, [](const web::Request&) -> web::Response {
             auto resp = web::to_response("CUSTOM NOT FOUND");
             resp.status = web::status::not_found;
             return resp;
@@ -20,7 +20,7 @@ TEST_CASE("Custom Error Handler Registry", "[web]") {
     }
 
     SECTION("Register 500 handler") {
-        web::on_error(web::status::internal_error, [](const web::Request&) {
+        web::on_error(web::status::internal_error, [](const web::Request&) -> web::Response {
             auto resp = web::to_response("CUSTOM ERROR");
             resp.status = web::status::internal_error;
             return resp;

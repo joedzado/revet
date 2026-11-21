@@ -20,24 +20,24 @@ struct Node {
     std::vector<Node> vals;        // Table values, parallel to keys
 
     // Table lookup; nullptr when missing or not a table.
-    const Node* find(std::string_view key) const;
+    [[nodiscard]] auto find(std::string_view key) const -> const Node*;
     // Table insert-or-replace, keeping the original position of an existing key.
     void set(const std::string& key, Node value);
 };
 
 // Parses JSON. Throws std::runtime_error on malformed input.
-Node parse_json(std::string_view text);
+auto parse_json(std::string_view text) -> Node;
 // Matches json.dumps(obj, indent=2) output (ensure_ascii, no trailing newline).
-std::string dump_json_indent2(const Node& n);
+auto dump_json_indent2(const Node& n) -> std::string;
 
 // Parses the TOML subset used by revet.toml: [a.b] tables, dotted keys,
 // strings, integers, floats, booleans, arrays and inline tables.
 // Throws std::runtime_error on anything else.
-Node parse_toml(std::string_view text);
+auto parse_toml(std::string_view text) -> Node;
 
 // Conversions used by the generators.
-std::string py_str(const Node& n); // str(value)
-long long py_int(const Node& n);   // int(value)
-bool py_bool(const Node& n);       // bool(value)
+auto py_str(const Node& n) -> std::string; // str(value)
+auto py_int(const Node& n) -> long long;   // int(value)
+auto py_bool(const Node& n) -> bool;       // bool(value)
 
 } // namespace revet::codegen

@@ -25,7 +25,7 @@ struct TempDir {
         std::filesystem::remove_all(path, ec);
     }
     TempDir(const TempDir&) = delete;
-    TempDir& operator=(const TempDir&) = delete;
+    auto operator=(const TempDir&) -> TempDir& = delete;
 };
 
 static void write_bytes(const std::filesystem::path& p, std::span<const unsigned char> data) {
@@ -264,7 +264,7 @@ TEST_CASE("uploads::allow — custom validator receives mutable file ref", "[upl
     auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
-        .validators = {[&seen](web::UploadedFile& f) {
+        .validators = {[&seen](web::UploadedFile& f) -> bool {
             seen = f.detected_type;
             return true;
         }},

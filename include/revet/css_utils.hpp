@@ -13,7 +13,7 @@ namespace css {
 
 // Internal: a modifier that sets one css_props field.
 // Implicitly converts to string_view so it also works as a raw value.
-template<std::string_view html::css_props::* Field>
+template<std::string_view html::css_props::*Field>
 struct mod {
     std::string_view v;
     constexpr void operator()(html::css_props& p) const {
@@ -54,377 +54,377 @@ inline constexpr std::string_view _full = "100%";
 // ── Gap ───────────────────────────────────────────────────────────────────────
 namespace gap {
 using type = mod<&html::css_props::gap>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _px{sp::_px};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _5{sp::_5};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
-inline constexpr type _10{sp::_10};
-inline constexpr type _12{sp::_12};
-inline constexpr type _16{sp::_16};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _px{.v = sp::_px};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _5{.v = sp::_5};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
+inline constexpr type _10{.v = sp::_10};
+inline constexpr type _12{.v = sp::_12};
+inline constexpr type _16{.v = sp::_16};
 } // namespace gap
 namespace row_gap {
 using type = mod<&html::css_props::row_gap>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace row_gap
 namespace col_gap {
 using type = mod<&html::css_props::column_gap>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace col_gap
 
 // ── Padding ───────────────────────────────────────────────────────────────────
 namespace p {
 using type = mod<&html::css_props::padding>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _px{sp::_px};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _5{sp::_5};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
-inline constexpr type _10{sp::_10};
-inline constexpr type _12{sp::_12};
-inline constexpr type _16{sp::_16};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _px{.v = sp::_px};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _5{.v = sp::_5};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
+inline constexpr type _10{.v = sp::_10};
+inline constexpr type _12{.v = sp::_12};
+inline constexpr type _16{.v = sp::_16};
 } // namespace p
 namespace pt {
 using type = mod<&html::css_props::padding_top>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
-inline constexpr type _12{sp::_12};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
+inline constexpr type _12{.v = sp::_12};
 } // namespace pt
 namespace pb {
 using type = mod<&html::css_props::padding_bottom>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
-inline constexpr type _12{sp::_12};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
+inline constexpr type _12{.v = sp::_12};
 } // namespace pb
 namespace pl {
 using type = mod<&html::css_props::padding_left>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace pl
 namespace pr {
 using type = mod<&html::css_props::padding_right>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace pr
 
 // ── Margin ────────────────────────────────────────────────────────────────────
 namespace m {
 using type = mod<&html::css_props::margin>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _auto{sp::_auto};
-inline constexpr type _px{sp::_px};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
-inline constexpr type _12{sp::_12};
-inline constexpr type _16{sp::_16};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _auto{.v = sp::_auto};
+inline constexpr type _px{.v = sp::_px};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
+inline constexpr type _12{.v = sp::_12};
+inline constexpr type _16{.v = sp::_16};
 } // namespace m
 namespace mt {
 using type = mod<&html::css_props::margin_top>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _auto{sp::_auto};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _auto{.v = sp::_auto};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace mt
 namespace mb {
 using type = mod<&html::css_props::margin_bottom>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _auto{sp::_auto};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _3{sp::_3};
-inline constexpr type _4{sp::_4};
-inline constexpr type _6{sp::_6};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _auto{.v = sp::_auto};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _3{.v = sp::_3};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _6{.v = sp::_6};
+inline constexpr type _8{.v = sp::_8};
 } // namespace mb
 namespace ml {
 using type = mod<&html::css_props::margin_left>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _auto{sp::_auto};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _4{sp::_4};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _auto{.v = sp::_auto};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _8{.v = sp::_8};
 } // namespace ml
 namespace mr {
 using type = mod<&html::css_props::margin_right>;
-inline constexpr type _0{sp::_0};
-inline constexpr type _auto{sp::_auto};
-inline constexpr type _1{sp::_1};
-inline constexpr type _2{sp::_2};
-inline constexpr type _4{sp::_4};
-inline constexpr type _8{sp::_8};
+inline constexpr type _0{.v = sp::_0};
+inline constexpr type _auto{.v = sp::_auto};
+inline constexpr type _1{.v = sp::_1};
+inline constexpr type _2{.v = sp::_2};
+inline constexpr type _4{.v = sp::_4};
+inline constexpr type _8{.v = sp::_8};
 } // namespace mr
 
 // ── Flex alignment ────────────────────────────────────────────────────────────
 namespace items {
 using type = mod<&html::css_props::align_items>;
-inline constexpr type start{"flex-start"};
-inline constexpr type end{"flex-end"};
-inline constexpr type center{"center"};
-inline constexpr type stretch{"stretch"};
-inline constexpr type baseline{"baseline"};
+inline constexpr type start{.v = "flex-start"};
+inline constexpr type end{.v = "flex-end"};
+inline constexpr type center{.v = "center"};
+inline constexpr type stretch{.v = "stretch"};
+inline constexpr type baseline{.v = "baseline"};
 } // namespace items
 namespace justify {
 using type = mod<&html::css_props::justify_content>;
-inline constexpr type start{"flex-start"};
-inline constexpr type end{"flex-end"};
-inline constexpr type center{"center"};
-inline constexpr type between{"space-between"};
-inline constexpr type around{"space-around"};
-inline constexpr type evenly{"space-evenly"};
+inline constexpr type start{.v = "flex-start"};
+inline constexpr type end{.v = "flex-end"};
+inline constexpr type center{.v = "center"};
+inline constexpr type between{.v = "space-between"};
+inline constexpr type around{.v = "space-around"};
+inline constexpr type evenly{.v = "space-evenly"};
 } // namespace justify
 namespace self {
 using type = mod<&html::css_props::align_self>;
-inline constexpr type start{"flex-start"};
-inline constexpr type end{"flex-end"};
-inline constexpr type center{"center"};
-inline constexpr type stretch{"stretch"};
-inline constexpr type auto_{"auto"};
+inline constexpr type start{.v = "flex-start"};
+inline constexpr type end{.v = "flex-end"};
+inline constexpr type center{.v = "center"};
+inline constexpr type stretch{.v = "stretch"};
+inline constexpr type auto_{.v = "auto"};
 } // namespace self
 namespace direction {
 using type = mod<&html::css_props::flex_direction>;
-inline constexpr type row{"row"};
-inline constexpr type col{"column"};
-inline constexpr type row_rev{"row-reverse"};
-inline constexpr type col_rev{"column-reverse"};
+inline constexpr type row{.v = "row"};
+inline constexpr type col{.v = "column"};
+inline constexpr type row_rev{.v = "row-reverse"};
+inline constexpr type col_rev{.v = "column-reverse"};
 } // namespace direction
 namespace wrap {
 using type = mod<&html::css_props::flex_wrap>;
-inline constexpr type wrap{"wrap"};
-inline constexpr type nowrap{"nowrap"};
-inline constexpr type wrap_rev{"wrap-reverse"};
+inline constexpr type wrap{.v = "wrap"};
+inline constexpr type nowrap{.v = "nowrap"};
+inline constexpr type wrap_rev{.v = "wrap-reverse"};
 } // namespace wrap
 namespace grow {
 using type = mod<&html::css_props::flex_grow>;
-inline constexpr type _0{"0"};
-inline constexpr type _1{"1"};
+inline constexpr type _0{.v = "0"};
+inline constexpr type _1{.v = "1"};
 } // namespace grow
 namespace shrink {
 using type = mod<&html::css_props::flex_shrink>;
-inline constexpr type _0{"0"};
-inline constexpr type _1{"1"};
+inline constexpr type _0{.v = "0"};
+inline constexpr type _1{.v = "1"};
 } // namespace shrink
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 namespace cols {
 using type = mod<&html::css_props::grid_template_columns>;
-inline constexpr type _1{"repeat(1, 1fr)"};
-inline constexpr type _2{"repeat(2, 1fr)"};
-inline constexpr type _3{"repeat(3, 1fr)"};
-inline constexpr type _4{"repeat(4, 1fr)"};
-inline constexpr type _5{"repeat(5, 1fr)"};
-inline constexpr type _6{"repeat(6, 1fr)"};
-inline constexpr type _12{"repeat(12, 1fr)"};
-inline constexpr type auto_{"auto"};
+inline constexpr type _1{.v = "repeat(1, 1fr)"};
+inline constexpr type _2{.v = "repeat(2, 1fr)"};
+inline constexpr type _3{.v = "repeat(3, 1fr)"};
+inline constexpr type _4{.v = "repeat(4, 1fr)"};
+inline constexpr type _5{.v = "repeat(5, 1fr)"};
+inline constexpr type _6{.v = "repeat(6, 1fr)"};
+inline constexpr type _12{.v = "repeat(12, 1fr)"};
+inline constexpr type auto_{.v = "auto"};
 } // namespace cols
 namespace rows {
 using type = mod<&html::css_props::grid_template_rows>;
-inline constexpr type _1{"repeat(1, 1fr)"};
-inline constexpr type _2{"repeat(2, 1fr)"};
-inline constexpr type _3{"repeat(3, 1fr)"};
-inline constexpr type _4{"repeat(4, 1fr)"};
-inline constexpr type auto_{"auto"};
+inline constexpr type _1{.v = "repeat(1, 1fr)"};
+inline constexpr type _2{.v = "repeat(2, 1fr)"};
+inline constexpr type _3{.v = "repeat(3, 1fr)"};
+inline constexpr type _4{.v = "repeat(4, 1fr)"};
+inline constexpr type auto_{.v = "auto"};
 } // namespace rows
 
 // ── Sizing ────────────────────────────────────────────────────────────────────
 namespace w {
 using type = mod<&html::css_props::width>;
-inline constexpr type full{"100%"};
-inline constexpr type auto_{"auto"};
-inline constexpr type screen{"100vw"};
-inline constexpr type fit{"fit-content"};
-inline constexpr type min_{"min-content"};
-inline constexpr type max_{"max-content"};
+inline constexpr type full{.v = "100%"};
+inline constexpr type auto_{.v = "auto"};
+inline constexpr type screen{.v = "100vw"};
+inline constexpr type fit{.v = "fit-content"};
+inline constexpr type min_{.v = "min-content"};
+inline constexpr type max_{.v = "max-content"};
 } // namespace w
 namespace h {
 using type = mod<&html::css_props::height>;
-inline constexpr type full{"100%"};
-inline constexpr type auto_{"auto"};
-inline constexpr type screen{"100vh"};
-inline constexpr type fit{"fit-content"};
-inline constexpr type min_{"min-content"};
+inline constexpr type full{.v = "100%"};
+inline constexpr type auto_{.v = "auto"};
+inline constexpr type screen{.v = "100vh"};
+inline constexpr type fit{.v = "fit-content"};
+inline constexpr type min_{.v = "min-content"};
 } // namespace h
 namespace min_w {
 using type = mod<&html::css_props::min_width>;
-inline constexpr type _0{"0"};
-inline constexpr type full{"100%"};
-inline constexpr type min_{"min-content"};
+inline constexpr type _0{.v = "0"};
+inline constexpr type full{.v = "100%"};
+inline constexpr type min_{.v = "min-content"};
 } // namespace min_w
 namespace max_w {
 using type = mod<&html::css_props::max_width>;
-inline constexpr type full{"100%"};
-inline constexpr type none{"none"};
-inline constexpr type sm{"24rem"};
-inline constexpr type md{"28rem"};
-inline constexpr type lg{"32rem"};
-inline constexpr type xl{"36rem"};
-inline constexpr type _2xl{"42rem"};
-inline constexpr type _3xl{"48rem"};
-inline constexpr type _4xl{"56rem"};
-inline constexpr type _5xl{"64rem"};
-inline constexpr type _6xl{"72rem"};
-inline constexpr type _7xl{"80rem"};
+inline constexpr type full{.v = "100%"};
+inline constexpr type none{.v = "none"};
+inline constexpr type sm{.v = "24rem"};
+inline constexpr type md{.v = "28rem"};
+inline constexpr type lg{.v = "32rem"};
+inline constexpr type xl{.v = "36rem"};
+inline constexpr type _2xl{.v = "42rem"};
+inline constexpr type _3xl{.v = "48rem"};
+inline constexpr type _4xl{.v = "56rem"};
+inline constexpr type _5xl{.v = "64rem"};
+inline constexpr type _6xl{.v = "72rem"};
+inline constexpr type _7xl{.v = "80rem"};
 } // namespace max_w
 
 // ── Typography ────────────────────────────────────────────────────────────────
 namespace font {
 using type = mod<&html::css_props::font_size>;
-inline constexpr type xs{"0.75rem"};
-inline constexpr type sm{"0.875rem"};
-inline constexpr type base{"1rem"};
-inline constexpr type lg{"1.125rem"};
-inline constexpr type xl{"1.25rem"};
-inline constexpr type _2xl{"1.5rem"};
-inline constexpr type _3xl{"1.875rem"};
-inline constexpr type _4xl{"2.25rem"};
-inline constexpr type _5xl{"3rem"};
-inline constexpr type _6xl{"3.75rem"};
+inline constexpr type xs{.v = "0.75rem"};
+inline constexpr type sm{.v = "0.875rem"};
+inline constexpr type base{.v = "1rem"};
+inline constexpr type lg{.v = "1.125rem"};
+inline constexpr type xl{.v = "1.25rem"};
+inline constexpr type _2xl{.v = "1.5rem"};
+inline constexpr type _3xl{.v = "1.875rem"};
+inline constexpr type _4xl{.v = "2.25rem"};
+inline constexpr type _5xl{.v = "3rem"};
+inline constexpr type _6xl{.v = "3.75rem"};
 } // namespace font
 namespace weight {
 using type = mod<&html::css_props::font_weight>;
-inline constexpr type thin{"100"};
-inline constexpr type light{"300"};
-inline constexpr type normal{"400"};
-inline constexpr type medium{"500"};
-inline constexpr type semibold{"600"};
-inline constexpr type bold{"700"};
-inline constexpr type extrabold{"800"};
+inline constexpr type thin{.v = "100"};
+inline constexpr type light{.v = "300"};
+inline constexpr type normal{.v = "400"};
+inline constexpr type medium{.v = "500"};
+inline constexpr type semibold{.v = "600"};
+inline constexpr type bold{.v = "700"};
+inline constexpr type extrabold{.v = "800"};
 } // namespace weight
 namespace leading {
 using type = mod<&html::css_props::line_height>;
-inline constexpr type none{"1"};
-inline constexpr type tight{"1.25"};
-inline constexpr type snug{"1.375"};
-inline constexpr type normal{"1.5"};
-inline constexpr type relaxed{"1.625"};
-inline constexpr type loose{"2"};
+inline constexpr type none{.v = "1"};
+inline constexpr type tight{.v = "1.25"};
+inline constexpr type snug{.v = "1.375"};
+inline constexpr type normal{.v = "1.5"};
+inline constexpr type relaxed{.v = "1.625"};
+inline constexpr type loose{.v = "2"};
 } // namespace leading
 namespace text_align {
 using type = mod<&html::css_props::text_align>;
-inline constexpr type left{"left"};
-inline constexpr type center{"center"};
-inline constexpr type right{"right"};
-inline constexpr type justify{"justify"};
+inline constexpr type left{.v = "left"};
+inline constexpr type center{.v = "center"};
+inline constexpr type right{.v = "right"};
+inline constexpr type justify{.v = "justify"};
 } // namespace text_align
 
 // ── Border ────────────────────────────────────────────────────────────────────
 namespace radius {
 using type = mod<&html::css_props::border_radius>;
-inline constexpr type none{"0"};
-inline constexpr type sm{"0.125rem"};
-inline constexpr type base{"0.25rem"};
-inline constexpr type md{"0.375rem"};
-inline constexpr type lg{"0.5rem"};
-inline constexpr type xl{"0.75rem"};
-inline constexpr type _2xl{"1rem"};
-inline constexpr type _3xl{"1.5rem"};
-inline constexpr type full{"9999px"};
+inline constexpr type none{.v = "0"};
+inline constexpr type sm{.v = "0.125rem"};
+inline constexpr type base{.v = "0.25rem"};
+inline constexpr type md{.v = "0.375rem"};
+inline constexpr type lg{.v = "0.5rem"};
+inline constexpr type xl{.v = "0.75rem"};
+inline constexpr type _2xl{.v = "1rem"};
+inline constexpr type _3xl{.v = "1.5rem"};
+inline constexpr type full{.v = "9999px"};
 } // namespace radius
 
 // ── Position / overflow / cursor ─────────────────────────────────────────────
 namespace pos {
 using type = mod<&html::css_props::position>;
-inline constexpr type static_{"static"};
-inline constexpr type relative{"relative"};
-inline constexpr type absolute{"absolute"};
-inline constexpr type fixed{"fixed"};
-inline constexpr type sticky{"sticky"};
+inline constexpr type static_{.v = "static"};
+inline constexpr type relative{.v = "relative"};
+inline constexpr type absolute{.v = "absolute"};
+inline constexpr type fixed{.v = "fixed"};
+inline constexpr type sticky{.v = "sticky"};
 } // namespace pos
 namespace overflow {
 using type = mod<&html::css_props::overflow>;
-inline constexpr type auto_{"auto"};
-inline constexpr type hidden{"hidden"};
-inline constexpr type visible{"visible"};
-inline constexpr type scroll{"scroll"};
+inline constexpr type auto_{.v = "auto"};
+inline constexpr type hidden{.v = "hidden"};
+inline constexpr type visible{.v = "visible"};
+inline constexpr type scroll{.v = "scroll"};
 } // namespace overflow
 namespace overflow_x {
 using type = mod<&html::css_props::overflow_x>;
-inline constexpr type auto_{"auto"};
-inline constexpr type hidden{"hidden"};
-inline constexpr type visible{"visible"};
-inline constexpr type scroll{"scroll"};
+inline constexpr type auto_{.v = "auto"};
+inline constexpr type hidden{.v = "hidden"};
+inline constexpr type visible{.v = "visible"};
+inline constexpr type scroll{.v = "scroll"};
 } // namespace overflow_x
 namespace overflow_y {
 using type = mod<&html::css_props::overflow_y>;
-inline constexpr type auto_{"auto"};
-inline constexpr type hidden{"hidden"};
-inline constexpr type visible{"visible"};
-inline constexpr type scroll{"scroll"};
+inline constexpr type auto_{.v = "auto"};
+inline constexpr type hidden{.v = "hidden"};
+inline constexpr type visible{.v = "visible"};
+inline constexpr type scroll{.v = "scroll"};
 } // namespace overflow_y
 namespace cursor {
 using type = mod<&html::css_props::cursor>;
-inline constexpr type pointer{"pointer"};
-inline constexpr type default_{"default"};
-inline constexpr type not_allowed{"not-allowed"};
-inline constexpr type grab{"grab"};
-inline constexpr type text_{"text"};
-inline constexpr type none{"none"};
+inline constexpr type pointer{.v = "pointer"};
+inline constexpr type default_{.v = "default"};
+inline constexpr type not_allowed{.v = "not-allowed"};
+inline constexpr type grab{.v = "grab"};
+inline constexpr type text_{.v = "text"};
+inline constexpr type none{.v = "none"};
 } // namespace cursor
 namespace opacity {
 using type = mod<&html::css_props::opacity>;
-inline constexpr type _0{"0"};
-inline constexpr type _25{"0.25"};
-inline constexpr type _50{"0.5"};
-inline constexpr type _75{"0.75"};
-inline constexpr type _100{"1"};
+inline constexpr type _0{.v = "0"};
+inline constexpr type _25{.v = "0.25"};
+inline constexpr type _50{.v = "0.5"};
+inline constexpr type _75{.v = "0.75"};
+inline constexpr type _100{.v = "1"};
 } // namespace opacity
 namespace z {
 using type = mod<&html::css_props::z_index>;
-inline constexpr type _0{"0"};
-inline constexpr type _10{"10"};
-inline constexpr type _20{"20"};
-inline constexpr type _30{"30"};
-inline constexpr type _40{"40"};
-inline constexpr type _50{"50"};
-inline constexpr type auto_{"auto"};
+inline constexpr type _0{.v = "0"};
+inline constexpr type _10{.v = "10"};
+inline constexpr type _20{.v = "20"};
+inline constexpr type _30{.v = "30"};
+inline constexpr type _40{.v = "40"};
+inline constexpr type _50{.v = "50"};
+inline constexpr type auto_{.v = "auto"};
 } // namespace z
 
 // ── Builder functions ─────────────────────────────────────────────────────────
@@ -438,14 +438,14 @@ template<typename... Mods>
 inline auto flex(Mods... mods) -> html::css_class {
     html::css_props p{.display = "flex"};
     (mods(p), ...);
-    return html::css_class(p);
+    return {p};
 }
 
 template<typename... Mods>
 inline auto grid(Mods... mods) -> html::css_class {
     html::css_props p{.display = "grid"};
     (mods(p), ...);
-    return html::css_class(p);
+    return {p};
 }
 
 // No display preset — apply mods to a blank css_props.
@@ -453,7 +453,7 @@ template<typename... Mods>
 inline auto make(Mods... mods) -> html::css_class {
     html::css_props p{};
     (mods(p), ...);
-    return html::css_class(p);
+    return {p};
 }
 
 } // namespace css

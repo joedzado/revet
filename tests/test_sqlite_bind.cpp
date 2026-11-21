@@ -7,7 +7,7 @@
 
 namespace {
 
-std::string unique_db_path() {
+auto unique_db_path() -> std::string {
     static std::atomic<int> seq{0};
     return std::string("/tmp/revet_test_") + std::to_string(seq++) + ".db";
 }
@@ -24,9 +24,9 @@ struct TempDb {
         (void)std::remove(path.c_str());
     }
     TempDb(const TempDb&) = delete;
-    TempDb& operator=(const TempDb&) = delete;
+    auto operator=(const TempDb&) -> TempDb& = delete;
     TempDb(TempDb&&) = delete;
-    TempDb& operator=(TempDb&&) = delete;
+    auto operator=(TempDb&&) -> TempDb& = delete;
 };
 
 } // namespace
@@ -90,7 +90,7 @@ TEST_CASE("named params: positional ? binding matches named intent") {
         int min_i;
         std::string name;
     };
-    FindParams p{10, "alice"};
+    FindParams p{.min_i = 10, .name = "alice"};
 
     auto r = db::sqlite::Handle<>(fx.pool);
     auto rows = r.query("SELECT s FROM t WHERE i >= ? AND s = ?", p.min_i, p.name);
@@ -108,7 +108,7 @@ TEST_CASE("named params: repeated param passed multiple times") {
     struct SearchParams {
         int v;
     };
-    SearchParams p{5};
+    SearchParams p{.v = 5};
 
     // :v appears twice in SQL → p.v, p.v as positional args
     auto r = db::sqlite::Handle<>(fx.pool);

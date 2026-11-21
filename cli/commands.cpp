@@ -10,7 +10,7 @@ namespace revet::cli {
 
 namespace {
 
-std::string os_name() {
+auto os_name() -> std::string {
     utsname u{};
     return uname(&u) == 0 ? std::string(u.sysname) : std::string();
 }
@@ -21,7 +21,7 @@ void remove_quietly(const fs::path& p) {
 }
 
 // clang-tidy / clang-format from PATH, else Homebrew's LLVM; exits with install hints if neither.
-fs::path llvm_tool(const std::string& tool, const std::string& linux_pkg) {
+auto llvm_tool(const std::string& tool, const std::string& linux_pkg) -> fs::path {
     if (auto p = which(tool)) {
         return *p;
     }
@@ -41,7 +41,7 @@ fs::path llvm_tool(const std::string& tool, const std::string& linux_pkg) {
 }
 
 // Sorted project sources under src/ and app/ with the given extensions.
-std::vector<std::string> project_sources(std::initializer_list<std::string_view> exts) {
+auto project_sources(std::initializer_list<std::string_view> exts) -> std::vector<std::string> {
     std::vector<std::string> files;
     for (const char* root : {"src", "app"}) {
         std::error_code ec;
@@ -64,12 +64,12 @@ std::vector<std::string> project_sources(std::initializer_list<std::string_view>
                 continue;
             }
             std::string ext = it->path().extension().string();
-            if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
+            if (std::ranges::find(exts, ext) != exts.end()) {
                 files.push_back(it->path().string());
             }
         }
     }
-    std::sort(files.begin(), files.end());
+    std::ranges::sort(files);
     return files;
 }
 
@@ -80,7 +80,7 @@ void require_conan() {
 }
 
 // "3.31.5" from `cmake version 3.31.5`; nullopt when cmake is missing or older than 3.20.
-std::optional<std::string> cmake_version() {
+auto cmake_version() -> std::optional<std::string> {
     Result r = run({"cmake", "--version"}, {}, 5);
     if (!r.started || r.rc != 0) {
         return std::nullopt;
@@ -97,7 +97,7 @@ std::optional<std::string> cmake_version() {
     return m.get<0>().to_string().substr(14);
 }
 
-std::string cxx_compiler() {
+auto cxx_compiler() -> std::string {
     if (const char* cxx = std::getenv("CXX"); cxx != nullptr && *cxx != 0) {
         return cxx;
     }
@@ -111,7 +111,7 @@ std::string cxx_compiler() {
 
 } // namespace
 
-std::vector<std::string> missing_critical_tools() {
+auto missing_critical_tools() -> std::vector<std::string> {
     std::vector<std::string> missing;
     if (!which("cmake")) {
         missing.emplace_back("cmake");
@@ -128,7 +128,7 @@ std::vector<std::string> missing_critical_tools() {
 
 // ── Packages ────────────────────────────────────────────────────────────────
 
-int cmd_add(std::string_view raw_spec) {
+auto cmd_add(std::string_view raw_spec) -> int {
     std::string spec = strip(raw_spec);
     std::string name;
     std::optional<std::string> ref;
@@ -185,7 +185,7 @@ int cmd_add(std::string_view raw_spec) {
     return 0;
 }
 
-int cmd_remove(std::string_view name) {
+auto cmd_remove(std::string_view name) -> int {
     auto [content, found] = remove_dep(read_toml(), name);
     if (!found) {
         fail("'" + std::string(name) + "' not found in [build.dependencies]");
@@ -198,7 +198,7 @@ int cmd_remove(std::string_view name) {
     return 0;
 }
 
-int cmd_lock() {
+auto cmd_lock() -> int {
     require_conan();
     fs::path conanfile = project_conanfile(deps_from_toml(read_toml()));
     info("Regenerating revet.lock…");
@@ -217,7 +217,7 @@ int cmd_lock() {
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
-int cmd_new(std::string_view name_view, bool empty) {
+auto cmd_new(std::string_view name_view, bool empty) -> int {
     std::string name(name_view);
     const fs::path& fw = framework_dir();
     if (!fs::exists(fw / "template")) {
@@ -298,7 +298,7 @@ int cmd_new(std::string_view name_view, bool empty) {
     return 0;
 }
 
-int cmd_upgrade(bool force) {
+auto cmd_upgrade(bool force) -> int {
     if (!fs::exists(framework_dir() / "template")) {
         fail("framework not installed — run `./install.sh` from the revet repo first");
     }
@@ -322,7 +322,7 @@ int cmd_upgrade(bool force) {
     return 0;
 }
 
-int cmd_clean() {
+auto cmd_clean() -> int {
     std::error_code ec;
     for (const char* p : {"build", "src/wrapped", "src/routes.cpp", "CMakeLists.txt"}) {
         fs::remove_all(p, ec);
@@ -330,7 +330,7 @@ int cmd_clean() {
     return 0;
 }
 
-int cmd_tidy() {
+auto cmd_tidy() -> int {
     fs::path tidy = llvm_tool("clang-tidy", "clang-tools");
     if (!fs::exists("build/compile_commands.json")) {
         fail("build/compile_commands.json not found — run `revet build` first");
@@ -347,7 +347,7 @@ int cmd_tidy() {
     return 0;
 }
 
-int cmd_format() {
+auto cmd_format() -> int {
     fs::path format = llvm_tool("clang-format", "clang-format");
     auto files = project_sources({".cpp", ".hpp"});
     if (files.empty()) {
@@ -363,7 +363,7 @@ int cmd_format() {
 
 // ── doctor ──────────────────────────────────────────────────────────────────
 
-int cmd_doctor() {
+auto cmd_doctor() -> int {
     struct Check {
         std::string name, why;
         bool critical;
@@ -384,7 +384,7 @@ int cmd_doctor() {
     };
 
     std::vector<Check> checks;
-    checks.push_back({"cmake", "Build system (3.20+)", true, cmake_version()});
+    checks.push_back({.name = "cmake", .why = "Build system (3.20+)", .critical = true, .version = cmake_version()});
 
     std::string cxx = cxx_compiler();
     std::optional<std::string> cxx_ok;
@@ -395,9 +395,11 @@ int cmd_doctor() {
         remove_quietly(src);
         cxx_ok = r.rc == 0 ? std::optional<std::string>(cxx) : std::nullopt;
     }
-    checks.push_back({"c++", "C++23 compiler", true, cxx_ok});
-    checks.push_back(
-        {"conan", "Package manager (curl, catch2, app deps)", true, version_of({"conan", "--version"}, first_number)});
+    checks.push_back({.name = "c++", .why = "C++23 compiler", .critical = true, .version = cxx_ok});
+    checks.push_back({.name = "conan",
+                      .why = "Package manager (curl, catch2, app deps)",
+                      .critical = true,
+                      .version = version_of({"conan", "--version"}, first_number)});
     const auto optional = std::to_array<std::pair<const char*, const char*>>({
         {"ninja", "Fast builds (fallback: make)"},
         {"sqlite3", "Database (optional feature)"},
@@ -409,8 +411,10 @@ int cmd_doctor() {
         {"bun", "Builds static/optimistic.ts"},
     });
     for (const auto& [name, why] : optional) {
-        checks.push_back(
-            {name, why, false, which(name) ? version_of({name, "--version"}, first_number) : std::nullopt});
+        checks.push_back({.name = name,
+                          .why = why,
+                          .critical = false,
+                          .version = which(name) ? version_of({name, "--version"}, first_number) : std::nullopt});
     }
 
     info("");

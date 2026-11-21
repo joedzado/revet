@@ -258,7 +258,7 @@ TEST_CASE("htmx::optimistic typed_id<bool> — calls revet.opt.toggleClass", "[h
 TEST_CASE("htmx::optimistic JsMappable custom op", "[htmx][optimistic]") {
     struct Clamp {
         int max;
-        auto to_js(std::string_view id) const -> std::string {
+        [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
             return std::format("revet.opt.clamp('{}',{})", id, max);
         }
     };
@@ -283,7 +283,7 @@ TEST_CASE("htmx::optimistic — emits hx-on:htmx:before-request attribute", "[ht
 }
 
 TEST_CASE("htmx::js::set_text — calls revet.opt.setText", "[htmx][optimistic]") {
-    const auto s = htmx::js::set_text{"done"}.to_js("status");
+    const auto s = htmx::js::set_text{.value = "done"}.to_js("status");
     CHECK(s.find("revet.opt.setText") != std::string::npos);
     CHECK(s.find("status") != std::string::npos);
     CHECK(s.find("done") != std::string::npos);
@@ -327,27 +327,27 @@ TEST_CASE("htmx::optimistic bool — rollback calls rollbackClass", "[htmx][roll
 }
 
 TEST_CASE("htmx::js::toggle_class — rollback_js calls rollbackClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::toggle_class{"active"}.rollback_js("my-btn");
+    const auto rb = htmx::js::toggle_class{.cls = "active"}.rollback_js("my-btn");
     CHECK(rb.find("revet.opt.rollbackClass") != std::string::npos);
     CHECK(rb.find("my-btn") != std::string::npos);
     CHECK(rb.find("active") != std::string::npos);
 }
 
 TEST_CASE("htmx::js::add_class — rollback_js calls removeClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::add_class{"selected"}.rollback_js("el");
+    const auto rb = htmx::js::add_class{.cls = "selected"}.rollback_js("el");
     CHECK(rb.find("revet.opt.removeClass") != std::string::npos);
     CHECK(rb.find("selected") != std::string::npos);
 }
 
 TEST_CASE("htmx::js::remove_class — rollback_js calls addClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::remove_class{"hidden"}.rollback_js("el");
+    const auto rb = htmx::js::remove_class{.cls = "hidden"}.rollback_js("el");
     CHECK(rb.find("revet.opt.addClass") != std::string::npos);
     CHECK(rb.find("hidden") != std::string::npos);
 }
 
 TEST_CASE("htmx::optimistic JsMappable without rollback_js — no send-error attr", "[htmx][rollback]") {
     struct NoRollback {
-        auto to_js(std::string_view id) const -> std::string {
+        [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
             return std::format("revet.opt.custom('{}')", id);
         }
     };

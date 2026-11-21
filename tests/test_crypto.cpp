@@ -35,7 +35,7 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
 
 TEST_CASE("crypto get_key rejects wrong-length key", "[crypto]") {
     setenv("REVET_COOKIE_KEY", "tooshort", 1);
-    unsigned char buf[crypto_secretbox_KEYBYTES]{};
+    web::crypto::Key buf{};
     REQUIRE_THROWS_AS(web::crypto::get_key(buf), std::runtime_error);
     unsetenv("REVET_COOKIE_KEY");
 }
@@ -47,7 +47,7 @@ TEST_CASE("crypto hostname fallback still round-trips", "[crypto]") {
 }
 
 TEST_CASE("a cookie key must be real hex, and can be required", "[crypto]") {
-    unsigned char key[crypto_secretbox_KEYBYTES];
+    web::crypto::Key key{};
     const char* saved = std::getenv("REVET_COOKIE_KEY");
     const std::string restore = saved != nullptr ? saved : "";
 

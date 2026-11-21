@@ -20,7 +20,7 @@ struct Entry {
 };
 
 // rel is relative to app/routes.
-std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
+auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
     std::vector<std::string> parts;
     for (const auto& e : rel) {
         parts.push_back(e.string());
@@ -43,20 +43,20 @@ std::pair<std::string, std::string> route_and_ns(const fs::path& rel) {
         } else {
             route_parts.push_back(part);
             std::string p = part;
-            std::replace(p.begin(), p.end(), '-', '_');
+            std::ranges::replace(p, '-', '_');
             ns_parts.push_back(p);
         }
     }
     std::string route = "/" + join(route_parts, "/");
     std::string ns = join(ns_parts, "_");
-    std::replace(ns.begin(), ns.end(), '-', '_');
+    std::ranges::replace(ns, '-', '_');
     if (ns.empty()) {
         ns = "index";
     }
     return {route, ns};
 }
 
-std::set<std::string> scan_model_names(const fs::path& models_dir) {
+auto scan_model_names(const fs::path& models_dir) -> std::set<std::string> {
     std::set<std::string> names;
     for (const auto& f : glob(models_dir, ".hpp")) {
         std::string content = read_text(f);
@@ -77,7 +77,7 @@ struct StateInfo {
     std::vector<std::tuple<std::string, std::string, std::string>> flashes; // (mode, type, var)
 };
 
-StateInfo extract_state_vars(const std::string& func_name, const std::string& src) {
+auto extract_state_vars(const std::string& func_name, const std::string& src) -> StateInfo {
     StateInfo info;
     std::string_view args;
     if (auto head = search_after<R"RE(\s*\(([\s\S]*?)\))RE">(src, func_name)) {
@@ -97,7 +97,7 @@ StateInfo extract_state_vars(const std::string& func_name, const std::string& sr
     return info;
 }
 
-std::string handler_args(const std::vector<std::string>& state_vars, const std::string& suffix = "") {
+auto handler_args(const std::vector<std::string>& state_vars, const std::string& suffix = "") -> std::string {
     std::string out = "req";
     for (const auto& v : state_vars) {
         out += ", " + v;
@@ -120,7 +120,7 @@ struct ApiDetect {
     bool is_async = false;
 };
 
-ApiDetect api_detect(const std::string& func_name, const std::string& src, const std::set<std::string>& names) {
+auto api_detect(const std::string& func_name, const std::string& src, const std::set<std::string>& names) -> ApiDetect {
     ApiDetect d;
     if (auto pm = search_after<R"RE(\s*\(\s*const\s+([\w:]+)\s*&)RE">(src, func_name)) {
         std::string raw = pm.get<1>().to_string();
@@ -159,20 +159,20 @@ void emit_api_handler(Lines& out, const std::string& ns, const std::string& meth
     out.push_back(cat("        ", handle, " = [](const web::Request& req) ", sig, " {"));
     const std::string fn = cat("route_", ns, "::render_", method);
     if (!d.param_type.empty()) {
-        out.push_back(
-            "            if (!std::string_view(req.headers.get(\"content-type\")).starts_with(\"application/json\"))");
+        out.emplace_back(
+            R"(            if (!std::string_view(req.headers.get("content-type")).starts_with("application/json")))");
         out.push_back(cat("                ", ret,
                           " web::api::error(web::status::bad_request, \"Content-Type: application/json required\");"));
-        out.push_back("            if (req.raw_body.empty())");
+        out.emplace_back("            if (req.raw_body.empty())");
         out.push_back(
             cat("                ", ret, " web::api::error(web::status::bad_request, \"request body required\");"));
         out.push_back(cat("            ", d.param_type, " body{};"));
-        out.push_back("            try {");
-        out.push_back("                revet::json::Document doc(req.raw_body);");
+        out.emplace_back("            try {");
+        out.emplace_back("                revet::json::Document doc(req.raw_body);");
         out.push_back(cat("                body = revet::json::from_json<", d.param_type, ">(doc);"));
-        out.push_back("            } catch (const revet::json::ParseError& e) {");
+        out.emplace_back("            } catch (const revet::json::ParseError& e) {");
         out.push_back(cat("                ", ret, " web::api::error(web::status::bad_request, e.what());"));
-        out.push_back("            }");
+        out.emplace_back("            }");
         if (!d.return_type.empty()) {
             out.push_back(cat("            auto result = ", wait, fn, "(body);"));
             out.push_back(cat("            ", ret, " web::Response{.body = revet::json::to_json<", d.return_type,
@@ -187,19 +187,19 @@ void emit_api_handler(Lines& out, const std::string& ns, const std::string& meth
     } else {
         out.push_back(cat("            ", ret, " web::to_response(", wait, fn, "(req));"));
     }
-    out.push_back("        };");
+    out.emplace_back("        };");
 }
 
 // ── compile_commands.json patch ─────────────────────────────────────────────
 
-Node str_node(const std::string& s) {
+auto str_node(const std::string& s) -> Node {
     Node n;
     n.kind = Node::Kind::String;
     n.s = s;
     return n;
 }
 
-fs::path resolved(const fs::path& p) {
+auto resolved(const fs::path& p) -> fs::path {
     std::error_code ec;
     fs::path r = fs::weakly_canonical(p, ec);
     return ec ? p : r;
@@ -257,12 +257,12 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
     Lines include_pairs; // arguments form: "-include", "<abs>"
     Lines include_flags; // command form:    "-include <abs>"
     for (const auto& h : headers) {
-        include_pairs.push_back("-include");
+        include_pairs.emplace_back("-include");
         include_pairs.push_back(h.string());
         include_flags.push_back("-include " + h.string());
     }
 
-    auto make_entry = [&](const fs::path& src_file) {
+    auto make_entry = [&](const fs::path& src_file) -> Node {
         Node entry = ref_copy;
         fs::path src_abs = resolved(src_file);
         std::string stem = src_file.stem().string();
@@ -319,7 +319,7 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
 
 } // namespace
 
-int gen_routes(const Ctx& ctx) {
+auto gen_routes(const Ctx& ctx) -> int {
     // routes.cpp includes these asset headers, so they must exist first.
     gen_htmx(ctx);
     gen_optimistic(ctx);
@@ -340,9 +340,9 @@ int gen_routes(const Ctx& ctx) {
     std::vector<Entry> entries;
     for (const auto& f : glob(site, ".cpp", true)) {
         auto [route, ns] = route_and_ns(fs::relative(f, site));
-        entries.push_back({route, ns, f});
+        entries.push_back({.route = route, .ns = ns, .file = f});
     }
-    std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+    std::ranges::stable_sort(entries, [](const Entry& a, const Entry& b) -> bool {
         int ka = a.route.contains(':') ? 1 : 0;
         int kb = b.route.contains(':') ? 1 : 0;
         if (ka != kb) {
@@ -454,11 +454,11 @@ int gen_routes(const Ctx& ctx) {
     Lines hpp = file_header({"#include <string_view>", "#include <format>", "#include <revet/web.hpp>",
                              "#include <revet/upload.hpp>", "#include \"toggles.hpp\"", "#include \"components.hpp\"",
                              "#include \"i18n.hpp\"", "#include \"uploads.hpp\"", "#include \"resources.hpp\""});
-    hpp.push_back("namespace urls {");
+    hpp.emplace_back("namespace urls {");
     for (const auto& l : hpp_url_entries) {
         hpp.push_back(l);
     }
-    hpp.push_back("}");
+    hpp.emplace_back("}");
     for (const auto& l :
          Lines{"", "namespace revet {", cat("inline constexpr std::string_view version = \"", version_str, "\";"),
                "} // namespace revet"}) {
@@ -471,21 +471,21 @@ int gen_routes(const Ctx& ctx) {
     for (const auto& inc : global_includes) {
         cpp.push_back(inc); // std::set is already sorted
     }
-    cpp.push_back("#include \"htmx_asset.hpp\"");
-    cpp.push_back("#include \"optimistic_asset.hpp\"");
-    cpp.push_back("#include \"scripts.hpp\"");
-    cpp.push_back("#include \"server.hpp\"  // revet.toml max_body, applied at static init");
-    cpp.push_back("");
+    cpp.emplace_back("#include \"htmx_asset.hpp\"");
+    cpp.emplace_back("#include \"optimistic_asset.hpp\"");
+    cpp.emplace_back("#include \"scripts.hpp\"");
+    cpp.emplace_back("#include \"server.hpp\"  // revet.toml max_body, applied at static init");
+    cpp.emplace_back("");
 
     for (const auto& [ns, content] : site_contents) {
         cpp.push_back("namespace route_" + ns + " {");
         cpp.push_back(content);
-        cpp.push_back("}");
-        cpp.push_back("");
+        cpp.emplace_back("}");
+        cpp.emplace_back("");
     }
 
-    cpp.push_back("namespace routes {");
-    cpp.push_back("void setup(std::vector<web::Route>& out) {");
+    cpp.emplace_back("namespace routes {");
+    cpp.emplace_back("void setup(std::vector<web::Route>& out) {");
     for (const auto& [path, symbol] : std::vector<std::pair<std::string, std::string>>{
              {"/_revet/htmx.js", "htmx_js"}, {"/_revet/optimistic.js", "optimistic_js"}}) {
         cpp.push_back(subst(static_asset_t, {{"path", path}, {"symbol", symbol}}));
@@ -502,7 +502,7 @@ int gen_routes(const Ctx& ctx) {
     for (const auto& e : entries) {
         std::string src = read_text(e.file);
         bool is_api = starts_with(e.route, "/api/") || e.route == "/api";
-        cpp.push_back("    {");
+        cpp.emplace_back("    {");
         cpp.push_back(cat("        web::Route r; r.path = \"", e.route, "\";"));
 
         static const std::vector<std::pair<std::string, std::string>> method_field = {
@@ -533,16 +533,16 @@ int gen_routes(const Ctx& ctx) {
                 cpp.push_back(
                     cat("        r.async_", field, " = [](const web::Request& req) -> web::Task<web::Response> {"));
                 if (st.needed) {
-                    cpp.push_back("            auto& ctx = web::Context::current();");
+                    cpp.emplace_back("            auto& ctx = web::Context::current();");
                 }
                 emit_state_loading(cpp, st);
                 cpp.push_back(
                     cat("            return route_", e.ns, "::", func, "(", handler_args(st.state_vars), ");"));
-                cpp.push_back("        };");
+                cpp.emplace_back("        };");
             } else {
                 cpp.push_back(cat("        r.", field, " = [](const web::Request& req) -> web::Response {"));
                 if (st.needed) {
-                    cpp.push_back("            auto& ctx = web::Context::current();");
+                    cpp.emplace_back("            auto& ctx = web::Context::current();");
                 }
                 emit_state_loading(cpp, st);
                 cpp.push_back(cat("            auto resp = web::to_response(route_", e.ns, "::", func, "(",
@@ -551,35 +551,35 @@ int gen_routes(const Ctx& ctx) {
                     (void)var;
                     if (mode == "Flash") {
                         cpp.push_back(cat("            if (req.cookies.get(\"_cw_", type,
-                                          "\") != \"\") resp.cookies[\"_cw_", type, "\"] = \"\";"));
+                                          R"(") != "") resp.cookies["_cw_)", type, R"("] = "";)"));
                     }
                 }
-                cpp.push_back("            return resp;");
-                cpp.push_back("        };");
+                cpp.emplace_back("            return resp;");
+                cpp.emplace_back("        };");
             }
         }
 
         if (ctre::search<R"RE(render_sse\s*\()RE">(src)) {
-            cpp.push_back("        r.sse = [](const web::Request& req, web::SSEWriter& sse) {");
+            cpp.emplace_back("        r.sse = [](const web::Request& req, web::SSEWriter& sse) {");
             StateInfo st = extract_state_vars("render_sse", src);
             if (st.needed || !st.flashes.empty()) {
-                cpp.push_back("            auto& ctx = web::Context::current();");
+                cpp.emplace_back("            auto& ctx = web::Context::current();");
             }
             emit_state_loading(cpp, st);
             cpp.push_back(cat("            route_", e.ns, "::render_sse(", handler_args(st.state_vars, ", sse"), ");"));
-            cpp.push_back("        };");
+            cpp.emplace_back("        };");
         }
 
         // WebSocket handler: render_ws(req[, states...], conn) → void
         if (ctre::search<R"RE(render_ws\s*\()RE">(src)) {
-            cpp.push_back("        r.ws = [](const web::Request& req, web::ws::Conn& conn) {");
+            cpp.emplace_back("        r.ws = [](const web::Request& req, web::ws::Conn& conn) {");
             StateInfo st = extract_state_vars("render_ws", src);
             if (st.needed || !st.flashes.empty()) {
-                cpp.push_back("            auto& ctx = web::Context::current();");
+                cpp.emplace_back("            auto& ctx = web::Context::current();");
             }
             emit_state_loading(cpp, st);
             cpp.push_back(cat("            route_", e.ns, "::render_ws(", handler_args(st.state_vars, ", conn"), ");"));
-            cpp.push_back("        };");
+            cpp.emplace_back("        };");
         }
 
         if (ctre::search<R"RE(\bapi_guards\s*\(\s*\))RE">(src)) {
@@ -588,12 +588,12 @@ int gen_routes(const Ctx& ctx) {
             cpp.push_back(cat("        r.guards = route_", e.ns, "::route_guards();"));
         }
 
-        cpp.push_back("        out.push_back(r);");
-        cpp.push_back("    }");
+        cpp.emplace_back("        out.push_back(r);");
+        cpp.emplace_back("    }");
     }
 
-    cpp.push_back("}");
-    cpp.push_back("} // namespace routes");
+    cpp.emplace_back("}");
+    cpp.emplace_back("} // namespace routes");
     write_lines(out_c, cpp);
 
     patch_compile_commands(ctx, out_c, site);

@@ -24,7 +24,7 @@ struct Model {
 };
 
 // Strips a trailing `= ...` initializer from a single-line statement.
-std::string drop_initializer(const std::string& line) {
+auto drop_initializer(const std::string& line) -> std::string {
     size_t eq = line.find('=');
     if (eq == std::string::npos) {
         return line;
@@ -40,10 +40,10 @@ std::string drop_initializer(const std::string& line) {
     return line.substr(0, cut);
 }
 
-std::vector<Field> parse_fields(const std::string& body) {
+auto parse_fields(const std::string& body) -> std::vector<Field> {
     std::vector<Field> fields;
     std::string piece;
-    auto handle = [&](const std::string& raw) {
+    auto handle = [&](const std::string& raw) -> void {
         std::string line = strip(raw);
         if (line.empty()) {
             return;
@@ -53,7 +53,7 @@ std::vector<Field> parse_fields(const std::string& body) {
         }
         line = strip(drop_initializer(line));
         if (auto m = ctre::match<R"RE(([\w:<>,\s]+?)\s+(\w+))RE">(line)) {
-            fields.push_back({collapse_ws(strip(m.get<1>().to_view())), m.get<2>().to_string()});
+            fields.push_back({.type = collapse_ws(strip(m.get<1>().to_view())), .name = m.get<2>().to_string()});
         }
     };
     for (char c : body) {
@@ -69,7 +69,7 @@ std::vector<Field> parse_fields(const std::string& body) {
 }
 
 // Namespace that encloses `pos`: a brace-depth walk over the prefix.
-std::string ns_at(const std::string& content, size_t pos) {
+auto ns_at(const std::string& content, size_t pos) -> std::string {
     struct Frame {
         std::string name;
         int depth;
@@ -77,12 +77,12 @@ std::string ns_at(const std::string& content, size_t pos) {
     std::vector<Frame> stack;
     int depth = 0;
     size_t i = 0;
-    auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    auto is_word = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     while (i < pos) {
         if (content.compare(i, 9, "namespace") == 0 && (i == 0 || !is_word(content[i - 1]))) {
             if (auto m = ctre::starts_with<R"RE(namespace\s+([\w:]+)\s*\{)RE">(std::string_view(content).substr(i))) {
                 ++depth;
-                stack.push_back({m.get<1>().to_string(), depth});
+                stack.push_back({.name = m.get<1>().to_string(), .depth = depth});
                 i += m.get<0>().size();
                 continue;
             }
@@ -110,20 +110,20 @@ std::string ns_at(const std::string& content, size_t pos) {
     return out;
 }
 
-bool is_optional(const std::string& t) {
+auto is_optional(const std::string& t) -> bool {
     return starts_with(t, "std::optional<");
 }
-bool is_vector(const std::string& t) {
+auto is_vector(const std::string& t) -> bool {
     return starts_with(t, "std::vector<");
 }
 
-std::string inner_type(const std::string& t) {
+auto inner_type(const std::string& t) -> std::string {
     size_t lt = t.find('<');
     size_t gt = t.rfind('>');
     return strip(t.substr(lt + 1, gt - lt - 1));
 }
 
-std::string deser_expr(const std::string& ftype, const std::string& value_expr) {
+auto deser_expr(const std::string& ftype, const std::string& value_expr) -> std::string {
     if (is_optional(ftype)) {
         std::string inner = inner_type(ftype);
         if (auto km = ctre::search<R"RE(\.at\("([^"]+)"\)$)RE">(value_expr)) {
@@ -139,7 +139,7 @@ std::string deser_expr(const std::string& ftype, const std::string& value_expr) 
     return cat("static_cast<", ftype, ">(", value_expr, ")");
 }
 
-std::string row_expr(const std::string& ftype, const std::string& cell) {
+auto row_expr(const std::string& ftype, const std::string& cell) -> std::string {
     if (ftype == "std::string" || ftype == "std::string_view") {
         return cell;
     }
@@ -168,7 +168,7 @@ std::string row_expr(const std::string& ftype, const std::string& cell) {
 }
 
 // Lines that append the JSON encoding of `expr` to `out_var` .
-Lines ser_lines(const std::string& ftype, const std::string& expr, const std::string& out_var) {
+auto ser_lines(const std::string& ftype, const std::string& expr, const std::string& out_var) -> Lines {
     Lines lines;
     if (is_optional(ftype)) {
         std::string inner = inner_type(ftype);
@@ -176,24 +176,24 @@ Lines ser_lines(const std::string& ftype, const std::string& expr, const std::st
         for (const auto& ln : ser_lines(inner, cat("(*", expr, ")"), out_var)) {
             lines.push_back("    " + ln);
         }
-        lines.push_back("    } else {");
+        lines.emplace_back("    } else {");
         lines.push_back(cat("        ", out_var, " += \"null\";"));
-        lines.push_back("    }");
+        lines.emplace_back("    }");
         return lines;
     }
     if (is_vector(ftype)) {
         std::string inner = inner_type(ftype);
         lines.push_back(cat("    ", out_var, " += \"[\";"));
-        lines.push_back("    {");
-        lines.push_back("        bool first = true;");
+        lines.emplace_back("    {");
+        lines.emplace_back("        bool first = true;");
         lines.push_back(cat("        for (auto const& _elem : ", expr, ") {"));
         lines.push_back(cat("            if (!first) ", out_var, " += \",\";"));
-        lines.push_back("            first = false;");
+        lines.emplace_back("            first = false;");
         for (const auto& ln : ser_lines(inner, "_elem", out_var)) {
             lines.push_back("    " + ln);
         }
-        lines.push_back("        }");
-        lines.push_back("    }");
+        lines.emplace_back("        }");
+        lines.emplace_back("    }");
         lines.push_back(cat("    ", out_var, " += \"]\";"));
         return lines;
     }
@@ -202,14 +202,14 @@ Lines ser_lines(const std::string& ftype, const std::string& expr, const std::st
         return lines;
     }
     if (ftype == "bool") {
-        lines.push_back(cat("    ", out_var, " += (", expr, ") ? \"true\" : \"false\";"));
+        lines.push_back(cat("    ", out_var, " += (", expr, R"() ? "true" : "false";)"));
         return lines;
     }
     lines.push_back(cat("    ", out_var, " += std::to_string(", expr, ");"));
     return lines;
 }
 
-std::vector<fs::path> model_sources(const Ctx& ctx) {
+auto model_sources(const Ctx& ctx) -> std::vector<fs::path> {
     std::vector<fs::path> files = glob(ctx.proj / "models", ".hpp");
     for (auto& f : glob(ctx.proj / "app" / "apis", ".hpp")) {
         files.push_back(f);
@@ -219,7 +219,7 @@ std::vector<fs::path> model_sources(const Ctx& ctx) {
 
 } // namespace
 
-int gen_json_models(const Ctx& ctx) {
+auto gen_json_models(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "models.hpp");
     std::vector<fs::path> sources = model_sources(ctx);
 
@@ -249,7 +249,7 @@ int gen_json_models(const Ctx& ctx) {
     for (const auto& ln : splitlines(preamble)) {
         lines.push_back(ln);
     }
-    lines.push_back("");
+    lines.emplace_back("");
 
     const std::string from_json_value_t = tmpl(ctx, "json_from_json_value.tmpl");
     const std::string from_json_t = tmpl(ctx, "json_from_json.tmpl");
@@ -267,9 +267,9 @@ int gen_json_models(const Ctx& ctx) {
             fv_body += cat("    out.", fd.name, " = ", deser_expr(fd.type, cat("v.at(\"", fd.name, "\")")), ";");
         }
         lines.push_back(subst(from_json_value_t, {{"name", name}, {"src_file", model.src_file}, {"body", fv_body}}));
-        lines.push_back("");
+        lines.emplace_back("");
         lines.push_back(subst(from_json_t, {{"name", name}}));
-        lines.push_back("");
+        lines.emplace_back("");
 
         std::string fr_body;
         for (size_t i = 0; i < model.fields.size(); ++i) {
@@ -280,23 +280,23 @@ int gen_json_models(const Ctx& ctx) {
             fr_body += cat("    out.", fd.name, " = ", row_expr(fd.type, cat("r[", std::to_string(i), "]")), ";");
         }
         lines.push_back(subst(from_row_t, {{"name", name}, {"body", fr_body}}));
-        lines.push_back("");
+        lines.emplace_back("");
 
         Lines tj_lines;
         for (size_t i = 0; i < model.fields.size(); ++i) {
             const auto& fd = model.fields[i];
             std::string sep = i > 0 ? "," : "";
-            tj_lines.push_back(cat("    out += \"", sep, "\\\"", fd.name, "\\\":\";"));
+            tj_lines.push_back(cat("    out += \"", sep, "\\\"", fd.name, R"(\":";)"));
             for (const auto& ln : ser_lines(fd.type, cat("val.", fd.name), "out")) {
                 tj_lines.push_back(ln);
             }
         }
         lines.push_back(subst(to_json_t, {{"name", name}, {"body", join(tj_lines, "\n")}}));
-        lines.push_back("");
+        lines.emplace_back("");
     }
 
-    lines.push_back("} // namespace revet::json");
-    lines.push_back("");
+    lines.emplace_back("} // namespace revet::json");
+    lines.emplace_back("");
     write_file(out_path, join(lines, "\n"));
     return 0;
 }

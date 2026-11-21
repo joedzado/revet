@@ -39,15 +39,15 @@ Value::Value(std::shared_ptr<simdjson_types::ValueImpl> impl) : impl_(std::move(
 
 Value::Value(const Value& other) = default;
 
-Value& Value::operator=(const Value& other) = default;
+auto Value::operator=(const Value& other) -> Value& = default;
 
 Value::Value(Value&& other) noexcept = default;
 
-Value& Value::operator=(Value&& other) noexcept = default;
+auto Value::operator=(Value&& other) noexcept -> Value& = default;
 
 Value::~Value() = default;
 
-Value Value::at(std::string_view key) {
+auto Value::at(std::string_view key) -> Value {
     auto field = impl_->element.at_key(key);
     if (field.error() != 0U) {
         throw ParseError(std::format("Field not found: {}", key));
@@ -55,7 +55,7 @@ Value Value::at(std::string_view key) {
     return Value(std::make_shared<simdjson_types::ValueImpl>(field.value(), impl_->parser));
 }
 
-Value Value::at(size_t index) {
+auto Value::at(size_t index) -> Value {
     auto elem = impl_->element.at(index);
     if (elem.error() != 0U) {
         throw ParseError("Array index out of bounds");
@@ -135,7 +135,7 @@ Value::operator bool() {
     return b.value();
 }
 
-bool Value::has(std::string_view key) {
+auto Value::has(std::string_view key) -> bool {
     try {
         auto field = impl_->element.at_key(key);
         return field.error() == 0U;
@@ -144,17 +144,17 @@ bool Value::has(std::string_view key) {
     }
 }
 
-bool Value::is_null() {
+auto Value::is_null() -> bool {
     return impl_->element.is_null();
 }
 
-std::vector<Value> Value::get_array_elements() {
+auto Value::get_array_elements() -> std::vector<Value> {
     std::vector<Value> result;
     auto arr = impl_->element.get_array();
     if (arr.error() != 0U) {
         throw ParseError("Expected array");
     }
-    std::ranges::transform(arr.value(), std::back_inserter(result), [this](auto elem) {
+    std::ranges::transform(arr.value(), std::back_inserter(result), [this](auto elem) -> auto {
         return Value(std::make_shared<simdjson_types::ValueImpl>(elem, impl_->parser));
     });
     return result;
@@ -165,15 +165,15 @@ Document::Document(std::string_view json_str) : impl_(std::make_unique<simdjson_
 
 Document::~Document() = default;
 
-Value Document::root() {
+auto Document::root() -> Value {
     return Value(std::make_shared<simdjson_types::ValueImpl>(impl_->root, impl_->parser));
 }
 
-Value Document::at(std::string_view key) {
+auto Document::at(std::string_view key) -> Value {
     return root().at(key);
 }
 
-Value Document::operator[](std::string_view key) {
+auto Document::operator[](std::string_view key) -> Value {
     return at(key);
 }
 

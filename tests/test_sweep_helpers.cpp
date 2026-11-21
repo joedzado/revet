@@ -1,5 +1,8 @@
 // Helpers added after sweeping the apps for code each one rewrote.
+#include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <revet/db/common.hpp>
 #include <revet/hash.hpp>
 #include <revet/jobs.hpp>
 #include <revet/json.hpp>
@@ -8,10 +11,6 @@
 #include <revet/svg.hpp>
 #include <revet/time.hpp>
 #include <revet/web.hpp>
-#include <revet/db/common.hpp>
-
-#include <array>
-#include <chrono>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -64,7 +63,8 @@ TEST_CASE("svg::path_data and points", "[svg]") {
 }
 
 TEST_CASE("html_doc sets lang; standard_head has the basics", "[html]") {
-    const auto doc = html::html_doc{html::lang("en"), html::standard_head({.title = "A <b>", .theme_color = "#111"}), html::body{"x"}};
+    const auto doc = html::html_doc{html::lang("en"), html::standard_head({.title = "A <b>", .theme_color = "#111"}),
+                                    html::body{"x"}};
     CHECK(doc.str.starts_with(R"(<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">)"));
     CHECK(doc.str.find("<title>A &lt;b&gt;</title>") != std::string::npos);
     CHECK(doc.str.find(R"(<meta name="theme-color" content="#111">)") != std::string::npos);
@@ -107,7 +107,8 @@ TEST_CASE("json::Writer rejects misuse", "[json]") {
 }
 
 TEST_CASE("json::quote escapes control characters; number() has no NaN", "[json]") {
-    CHECK(revet::json::quote(std::string("a\x01" "b\t")) == R"("a\u0001b\t")");
+    CHECK(revet::json::quote(std::string("a\x01"
+                                         "b\t")) == R"("a\u0001b\t")");
     CHECK(revet::json::number(std::numeric_limits<double>::infinity()) == "null");
     CHECK(revet::json::number(1.5) == "1.5");
 }
@@ -200,7 +201,7 @@ TEST_CASE("error_page without and with a renderer", "[web]") {
     CHECK(plain.body == "A transaction needs a name.");
     CHECK(web::not_found(req).body == "404 Not Found");
 
-    web::on_error_page([](const web::Request&, web::Status s, std::string_view msg) {
+    web::on_error_page([](const web::Request&, web::Status s, std::string_view msg) -> web::Response {
         return web::Response{.body = std::format("<h1>{}</h1>{}", s.text, msg), .status = web::status::ok};
     });
     auto page = web::not_found(req, "No such account.");
@@ -226,8 +227,8 @@ TEST_CASE("sha1, hmac_sha1, md5 known answers", "[hash]") {
 
 TEST_CASE("TOTP matches RFC 6238 and refuses replays", "[otp]") {
     const std::string secret = "12345678901234567890";
-    CHECK(web::otp::code(secret, 59 / 30) == "287082");                // RFC 6238 T=59, last 6 digits
-    CHECK(web::otp::code(secret, 1111111109 / 30) == "081804");       // T=1111111109
+    CHECK(web::otp::code(secret, 59 / 30) == "287082");         // RFC 6238 T=59, last 6 digits
+    CHECK(web::otp::code(secret, 1111111109 / 30) == "081804"); // T=1111111109
     CHECK(web::otp::base32_decode(web::otp::base32_encode(secret)) == secret);
     CHECK(web::otp::base32_encode(secret) == "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
 
@@ -256,14 +257,14 @@ TEST_CASE("otp::Throttle locks after N failures", "[otp]") {
 TEST_CASE("jobs::SingleFlight runs one at a time and records the outcome", "[jobs]") {
     static web::jobs::SingleFlight job;
     std::atomic<bool> release{false};
-    REQUIRE(job.start([&] {
+    REQUIRE(job.start([&] -> std::string {
         while (!release) {
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
         }
         return std::string("synced 3");
     }));
     CHECK(job.status().running);
-    CHECK_FALSE(job.start([] { return std::string("second"); }));
+    CHECK_FALSE(job.start([] -> std::string { return std::string("second"); }));
     release = true;
     for (int i = 0; i < 2000 && job.status().running; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
@@ -281,7 +282,7 @@ TEST_CASE("jobs::SingleFlight runs one at a time and records the outcome", "[job
 
 TEST_CASE("jobs::every repeats", "[jobs]") {
     static std::atomic<int> n{0};
-    web::jobs::every(std::chrono::milliseconds{2}, [] { ++n; });
+    web::jobs::every(std::chrono::milliseconds{2}, [] -> void { ++n; });
     for (int i = 0; i < 2000 && n < 3; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }

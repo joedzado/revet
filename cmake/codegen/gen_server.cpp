@@ -10,11 +10,11 @@ namespace revet::codegen {
 namespace {
 
 [[noreturn]] void bad_size(const std::string& shown) {
-    throw GenError("revet.toml: max_body = \"" + shown + "\" is not a size (try \"64MB\")");
+    throw GenError("revet.toml: max_body = \"" + shown + R"(" is not a size (try "64MB"))");
 }
 
 // Integer bytes, or a string like "64MB" / "512KiB" / "1g". Binary units.
-unsigned long long to_bytes(const Node& value) {
+auto to_bytes(const Node& value) -> unsigned long long {
     if (value.kind == Node::Kind::Bool) {
         throw GenError("revet.toml: max_body must be a size, not a boolean");
     }
@@ -52,7 +52,7 @@ unsigned long long to_bytes(const Node& value) {
 
 } // namespace
 
-int gen_server(const Ctx& ctx) {
+auto gen_server(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "server.hpp");
     fs::path toml = ctx.proj / "revet.toml";
 
@@ -73,7 +73,7 @@ int gen_server(const Ctx& ctx) {
         body.push_back(cat("inline const bool max_body_set = (web::config::max_body_bytes(", std::to_string(*max_body),
                            "UL), true);"));
     } else {
-        body.push_back("// max_body not set: web::config::DEFAULT_MAX_BODY_BYTES applies");
+        body.emplace_back("// max_body not set: web::config::DEFAULT_MAX_BODY_BYTES applies");
     }
     if (data_dir) {
         std::string escaped;

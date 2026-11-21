@@ -24,10 +24,10 @@ struct IoPool {
         web::clear_middlewares();
     }
     IoPool(const IoPool&) = delete;
-    IoPool& operator=(const IoPool&) = delete;
+    auto operator=(const IoPool&) -> IoPool& = delete;
 };
 
-web::Request make_request(std::string auth_header = "") {
+auto make_request(std::string auth_header = "") -> web::Request {
     web::Request req;
     req.method = web::Method::GET;
     if (!auth_header.empty()) {
@@ -37,27 +37,28 @@ web::Request make_request(std::string auth_header = "") {
 }
 
 // Runs dispatch_async and waits for done. Fails if done is called more than once.
-web::Response run(web::Request request, const web::AsyncHandler& handler, const std::vector<web::Middleware>& guards = {}) {
+auto run(web::Request request, const web::AsyncHandler& handler,
+         const std::vector<web::Middleware>& guards = {}) -> web::Response {
     std::mutex m;
     std::condition_variable cv;
     std::optional<web::Response> result;
     std::atomic<int> calls{0};
     web::dispatch_async(std::make_shared<const web::Request>(std::move(request)), handler, guards,
-                        [&](const web::Response& resp) {
+                        [&](const web::Response& resp) -> void {
                             ++calls;
-                            const std::lock_guard lk(m);
+                            const std::scoped_lock lk(m);
                             result = resp;
                             cv.notify_one();
                         });
     std::unique_lock lk(m);
-    cv.wait_for(lk, std::chrono::seconds(5), [&] { return result.has_value(); });
+    cv.wait_for(lk, std::chrono::seconds(5), [&] -> bool { return result.has_value(); });
     REQUIRE(result.has_value());
     CHECK(calls.load() == 1);
     return *result;
 }
 
-web::Task<web::Response> ok_after_suspend(const web::Request&) {
-    co_await web::run_on_io([] {});
+auto ok_after_suspend(const web::Request&) -> web::Task<web::Response> {
+    co_await web::run_on_io([] -> void {});
     co_return web::Response{.body = "secret"};
 }
 
@@ -114,7 +115,7 @@ TEST_CASE("async dispatch: cookies and headers from middleware reach the respons
         return resp;
     });
     const web::AsyncHandler handler = [](const web::Request&) -> web::Task<web::Response> {
-        co_await web::run_on_io([] {});
+        co_await web::run_on_io([] -> void {});
         web::Response r{.body = "body"};
         r.cookies.data["both"] = "handler";
         co_return r;
@@ -129,7 +130,7 @@ TEST_CASE("async dispatch: cookies and headers from middleware reach the respons
 TEST_CASE("async dispatch: the request stays valid after a suspend", "[async]") {
     const IoPool pool;
     const web::AsyncHandler handler = [](const web::Request& req) -> web::Task<web::Response> {
-        co_await web::run_on_io([] {});
+        co_await web::run_on_io([] -> void {});
         co_return web::Response{.body = std::string(req.headers.get("authorization", "missing"))};
     };
     const auto long_header = "Bearer " + std::string(4096, 'x');
@@ -151,7 +152,7 @@ TEST_CASE("async dispatch: a throw before the first suspend gives a 500", "[asyn
 TEST_CASE("async dispatch: a throw after a suspend gives a 500", "[async]") {
     const IoPool pool;
     const web::AsyncHandler handler = [](const web::Request&) -> web::Task<web::Response> {
-        co_await web::run_on_io([] { throw std::runtime_error("boom"); });
+        co_await web::run_on_io([] -> void { throw std::runtime_error("boom"); });
         co_return web::Response{};
     };
     CHECK(run(make_request(), handler).status == web::status::internal_error);

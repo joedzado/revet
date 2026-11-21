@@ -9,8 +9,6 @@
 //   every: run `fn` on a background thread at a fixed interval, for the life of the process.
 //     web::jobs::every(std::chrono::hours{24}, [] { backup(); });
 
-#include "log.hpp"
-
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -19,6 +17,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "log.hpp"
 
 namespace web::jobs {
 
@@ -45,7 +45,7 @@ public:
         if (!begin()) {
             return false;
         }
-        std::thread([this, job = std::move(job)] { finish(invoke(job)); }).detach();
+        std::thread([this, job = std::move(job)] -> void { finish(invoke(job)); }).detach();
         return true;
     }
 
@@ -59,7 +59,7 @@ public:
     }
 
     auto status() -> Status {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         return status_;
     }
 
@@ -70,7 +70,7 @@ private:
     };
 
     auto begin() -> bool {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         if (status_.running) {
             return false;
         }
@@ -80,15 +80,15 @@ private:
     }
     static auto invoke(const Job& job) -> Outcome {
         try {
-            return {job(), true};
+            return {.text = job(), .ok = true};
         } catch (const std::exception& e) {
-            return {std::string("failed: ") + e.what(), false};
+            return {.text = std::string("failed: ") + e.what(), .ok = false};
         } catch (...) {
-            return {"failed", false};
+            return {.text = "failed", .ok = false};
         }
     }
     void finish(Outcome o) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         status_.running = false;
         status_.last_result = std::move(o.text);
         status_.last_ok = o.ok;
@@ -103,7 +103,7 @@ private:
 // An exception is logged and the schedule continues. Runs until the process exits.
 inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
                   std::chrono::milliseconds first_delay = std::chrono::milliseconds{0}) {
-    std::thread([interval, first_delay, fn = std::move(fn)] {
+    std::thread([interval, first_delay, fn = std::move(fn)] -> void {
         std::this_thread::sleep_for(first_delay);
         for (;;) {
             try {

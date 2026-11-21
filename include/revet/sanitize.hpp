@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cctype>
-
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -61,14 +60,14 @@ inline auto safe_url(std::string_view url) -> std::string {
     // Check scheme
     static constexpr std::array<std::string_view, 4> safe_schemes = {"http", "https", "mailto", "tel"};
     auto scheme = trimmed.substr(0, colon);
-    auto scheme_matches = [](std::string_view s, std::string_view p) {
+    auto scheme_matches = [](std::string_view s, std::string_view p) -> bool {
         if (s.size() != p.size()) {
             return false;
         }
-        return std::ranges::equal(s, p, [](unsigned char a, unsigned char b) { return std::tolower(a) == b; });
+        return std::ranges::equal(s, p, [](unsigned char a, unsigned char b) -> bool { return std::tolower(a) == b; });
     };
 
-    if (std::ranges::any_of(safe_schemes, [&](std::string_view p) { return scheme_matches(scheme, p); })) {
+    if (std::ranges::any_of(safe_schemes, [&](std::string_view p) -> bool { return scheme_matches(scheme, p); })) {
         return std::string(url);
     }
 

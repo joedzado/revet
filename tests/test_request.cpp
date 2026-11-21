@@ -191,7 +191,7 @@ TEST_CASE("parse_request — oversized body is not parsed", "[request]") {
 }
 
 TEST_CASE("parse_request — rejects smuggled lengths and folded headers", "[request]") {
-    auto dropped = [](const char* raw) {
+    auto dropped = [](const char* raw) -> void {
         const auto r = parse(raw);
         CHECK(r.path.path.empty());
         CHECK(r.raw_body.empty());
@@ -216,7 +216,7 @@ TEST_CASE("parse_request handles Cookie header > 8192 bytes", "[request]") {
     REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
 
     // Send in a thread — avoids deadlock when request exceeds socket send buffer
-    std::jthread sender([&raw, &fds]() {
+    std::jthread sender([&raw, &fds]() -> void {
         const char* p = raw.data();
         size_t remaining = raw.size();
         while (remaining > 0) {

@@ -44,7 +44,7 @@ class JsonParser {
 public:
     explicit JsonParser(std::string_view t) : t_(t) {}
 
-    Node document() {
+    auto document() -> Node {
         Node n = value();
         ws();
         if (p_ != t_.size()) {
@@ -63,7 +63,7 @@ private:
         }
     }
 
-    char peek() {
+    auto peek() -> char {
         if (p_ >= t_.size()) {
             fail("json: unexpected end");
         }
@@ -77,7 +77,7 @@ private:
         p_ += w.size();
     }
 
-    unsigned hex4() {
+    auto hex4() -> unsigned {
         if (p_ + 4 > t_.size()) {
             fail("json: bad \\u escape");
         }
@@ -98,7 +98,7 @@ private:
         return v;
     }
 
-    std::string string_body() {
+    auto string_body() -> std::string {
         // Opening quote already consumed.
         std::string out;
         while (true) {
@@ -155,7 +155,7 @@ private:
         return out;
     }
 
-    Node value() {
+    auto value() -> Node {
         ws();
         Node n;
         char c = peek();
@@ -247,7 +247,7 @@ void dump_string(std::string& out, const std::string& s) {
     out += '"';
     size_t i = 0;
     while (i < s.size()) {
-        unsigned char c = static_cast<unsigned char>(s[i]);
+        auto c = static_cast<unsigned char>(s[i]);
         unsigned cp = c;
         size_t len = 1;
         if (c >= 0x80) {
@@ -361,7 +361,7 @@ class TomlParser {
 public:
     explicit TomlParser(std::string_view t) : t_(t) {}
 
-    Node document() {
+    auto document() -> Node {
         Node root;
         root.kind = Node::Kind::Table;
         std::vector<std::string> section;
@@ -410,7 +410,7 @@ private:
         fail(std::string("toml: ") + what + " at byte " + std::to_string(p_));
     }
 
-    char peek() {
+    auto peek() -> char {
         if (p_ >= t_.size()) {
             bad("unexpected end");
         }
@@ -450,11 +450,11 @@ private:
         }
     }
 
-    static bool bare_char(char c) {
+    static auto bare_char(char c) -> bool {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
     }
 
-    std::string simple_key() {
+    auto simple_key() -> std::string {
         skip_inline_ws();
         if (p_ < t_.size() && (t_[p_] == '"' || t_[p_] == '\'')) {
             Node n = string_value();
@@ -470,7 +470,7 @@ private:
         return std::string(t_.substr(start, p_ - start));
     }
 
-    std::vector<std::string> dotted_key() {
+    auto dotted_key() -> std::vector<std::string> {
         std::vector<std::string> parts;
         parts.push_back(simple_key());
         skip_inline_ws();
@@ -482,7 +482,7 @@ private:
         return parts;
     }
 
-    static Node& child_table(Node& t, const std::string& key) {
+    static auto child_table(Node& t, const std::string& key) -> Node& {
         for (size_t i = 0; i < t.keys.size(); ++i) {
             if (t.keys[i] == key) {
                 if (t.vals[i].kind != Node::Kind::Table) {
@@ -498,7 +498,7 @@ private:
         return t.vals.back();
     }
 
-    static Node& table_at(Node& root, const std::vector<std::string>& path) {
+    static auto table_at(Node& root, const std::vector<std::string>& path) -> Node& {
         Node* cur = &root;
         for (const auto& seg : path) {
             cur = &child_table(*cur, seg);
@@ -506,7 +506,7 @@ private:
         return *cur;
     }
 
-    Node string_value() {
+    auto string_value() -> Node {
         Node n;
         n.kind = Node::Kind::String;
         char q = t_[p_];
@@ -611,7 +611,7 @@ private:
         return n;
     }
 
-    Node value() {
+    auto value() -> Node {
         char c = peek();
         Node n;
         if (c == '"' || c == '\'') {
@@ -689,7 +689,7 @@ private:
 
 // ── Node ────────────────────────────────────────────────────────────────────
 
-const Node* Node::find(std::string_view key) const {
+auto Node::find(std::string_view key) const -> const Node* {
     if (kind != Kind::Table) {
         return nullptr;
     }
@@ -712,21 +712,21 @@ void Node::set(const std::string& key, Node value) {
     vals.push_back(std::move(value));
 }
 
-Node parse_json(std::string_view text) {
+auto parse_json(std::string_view text) -> Node {
     return JsonParser(text).document();
 }
 
-std::string dump_json_indent2(const Node& n) {
+auto dump_json_indent2(const Node& n) -> std::string {
     std::string out;
     dump_value(out, n, 0);
     return out;
 }
 
-Node parse_toml(std::string_view text) {
+auto parse_toml(std::string_view text) -> Node {
     return TomlParser(text).document();
 }
 
-std::string py_str(const Node& n) {
+auto py_str(const Node& n) -> std::string {
     switch (n.kind) {
         case Node::Kind::String:
         case Node::Kind::Number:
@@ -738,7 +738,7 @@ std::string py_str(const Node& n) {
     }
 }
 
-long long py_int(const Node& n) {
+auto py_int(const Node& n) -> long long {
     switch (n.kind) {
         case Node::Kind::Number:
         case Node::Kind::String:
@@ -750,7 +750,7 @@ long long py_int(const Node& n) {
     }
 }
 
-bool py_bool(const Node& n) {
+auto py_bool(const Node& n) -> bool {
     switch (n.kind) {
         case Node::Kind::Bool:
             return n.b;

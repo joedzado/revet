@@ -34,7 +34,7 @@ struct Ctx {
 
 // ── String building ─────────────────────────────────────────────────────────
 template<class... T>
-std::string cat(const T&... parts) {
+auto cat(const T&... parts) -> std::string {
     std::string out;
     (out.append(std::string_view(parts)), ...);
     return out;
@@ -42,54 +42,54 @@ std::string cat(const T&... parts) {
 
 // ── Files ───────────────────────────────────────────────────────────────────
 // Reads a file with universal newlines.
-std::string read_text(const fs::path& p);
-bool file_exists(const fs::path& p);
+auto read_text(const fs::path& p) -> std::string;
+auto file_exists(const fs::path& p) -> bool;
 // Writes only when the content changed (write-if-changed).
 void write_file(const fs::path& p, std::string_view content);
 // Lines joined with "\n" and no trailing newline.
 void write_lines(const fs::path& p, const Lines& lines);
 // build/generated/<filename> under the project; creates the directory.
-fs::path setup(const Ctx& ctx, std::string_view filename);
+auto setup(const Ctx& ctx, std::string_view filename) -> fs::path;
 // Sorted directory listing for `dir/*<suffix>` (or recursive `**/*<suffix>`).
-std::vector<fs::path> glob(const fs::path& dir, std::string_view suffix, bool recursive = false);
-bool has_models(const fs::path& dir);
+auto glob(const fs::path& dir, std::string_view suffix, bool recursive = false) -> std::vector<fs::path>;
+auto has_models(const fs::path& dir) -> bool;
 
 // ── Templates (framework cmake/templates) ───────────────────────────────────
 // Template file contents with trailing newlines stripped.
-std::string tmpl(const Ctx& ctx, std::string_view name);
+auto tmpl(const Ctx& ctx, std::string_view name) -> std::string;
 // Raw template file contents.
-std::string tmpl_whole(const Ctx& ctx, std::string_view name);
+auto tmpl_whole(const Ctx& ctx, std::string_view name) -> std::string;
 // string.Template.substitute: $name, ${name}, $$. Missing keys are errors.
-std::string subst(std::string_view text, const Vars& vars);
+auto subst(std::string_view text, const Vars& vars) -> std::string;
 
 // ── Strings ─────────────────────────────────────────────────────────────────
-std::string strip(std::string_view s);
-std::string lower(std::string_view s);
-bool starts_with(std::string_view s, std::string_view prefix);
-bool ends_with(std::string_view s, std::string_view suffix);
-std::string join(const Lines& parts, std::string_view sep);
+auto strip(std::string_view s) -> std::string;
+auto lower(std::string_view s) -> std::string;
+auto starts_with(std::string_view s, std::string_view prefix) -> bool;
+auto ends_with(std::string_view s, std::string_view suffix) -> bool;
+auto join(const Lines& parts, std::string_view sep) -> std::string;
 // Splits lines on \n, \r and \r\n.
-Lines splitlines(std::string_view s);
+auto splitlines(std::string_view s) -> Lines;
 // Splits on commas that are not nested in <>, (), [] and drops empty items.
-Lines split_args(std::string_view s);
+auto split_args(std::string_view s) -> Lines;
 // Escapes backslash, quote and newline for a C++ string literal.
-std::string escape_str(std::string_view s);
+auto escape_str(std::string_view s) -> std::string;
 // Collapses runs of whitespace to one space.
-std::string collapse_ws(std::string_view s);
+auto collapse_ws(std::string_view s) -> std::string;
 // Counts newlines before `end`.
-std::size_t count_newlines(std::string_view s, std::size_t end);
-std::string rel_include(const fs::path& hpp, const fs::path& proj);
+auto count_newlines(std::string_view s, std::size_t end) -> std::size_t;
+auto rel_include(const fs::path& hpp, const fs::path& proj) -> std::string;
 // Header lines: generated-file banner plus includes.
-Lines file_header(std::initializer_list<std::string> includes);
+auto file_header(std::initializer_list<std::string> includes) -> Lines;
 
 // ── CTRE helpers ──
 // Offset of `part` inside `whole` (part must be a view into whole).
-inline std::size_t offset_in(std::string_view whole, std::string_view part) {
+inline auto offset_in(std::string_view whole, std::string_view part) -> std::size_t {
     return static_cast<std::size_t>(part.data() - whole.data());
 }
 // Replaces every match of P in `s` with `with`.
 template<ctll::fixed_string P>
-std::string replace_all(std::string_view s, std::string_view with) {
+auto replace_all(std::string_view s, std::string_view with) -> std::string {
     std::string out;
     std::size_t pos = 0;
     for (auto m : ctre::search_all<P>(s)) {
@@ -122,24 +122,24 @@ inline constexpr auto find_toggles = ctre::search_all<
 inline constexpr auto find_state_types = ctre::search_all<R"RE(web::(State|Flash)<(\w+)>)RE">;
 
 // ── Generators (one per gen_*.cpp) ─────────────────────────────────────
-int gen_json_models(const Ctx& ctx);
-int gen_states(const Ctx& ctx);
-int gen_forms(const Ctx& ctx);
-int gen_components(const Ctx& ctx);
-int gen_routes(const Ctx& ctx);
-int gen_resources(const Ctx& ctx);
-int gen_queries(const Ctx& ctx);
-int gen_api(const Ctx& ctx);
-int gen_styles(const Ctx& ctx);
-int gen_toggles(const Ctx& ctx);
-int gen_uploads(const Ctx& ctx);
-int gen_dependencies(const Ctx& ctx);
-int gen_i18n(const Ctx& ctx);
-int gen_htmx(const Ctx& ctx);
-int gen_optimistic(const Ctx& ctx);
-int gen_scripts(const Ctx& ctx);
-int gen_server(const Ctx& ctx);
+auto gen_json_models(const Ctx& ctx) -> int;
+auto gen_states(const Ctx& ctx) -> int;
+auto gen_forms(const Ctx& ctx) -> int;
+auto gen_components(const Ctx& ctx) -> int;
+auto gen_routes(const Ctx& ctx) -> int;
+auto gen_resources(const Ctx& ctx) -> int;
+auto gen_queries(const Ctx& ctx) -> int;
+auto gen_api(const Ctx& ctx) -> int;
+auto gen_styles(const Ctx& ctx) -> int;
+auto gen_toggles(const Ctx& ctx) -> int;
+auto gen_uploads(const Ctx& ctx) -> int;
+auto gen_dependencies(const Ctx& ctx) -> int;
+auto gen_i18n(const Ctx& ctx) -> int;
+auto gen_htmx(const Ctx& ctx) -> int;
+auto gen_optimistic(const Ctx& ctx) -> int;
+auto gen_scripts(const Ctx& ctx) -> int;
+auto gen_server(const Ctx& ctx) -> int;
 // (url, identifier) for each app/scripts/*.js; used by gen_routes.
-std::vector<std::pair<std::string, std::string>> app_script_routes(const Ctx& ctx);
+auto app_script_routes(const Ctx& ctx) -> std::vector<std::pair<std::string, std::string>>;
 
 } // namespace revet::codegen

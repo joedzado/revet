@@ -18,7 +18,7 @@ namespace {
 // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 // Minimal SHA-256 (FIPS 180-4). Fixed-size blocks: every index is bounded by its loop. Only used for cache-busting
 // URLs, so it must match the hash the Python generator produced: hashlib.sha256(src).hexdigest()[:10].
-std::string sha256_hex(std::string_view data) {
+auto sha256_hex(std::string_view data) -> std::string {
     static constexpr std::array<std::uint32_t, 64> K = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -41,7 +41,7 @@ std::string sha256_hex(std::string_view data) {
         msg.push_back(static_cast<char>((bit_len >> (i * 8)) & 0xffU));
     }
 
-    auto rotr = [](std::uint32_t x, unsigned n) { return (x >> n) | (x << (32 - n)); };
+    auto rotr = [](std::uint32_t x, unsigned n) -> std::uint32_t { return (x >> n) | (x << (32 - n)); };
     for (std::size_t off = 0; off < msg.size(); off += 64) {
         std::array<std::uint32_t, 64> w{};
         for (std::size_t i = 0; i < 16; ++i) {
@@ -87,7 +87,7 @@ struct AppScript {
 };
 
 // Python \W → _, and a leading digit gets a leading underscore.
-std::string ident_of(const std::string& stem) {
+auto ident_of(const std::string& stem) -> std::string {
     std::string name = stem;
     for (char& c : name) {
         if (!(std::isalnum(static_cast<unsigned char>(c)) != 0) && c != '_') {
@@ -100,7 +100,7 @@ std::string ident_of(const std::string& stem) {
     return name;
 }
 
-std::vector<AppScript> scan_scripts(const Ctx& ctx) {
+auto scan_scripts(const Ctx& ctx) -> std::vector<AppScript> {
     std::vector<AppScript> out;
     fs::path dir = ctx.proj / "app" / "scripts";
     if (!fs::is_directory(dir)) {
@@ -113,14 +113,15 @@ std::vector<AppScript> scan_scripts(const Ctx& ctx) {
             files.push_back(entry.path());
         }
     }
-    std::sort(files.begin(), files.end(),
-              [](const fs::path& a, const fs::path& b) { return a.filename().string() < b.filename().string(); });
+    std::ranges::sort(files, [](const fs::path& a, const fs::path& b) -> bool {
+        return a.filename().string() < b.filename().string();
+    });
 
     for (const auto& f : files) {
         std::string src = read_text(f);
         std::string stem = f.stem().string();
         std::string digest = sha256_hex(src).substr(0, 10);
-        out.push_back({ident_of(stem), cat("/_app/", stem, ".", digest, ".js"), src});
+        out.push_back({.ident = ident_of(stem), .url = cat("/_app/", stem, ".", digest, ".js"), .src = src});
     }
     return out;
 }
@@ -128,7 +129,7 @@ std::vector<AppScript> scan_scripts(const Ctx& ctx) {
 } // namespace
 
 // Used by gen_routes to list app scripts as routes.
-std::vector<std::pair<std::string, std::string>> app_script_routes(const Ctx& ctx) {
+auto app_script_routes(const Ctx& ctx) -> std::vector<std::pair<std::string, std::string>> {
     std::vector<std::pair<std::string, std::string>> out;
     for (const auto& s : scan_scripts(ctx)) {
         out.emplace_back(s.url, s.ident);
@@ -136,19 +137,19 @@ std::vector<std::pair<std::string, std::string>> app_script_routes(const Ctx& ct
     return out;
 }
 
-int gen_scripts(const Ctx& ctx) {
+auto gen_scripts(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "scripts.hpp");
     Lines lines = file_header({"#include <revet/html.hpp>", "#include <string_view>"});
-    lines.push_back("namespace scripts {");
+    lines.emplace_back("namespace scripts {");
     for (const auto& s : scan_scripts(ctx)) {
         lines.push_back("inline constexpr std::string_view " + s.ident + " = \"" + s.url + "\";");
         lines.push_back("inline constexpr std::string_view " + s.ident + "_js = \"" + escape_str(s.src) + "\";");
         lines.push_back("inline auto " + s.ident + "_tag() -> html::Node {");
-        lines.push_back("    return html::script{html::attr.src(" + s.ident + "), html::attr(\"defer\", \"\")};");
-        lines.push_back("}");
+        lines.push_back("    return html::script{html::attr.src(" + s.ident + R"(), html::attr("defer", "")};)");
+        lines.emplace_back("}");
     }
-    lines.push_back("} // namespace scripts");
-    lines.push_back("");
+    lines.emplace_back("} // namespace scripts");
+    lines.emplace_back("");
     write_lines(out_path, lines);
     return 0;
 }

@@ -2,6 +2,7 @@
 #include <array>
 #include <cerrno>
 #include <climits>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -11,7 +12,6 @@
 #include <fstream>
 #include <map>
 #include <poll.h>
-#include <signal.h>
 #include <spawn.h>
 #include <sstream>
 #include <sys/wait.h>
@@ -63,7 +63,7 @@ void fail(std::string_view s) {
     std::exit(1);
 }
 
-std::string expand_tabs(std::string_view s, int width) {
+auto expand_tabs(std::string_view s, int width) -> std::string {
     std::string out;
     int col = 0;
     for (char c : s) {
@@ -89,7 +89,7 @@ void clear_screen() {
 namespace {
 
 // The current environment with `overrides` ("KEY=VALUE") added or replacing entries.
-std::vector<std::string> merged_env(const std::vector<std::string>& overrides) {
+auto merged_env(const std::vector<std::string>& overrides) -> std::vector<std::string> {
     std::vector<std::string> env;
     for (char** e = environ; e != nullptr && *e != nullptr; ++e) {
         std::string_view entry(*e);
@@ -110,7 +110,7 @@ std::vector<std::string> merged_env(const std::vector<std::string>& overrides) {
     return env;
 }
 
-std::vector<char*> c_array(std::vector<std::string>& v) {
+auto c_array(std::vector<std::string>& v) -> std::vector<char*> {
     std::vector<char*> out;
     out.reserve(v.size() + 1);
     for (auto& s : v) {
@@ -122,7 +122,7 @@ std::vector<char*> c_array(std::vector<std::string>& v) {
 
 } // namespace
 
-Child spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) {
+auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Child {
     Child child;
     if (argv.empty()) {
         return child;
@@ -142,7 +142,7 @@ Child spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) {
 
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    auto route = [&](Io io, int fd, const std::array<int, 2>& pipe_fds) {
+    auto route = [&](Io io, int fd, const std::array<int, 2>& pipe_fds) -> void {
         if (io == Io::Null) {
             posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0);
         } else if (io == Io::Pipe) {
@@ -212,7 +212,7 @@ Child spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) {
     return child;
 }
 
-int wait_child(pid_t pid) {
+auto wait_child(pid_t pid) -> int {
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
         if (errno != EINTR) {
@@ -228,7 +228,7 @@ int wait_child(pid_t pid) {
     return -1;
 }
 
-Result run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_s) {
+auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_s) -> Result {
     Result r;
     SpawnOptions opts;
     opts.cwd = cwd;
@@ -244,7 +244,8 @@ Result run(const std::vector<std::string>& argv, const fs::path& cwd, int timeou
     }
 
     const auto deadline = std::time(nullptr) + timeout_s;
-    std::array<pollfd, 2> fds = {{{c.out_fd, POLLIN, 0}, {c.err_fd, POLLIN, 0}}};
+    std::array<pollfd, 2> fds = {
+        {{.fd = c.out_fd, .events = POLLIN, .revents = 0}, {.fd = c.err_fd, .events = POLLIN, .revents = 0}}};
     std::array<std::string*, 2> sinks = {&r.out, &r.err};
     int open_fds = 2;
     bool timed_out = false;
@@ -297,7 +298,7 @@ Result run(const std::vector<std::string>& argv, const fs::path& cwd, int timeou
     return r;
 }
 
-int run_inherit(const std::vector<std::string>& argv, const fs::path& cwd) {
+auto run_inherit(const std::vector<std::string>& argv, const fs::path& cwd) -> int {
     SpawnOptions opts;
     opts.cwd = cwd;
     Child c = spawn(argv, opts);
@@ -307,7 +308,7 @@ int run_inherit(const std::vector<std::string>& argv, const fs::path& cwd) {
     return wait_child(c.pid);
 }
 
-std::optional<fs::path> which(std::string_view name) {
+auto which(std::string_view name) -> std::optional<fs::path> {
     if (name.contains('/')) {
         if (access(std::string(name).c_str(), X_OK) == 0) {
             return fs::path(name);
@@ -335,14 +336,14 @@ std::optional<fs::path> which(std::string_view name) {
     return std::nullopt;
 }
 
-unsigned cpu_count() {
+auto cpu_count() -> unsigned {
     unsigned n = std::thread::hardware_concurrency();
     return (n != 0U) ? n : 1;
 }
 
 // ── Files ───────────────────────────────────────────────────────────────────
 
-std::optional<std::string> read_file(const fs::path& p) {
+auto read_file(const fs::path& p) -> std::optional<std::string> {
     std::ifstream in(p, std::ios::binary);
     if (!in) {
         return std::nullopt;
@@ -364,7 +365,7 @@ void write_file(const fs::path& p, std::string_view content) {
     out.write(content.data(), static_cast<std::streamsize>(content.size()));
 }
 
-std::vector<std::string> split_lines_keepends(std::string_view s) {
+auto split_lines_keepends(std::string_view s) -> std::vector<std::string> {
     std::vector<std::string> out;
     size_t start = 0;
     while (start < s.size()) {
@@ -379,10 +380,10 @@ std::vector<std::string> split_lines_keepends(std::string_view s) {
     return out;
 }
 
-std::string strip(std::string_view s) {
+auto strip(std::string_view s) -> std::string {
     size_t b = 0;
     size_t e = s.size();
-    auto ws = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; };
+    auto ws = [](char c) -> bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; };
     while (b < e && ws(s[b])) {
         ++b;
     }
@@ -392,8 +393,8 @@ std::string strip(std::string_view s) {
     return std::string(s.substr(b, e - b));
 }
 
-bool starts_with(std::string_view s, std::string_view prefix) {
-    return s.substr(0, prefix.size()) == prefix;
+auto starts_with(std::string_view s, std::string_view prefix) -> bool {
+    return s.starts_with(prefix);
 }
 
 // ── Hashes ──────────────────────────────────────────────────────────────────
@@ -403,7 +404,7 @@ bool starts_with(std::string_view s, std::string_view prefix) {
 
 namespace {
 
-std::string to_hex(const unsigned char* bytes, size_t n) {
+auto to_hex(const unsigned char* bytes, size_t n) -> std::string {
     static constexpr char k_digits[] = "0123456789abcdef";
     std::string out;
     out.reserve(n * 2);
@@ -414,12 +415,12 @@ std::string to_hex(const unsigned char* bytes, size_t n) {
     return out;
 }
 
-constexpr std::uint32_t rotl(std::uint32_t x, unsigned n) {
+constexpr auto rotl(std::uint32_t x, unsigned n) -> std::uint32_t {
     return (x << n) | (x >> (32 - n));
 }
 
 // Message padded to a multiple of 64 bytes with the bit length appended (little- or big-endian).
-std::string padded(std::string_view data, bool big_endian) {
+auto padded(std::string_view data, bool big_endian) -> std::string {
     std::string msg(data);
     std::uint64_t bits = static_cast<std::uint64_t>(data.size()) * 8;
     msg.push_back(static_cast<char>(0x80));
@@ -435,8 +436,8 @@ std::string padded(std::string_view data, bool big_endian) {
 
 } // namespace
 
-std::string md5_hex(std::string_view data) {
-    static constexpr std::array<std::uint32_t, 64> K = [] {
+auto md5_hex(std::string_view data) -> std::string {
+    static constexpr std::array<std::uint32_t, 64> K = [] -> std::array<std::uint32_t, 64> {
         std::array<std::uint32_t, 64> k{};
         constexpr std::array<std::uint32_t, 64> table = {
             0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
@@ -502,7 +503,7 @@ std::string md5_hex(std::string_view data) {
     return to_hex(out, 16);
 }
 
-std::string sha1_hex(std::string_view data) {
+auto sha1_hex(std::string_view data) -> std::string {
     std::uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
     std::string msg = padded(data, true);
     for (size_t off = 0; off < msg.size(); off += 64) {
@@ -556,7 +557,7 @@ std::string sha1_hex(std::string_view data) {
 
 namespace {
 
-fs::path executable_path() {
+auto executable_path() -> fs::path {
 #ifdef __APPLE__
     uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
@@ -565,7 +566,7 @@ fs::path executable_path() {
         return {};
     }
     buf.resize(std::strlen(buf.c_str()));
-    return fs::path(buf);
+    return {buf};
 #else
     std::error_code ec;
     return fs::read_symlink("/proc/self/exe", ec);
@@ -574,10 +575,10 @@ fs::path executable_path() {
 
 } // namespace
 
-const fs::path& framework_dir() {
-    static const fs::path dir = [] {
+auto framework_dir() -> const fs::path& {
+    static const fs::path dir = [] -> fs::path {
         if (const char* env = std::getenv("REVET_FRAMEWORK"); env && *env) {
-            return fs::path(env);
+            return {env};
         }
         std::error_code ec;
         fs::path exe = fs::canonical(executable_path(), ec);
@@ -592,7 +593,7 @@ const fs::path& framework_dir() {
         }
 #ifdef REVET_SOURCE_DIR
         // Built out of tree (build directory outside the checkout): the checkout it came from.
-        return fs::path(REVET_SOURCE_DIR);
+        return {REVET_SOURCE_DIR};
 #else
         return exe.parent_path();
 #endif
@@ -600,8 +601,8 @@ const fs::path& framework_dir() {
     return dir;
 }
 
-const std::string& framework_version() {
-    static const std::string version = [] {
+auto framework_version() -> const std::string& {
+    static const std::string version = [] -> std::string {
         for (fs::path d = framework_dir(); !d.empty(); d = d.parent_path()) {
             if (auto v = read_file(d / "VERSION")) {
                 return strip(*v);
@@ -610,7 +611,7 @@ const std::string& framework_version() {
                 break;
             }
         }
-        return std::string("unknown");
+        return {"unknown"};
     }();
     return version;
 }

@@ -9,7 +9,7 @@ namespace http {
 
 namespace { // NOLINT(google-readability-anonymous-namespace-comments)
 
-size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+auto write_callback(void* contents, size_t size, size_t nmemb, void* userp) -> size_t {
     auto* str = static_cast<std::string*>(userp);
     str->append(static_cast<char*>(contents), size * nmemb);
     return size * nmemb;
@@ -52,13 +52,13 @@ struct CurlHeaders {
 
 } // namespace
 
-Response CurlClient::execute(const std::string& method, const std::string& url,
-                             const std::map<std::string, std::string>& headers, const std::string& body) {
+auto CurlClient::execute(const std::string& method, const std::string& url,
+                         const std::map<std::string, std::string>& headers, const std::string& body) -> Response {
     init_curl_global();
 
     CurlHandle curl;
     if (!curl) {
-        return Response{0, "Failed to initialize curl", {}};
+        return Response{.status_code = 0, .body = "Failed to initialize curl", .headers = {}};
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -88,18 +88,19 @@ Response CurlClient::execute(const std::string& method, const std::string& url,
     if (res != CURLE_OK) {
         // status_code 0 signals a transport failure (DNS, connect, timeout, …)
         // distinct from any real HTTP status the remote could send.
-        return Response{0, std::format("Curl error: {}", curl_easy_strerror(res)), {}};
+        return Response{
+            .status_code = 0, .body = std::format("Curl error: {}", curl_easy_strerror(res)), .headers = {}};
     }
 
-    return Response{static_cast<int>(status_code), response_body, {}};
+    return Response{.status_code = static_cast<int>(status_code), .body = response_body, .headers = {}};
 }
 
 // ── MockClient ───────────────────────────────────────────────────────────────
 
-Response MockClient::execute(const std::string& method, const std::string& url,
-                             const std::map<std::string, std::string>& headers, const std::string& body) {
+auto MockClient::execute(const std::string& method, const std::string& url,
+                         const std::map<std::string, std::string>& headers, const std::string& body) -> Response {
     // Record call
-    call_history_.push_back({method, url, headers, body});
+    call_history_.push_back({.method = method, .url = url, .headers = headers, .body = body});
 
     // Look up stubbed response
     const std::string key = method + ":" + url;
@@ -109,7 +110,7 @@ Response MockClient::execute(const std::string& method, const std::string& url,
     }
 
     // Not found
-    return Response{404, std::format("No stub for {}", key), {}};
+    return Response{.status_code = 404, .body = std::format("No stub for {}", key), .headers = {}};
 }
 
 // ── Global client management ──────────────────────────────────────────────────
@@ -119,7 +120,7 @@ namespace { // NOLINT(google-readability-anonymous-namespace-comments)
 std::shared_ptr<Client> g_client;
 } // namespace
 
-Client& default_client() {
+auto default_client() -> Client& {
     if (!g_client) {
         g_client = std::make_shared<CurlClient>();
     }

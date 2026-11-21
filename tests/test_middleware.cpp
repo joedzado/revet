@@ -1,5 +1,5 @@
 #include <arpa/inet.h>
-
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <revet/web.hpp>
 #include <string>
@@ -29,7 +29,7 @@ struct ScopedMiddlewares {
 
 TEST_CASE("dispatch — no middleware calls handler directly", "[middleware]") {
     ScopedMiddlewares _;
-    auto handler = [](const web::Request&) { return web::to_response("ok"); };
+    auto handler = [](const web::Request&) -> web::Response { return web::to_response("ok"); };
     auto req = make_req(web::Method::GET, "/");
     auto resp = web::dispatch(req, handler);
     REQUIRE(resp.body == "ok");
@@ -41,13 +41,13 @@ TEST_CASE("dispatch — middleware runs before handler", "[middleware]") {
     ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request& req, web::Next next) {
-        order.push_back("mw");
+    web::use([&](const web::Request& req, web::Next next) -> web::Response {
+        order.emplace_back("mw");
         return next();
     });
 
-    auto handler = [&](const web::Request&) {
-        order.push_back("handler");
+    auto handler = [&](const web::Request&) -> web::Response {
+        order.emplace_back("handler");
         return web::to_response("ok");
     };
 
@@ -59,21 +59,21 @@ TEST_CASE("dispatch — multiple middleware run in registration order", "[middle
     ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request&, web::Next next) {
-        order.push_back("a");
+    web::use([&](const web::Request&, web::Next next) -> web::Response {
+        order.emplace_back("a");
         return next();
     });
-    web::use([&](const web::Request&, web::Next next) {
-        order.push_back("b");
+    web::use([&](const web::Request&, web::Next next) -> web::Response {
+        order.emplace_back("b");
         return next();
     });
-    web::use([&](const web::Request&, web::Next next) {
-        order.push_back("c");
+    web::use([&](const web::Request&, web::Next next) -> web::Response {
+        order.emplace_back("c");
         return next();
     });
 
-    auto handler = [&](const web::Request&) {
-        order.push_back("h");
+    auto handler = [&](const web::Request&) -> web::Response {
+        order.emplace_back("h");
         return web::to_response("ok");
     };
 
@@ -91,7 +91,7 @@ TEST_CASE("dispatch — middleware can short-circuit without calling handler", "
         return {.body = "blocked", .status = web::status::unauthorized};
     });
 
-    auto handler = [&](const web::Request&) {
+    auto handler = [&](const web::Request&) -> web::Response {
         handler_called = true;
         return web::to_response("ok");
     };
@@ -114,7 +114,7 @@ TEST_CASE("auth middleware — allows request with valid session cookie", "[midd
         return next();
     });
 
-    auto handler = [](const web::Request&) { return web::to_response("secret"); };
+    auto handler = [](const web::Request&) -> web::Response { return web::to_response("secret"); };
     auto req = make_req_with_cookie("/dashboard", "session", "abc123");
     auto resp = web::dispatch(req, handler);
 
@@ -132,7 +132,7 @@ TEST_CASE("auth middleware — blocks request without session cookie", "[middlew
         return next();
     });
 
-    auto handler = [](const web::Request&) { return web::to_response("secret"); };
+    auto handler = [](const web::Request&) -> web::Response { return web::to_response("secret"); };
     auto resp = web::dispatch(make_req(web::Method::GET, "/dashboard"), handler);
 
     REQUIRE(resp.status == 401);
@@ -144,13 +144,13 @@ TEST_CASE("auth middleware — blocks request without session cookie", "[middlew
 TEST_CASE("dispatch — middleware can mutate response after handler", "[middleware]") {
     ScopedMiddlewares _;
 
-    web::use([](const web::Request&, web::Next next) {
+    web::use([](const web::Request&, web::Next next) -> web::Response {
         auto resp = next();
         resp.headers.data["X-Powered-By"] = "revet";
         return resp;
     });
 
-    auto handler = [](const web::Request&) { return web::to_response("hello"); };
+    auto handler = [](const web::Request&) -> web::Response { return web::to_response("hello"); };
     auto resp = web::dispatch(make_req(web::Method::GET, "/"), handler);
 
     REQUIRE(resp.body == "hello");
@@ -164,14 +164,16 @@ TEST_CASE("logging middleware — sees both request path and response status", "
     std::string logged_path;
     int logged_status = 0;
 
-    web::use([&](const web::Request& req, web::Next next) {
+    web::use([&](const web::Request& req, web::Next next) -> web::Response {
         auto resp = next();
         logged_path = req.path.path;
         logged_status = resp.status;
         return resp;
     });
 
-    auto handler = [](const web::Request&) { return web::Response{.body = "data", .status = web::status::ok}; };
+    auto handler = [](const web::Request&) -> web::Response {
+        return web::Response{.body = "data", .status = web::status::ok};
+    };
 
     web::dispatch(make_req(web::Method::GET, "/api/data"), handler);
     REQUIRE(logged_path == "/api/data");
@@ -184,22 +186,22 @@ TEST_CASE("dispatch — middleware wraps handler symmetrically", "[middleware]")
     ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request&, web::Next next) {
-        order.push_back("before-a");
+    web::use([&](const web::Request&, web::Next next) -> web::Response {
+        order.emplace_back("before-a");
         auto r = next();
-        order.push_back("after-a");
+        order.emplace_back("after-a");
         return r;
     });
 
-    web::use([&](const web::Request&, web::Next next) {
-        order.push_back("before-b");
+    web::use([&](const web::Request&, web::Next next) -> web::Response {
+        order.emplace_back("before-b");
         auto r = next();
-        order.push_back("after-b");
+        order.emplace_back("after-b");
         return r;
     });
 
-    auto handler = [&](const web::Request&) {
-        order.push_back("handler");
+    auto handler = [&](const web::Request&) -> web::Response {
+        order.emplace_back("handler");
         return web::to_response("ok");
     };
 
@@ -224,7 +226,7 @@ TEST_CASE("SSE routes run global middleware, even with no guards", "[middleware]
 
 TEST_CASE("SSE routes stream when nothing refuses", "[middleware][sse]") {
     ScopedMiddlewares _;
-    web::use([](const web::Request&, const web::Next& next) { return next(); });
+    web::use([](const web::Request&, const web::Next& next) -> web::Response { return next(); });
     CHECK_FALSE(web::detail::sse_gate(make_req(web::Method::GET, "/events"), {}).has_value());
 }
 
@@ -242,8 +244,8 @@ TEST_CASE("listeners bind where asked, or say why not", "[bind]") {
     sockaddr_in addr{};
     socklen_t len = sizeof(addr);
     REQUIRE(getsockname(*fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
-    char text[INET_ADDRSTRLEN];
-    CHECK(std::string(inet_ntop(AF_INET, &addr.sin_addr, text, sizeof(text))) == "127.0.0.1");
+    std::array<char, INET_ADDRSTRLEN> text{};
+    CHECK(std::string(inet_ntop(AF_INET, &addr.sin_addr, text.data(), text.size())) == "127.0.0.1");
     close(*fd);
 
     const auto bad = web::detail::open_listener("not-an-address", 0);

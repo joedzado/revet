@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <string_view>
 
 // ── i18n:: compile-time string table ──────────────────────────────────────────
@@ -16,9 +17,9 @@ inline thread_local int locale_idx = 0;
 
 template<int N>
 struct Str {
-    std::string_view data[N];
-    auto get() const -> std::string_view {
-        return data[detail::locale_idx];
+    std::array<std::string_view, N> data;
+    [[nodiscard]] auto get() const -> std::string_view {
+        return data.at(detail::locale_idx);
     }
     operator std::string_view() const {
         return get();

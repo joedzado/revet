@@ -13,7 +13,7 @@ namespace {
 
 using revet::codegen::Ctx;
 
-const std::map<std::string, std::function<int(const Ctx&)>>& generators() {
+auto generators() -> const std::map<std::string, std::function<int(const Ctx&)>>& {
     static const std::map<std::string, std::function<int(const Ctx&)>> table = {
         {"gen_json_models", revet::codegen::gen_json_models},
         {"gen_states", revet::codegen::gen_states},
@@ -38,7 +38,7 @@ const std::map<std::string, std::function<int(const Ctx&)>>& generators() {
 
 } // namespace
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     if (argc != 4) {
         std::cerr << "usage: revet-codegen <generator> <project-root> <framework-root>\n";
         return 2;
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
             std::cerr << "revet-codegen: unknown generator '" << argv[1] << "'\n";
             return 2;
         }
-        Ctx ctx{std::filesystem::path(argv[2]), std::filesystem::path(argv[3])};
+        Ctx ctx{.proj = std::filesystem::path(argv[2]), .framework = std::filesystem::path(argv[3])};
         return it->second(ctx);
     } catch (const revet::codegen::GenError& e) {
         std::cerr << e.what() << "\n";

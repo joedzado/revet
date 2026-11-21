@@ -11,7 +11,7 @@ namespace {
 
 // CSS name -> C++ identifier: dashes become underscores, and a C++ keyword or
 // alternative token (`or`, `not`, `float`, `default`...) gets a trailing underscore.
-std::string replace_dashes(std::string s) {
+auto replace_dashes(std::string s) -> std::string {
     static const std::set<std::string, std::less<>> keywords{
         "alignas",     "alignof",   "and",        "and_eq",    "asm",      "auto",         "bitand",
         "bitor",       "bool",      "break",      "case",      "catch",    "char",         "char8_t",
@@ -40,17 +40,17 @@ std::string replace_dashes(std::string s) {
 
 // ── CSV (RFC 4180 subset: quoted fields, doubled quotes, embedded newlines) ──
 
-std::vector<std::vector<std::string>> parse_csv(const std::string& text) {
+auto parse_csv(const std::string& text) -> std::vector<std::vector<std::string>> {
     std::vector<std::vector<std::string>> rows;
     std::vector<std::string> row;
     std::string field;
     bool in_quotes = false;
     bool row_has_data = false;
-    auto end_field = [&] {
+    auto end_field = [&] -> void {
         row.push_back(field);
         field.clear();
     };
-    auto end_row = [&] {
+    auto end_row = [&] -> void {
         if (row_has_data) {
             rows.push_back(row);
         }
@@ -93,7 +93,7 @@ std::vector<std::vector<std::string>> parse_csv(const std::string& text) {
     return rows;
 }
 
-const std::set<std::string>& iso_639_1() {
+auto iso_639_1() -> const std::set<std::string>& {
     static const std::set<std::string> codes = {
         "af", "sq", "am", "ar", "hy", "az", "eu", "be", "bn", "bs", "bg", "ca", "zh", "co", "hr", "cs", "da", "nl",
         "en", "eo", "et", "fi", "fr", "fy", "gl", "ka", "de", "el", "gu", "ht", "ha", "he", "hi", "hu", "is", "ig",
@@ -107,7 +107,7 @@ const std::set<std::string>& iso_639_1() {
 
 } // namespace
 
-int gen_styles(const Ctx& ctx) {
+auto gen_styles(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "styles.hpp");
     fs::path styles_dir = ctx.proj / "app" / "styles";
     if (!file_exists(styles_dir)) {
@@ -118,8 +118,8 @@ int gen_styles(const Ctx& ctx) {
     const std::string id_t = tmpl(ctx, "styles_id.tmpl");
 
     Lines out = file_header({"#include <revet/css.hpp>"});
-    out.push_back("namespace styles {");
-    out.push_back("");
+    out.emplace_back("namespace styles {");
+    out.emplace_back("");
 
     std::vector<std::string> all_css;
     std::set<std::string> defined_classes;
@@ -173,20 +173,20 @@ int gen_styles(const Ctx& ctx) {
         }
     }
 
-    out.push_back("} // namespace styles");
-    out.push_back("");
+    out.emplace_back("} // namespace styles");
+    out.emplace_back("");
 
     if (!defined_ids.empty()) {
-        out.push_back("namespace ids {");
-        out.push_back("");
+        out.emplace_back("namespace ids {");
+        out.emplace_back("");
         for (const auto& [cpp_name, css_name] : defined_ids) {
             out.push_back(subst(id_t, {{"cpp_name", cpp_name}, {"css_name", css_name}}));
         }
-        out.push_back("");
-        out.push_back("} // namespace ids");
+        out.emplace_back("");
+        out.emplace_back("} // namespace ids");
     }
-    out.push_back("");
-    out.push_back("namespace html::detail {");
+    out.emplace_back("");
+    out.emplace_back("namespace html::detail {");
     std::string joined;
     for (size_t i = 0; i < all_css.size(); ++i) {
         if (i != 0U) {
@@ -196,15 +196,15 @@ int gen_styles(const Ctx& ctx) {
     }
     out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(joined), "\";"));
     // Emitted verbatim.
-    out.push_back("inline const bool _all_css_init = ([]{{ all_css_block = _all_css_str; return true; }})();");
-    out.push_back("} // namespace html::detail");
-    out.push_back("");
+    out.emplace_back("inline const bool _all_css_init = ([]{{ all_css_block = _all_css_str; return true; }})();");
+    out.emplace_back("} // namespace html::detail");
+    out.emplace_back("");
 
     write_lines(out_path, out);
     return 0;
 }
 
-int gen_i18n(const Ctx& ctx) {
+auto gen_i18n(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "i18n.hpp");
     fs::path csv_path = ctx.proj / "app" / "locale" / "strings.csv";
 
@@ -259,7 +259,7 @@ int gen_i18n(const Ctx& ctx) {
         if (i != 0U) {
             picker += "\n        ";
         }
-        picker += cat("html::button{html::attr.type(\"submit\"), html::attr.name(\"lang\"), html::attr.value(\"", l,
+        picker += cat(R"(html::button{html::attr.type("submit"), html::attr.name("lang"), html::attr.value(")", l,
                       "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
                       " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
     }

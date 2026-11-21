@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/validate.hpp>
 
-static web::ParamMap make_map(std::initializer_list<std::pair<std::string, std::string>> pairs) {
+static auto make_map(std::initializer_list<std::pair<std::string, std::string>> pairs) -> web::ParamMap {
     web::ParamMap m;
     for (const auto& [k, v] : pairs) {
         m.data[k] = v;

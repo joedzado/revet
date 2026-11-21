@@ -9,7 +9,7 @@ namespace revet::codegen {
 
 // ── Files ───────────────────────────────────────────────────────────────────
 
-std::string read_text(const fs::path& p) {
+auto read_text(const fs::path& p) -> std::string {
     std::ifstream in(p, std::ios::binary);
     if (!in) {
         throw GenError("cannot read " + p.string());
@@ -33,7 +33,7 @@ std::string read_text(const fs::path& p) {
     return out;
 }
 
-bool file_exists(const fs::path& p) {
+auto file_exists(const fs::path& p) -> bool {
     std::error_code ec;
     return fs::exists(p, ec);
 }
@@ -54,24 +54,24 @@ void write_lines(const fs::path& p, const Lines& lines) {
     write_file(p, join(lines, "\n"));
 }
 
-fs::path setup(const Ctx& ctx, std::string_view filename) {
+auto setup(const Ctx& ctx, std::string_view filename) -> fs::path {
     fs::path out = ctx.proj / "build" / "generated" / std::string(filename);
     fs::create_directories(out.parent_path());
     return out;
 }
 
-std::vector<fs::path> glob(const fs::path& dir, std::string_view suffix, bool recursive) {
+auto glob(const fs::path& dir, std::string_view suffix, bool recursive) -> std::vector<fs::path> {
     std::vector<fs::path> out;
     std::error_code ec;
     if (!fs::exists(dir, ec)) {
         return out;
     }
-    auto consider = [&](const fs::directory_entry& e) {
+    auto consider = [&](const fs::directory_entry& e) -> void {
         if (!e.is_regular_file(ec)) {
             return;
         }
         std::string name = e.path().filename().string();
-        if (name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        if (name.size() >= suffix.size() && name.ends_with(suffix)) {
             out.push_back(e.path());
         }
     };
@@ -84,21 +84,21 @@ std::vector<fs::path> glob(const fs::path& dir, std::string_view suffix, bool re
             consider(e);
         }
     }
-    std::sort(out.begin(), out.end());
+    std::ranges::sort(out);
     return out;
 }
 
-bool has_models(const fs::path& dir) {
+auto has_models(const fs::path& dir) -> bool {
     return !glob(dir, ".hpp").empty();
 }
 
 // ── Templates ───────────────────────────────────────────────────────────────
 
-std::string tmpl_whole(const Ctx& ctx, std::string_view name) {
+auto tmpl_whole(const Ctx& ctx, std::string_view name) -> std::string {
     return read_text(ctx.framework / "cmake" / "templates" / std::string(name));
 }
 
-std::string tmpl(const Ctx& ctx, std::string_view name) {
+auto tmpl(const Ctx& ctx, std::string_view name) -> std::string {
     std::string s = tmpl_whole(ctx, name);
     while (!s.empty() && s.back() == '\n') {
         s.pop_back();
@@ -106,7 +106,7 @@ std::string tmpl(const Ctx& ctx, std::string_view name) {
     return s;
 }
 
-std::string subst(std::string_view text, const Vars& vars) {
+auto subst(std::string_view text, const Vars& vars) -> std::string {
     auto lookup = [&](const std::string& key) -> const std::string& {
         for (const auto& [k, v] : vars) {
             if (k == key) {
@@ -115,7 +115,7 @@ std::string subst(std::string_view text, const Vars& vars) {
         }
         throw GenError("template: no value for '" + key + "'");
     };
-    auto ident_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    auto ident_char = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     std::string out;
     out.reserve(text.size());
     size_t i = 0;
@@ -156,12 +156,12 @@ std::string subst(std::string_view text, const Vars& vars) {
 // ── Strings ─────────────────────────────────────────────────────────────────
 
 namespace {
-bool is_space(char c) {
+auto is_space(char c) -> bool {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
 }
 } // namespace
 
-std::string strip(std::string_view s) {
+auto strip(std::string_view s) -> std::string {
     size_t b = 0;
     size_t e = s.size();
     while (b < e && is_space(s[b])) {
@@ -173,7 +173,7 @@ std::string strip(std::string_view s) {
     return std::string(s.substr(b, e - b));
 }
 
-std::string lower(std::string_view s) {
+auto lower(std::string_view s) -> std::string {
     std::string out(s);
     for (char& c : out) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -181,15 +181,15 @@ std::string lower(std::string_view s) {
     return out;
 }
 
-bool starts_with(std::string_view s, std::string_view prefix) {
-    return s.substr(0, prefix.size()) == prefix;
+auto starts_with(std::string_view s, std::string_view prefix) -> bool {
+    return s.starts_with(prefix);
 }
 
-bool ends_with(std::string_view s, std::string_view suffix) {
+auto ends_with(std::string_view s, std::string_view suffix) -> bool {
     return s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix;
 }
 
-std::string join(const Lines& parts, std::string_view sep) {
+auto join(const Lines& parts, std::string_view sep) -> std::string {
     std::string out;
     for (size_t i = 0; i < parts.size(); ++i) {
         if (i != 0U) {
@@ -200,7 +200,7 @@ std::string join(const Lines& parts, std::string_view sep) {
     return out;
 }
 
-Lines splitlines(std::string_view s) {
+auto splitlines(std::string_view s) -> Lines {
     Lines out;
     std::string cur;
     bool pending = false; // true when cur holds text not yet pushed
@@ -224,11 +224,11 @@ Lines splitlines(std::string_view s) {
     return out;
 }
 
-Lines split_args(std::string_view s) {
+auto split_args(std::string_view s) -> Lines {
     Lines out;
     int depth = 0;
     std::string buf;
-    auto flush = [&] {
+    auto flush = [&] -> void {
         std::string item = strip(buf);
         if (!item.empty()) {
             out.push_back(item);
@@ -251,7 +251,7 @@ Lines split_args(std::string_view s) {
     return out;
 }
 
-std::string escape_str(std::string_view s) {
+auto escape_str(std::string_view s) -> std::string {
     std::string out;
     out.reserve(s.size());
     for (char c : s) {
@@ -270,7 +270,7 @@ std::string escape_str(std::string_view s) {
     return out;
 }
 
-std::string collapse_ws(std::string_view s) {
+auto collapse_ws(std::string_view s) -> std::string {
     std::string out;
     bool in_ws = false;
     for (char c : s) {
@@ -287,20 +287,20 @@ std::string collapse_ws(std::string_view s) {
     return out;
 }
 
-std::size_t count_newlines(std::string_view s, std::size_t end) {
+auto count_newlines(std::string_view s, std::size_t end) -> std::size_t {
     return static_cast<std::size_t>(std::count(s.begin(), s.begin() + static_cast<std::ptrdiff_t>(end), '\n'));
 }
 
-std::string rel_include(const fs::path& hpp, const fs::path& proj) {
+auto rel_include(const fs::path& hpp, const fs::path& proj) -> std::string {
     return "#include \"../../" + fs::relative(hpp, proj).generic_string() + "\"";
 }
 
-Lines file_header(std::initializer_list<std::string> includes) {
+auto file_header(std::initializer_list<std::string> includes) -> Lines {
     Lines out{"// Auto-generated — do not edit", "#pragma once"};
     for (const auto& inc : includes) {
         out.push_back(inc);
     }
-    out.push_back("");
+    out.emplace_back("");
     return out;
 }
 

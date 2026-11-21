@@ -1,9 +1,9 @@
 #define REVET_DB_SQLITE
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
-#include <revet/web.hpp>
 #include <revet/db/common.hpp>
 #include <revet/db/sqlite.hpp>
+#include <revet/web.hpp>
 
 namespace {
 auto temp_db() -> std::string {
@@ -64,7 +64,7 @@ TEST_CASE("sqlite: SQL need not be NUL-terminated", "[sqlite]") {
     db::sqlite::Handle<db::Read> h(pool);
     const std::string text = "select 1 garbage that must not be read";
     CHECK(h.query(std::string_view(text).substr(0, 8))[0][0] == "1");
-    CHECK(h.query(std::string_view(text).substr(0, 8), std::nullopt) .size() == 1);
+    CHECK(h.query(std::string_view(text).substr(0, 8), std::nullopt).size() == 1);
 }
 
 TEST_CASE("sqlite: the path can come from the environment", "[sqlite]") {
@@ -78,7 +78,7 @@ TEST_CASE("sqlite: the path can come from the environment", "[sqlite]") {
 
 TEST_CASE("sqlite: hooks run on every connection", "[sqlite]") {
     int opened = 0;
-    db::sqlite::on_open([&](sqlite3*) { ++opened; });
+    db::sqlite::on_open([&](sqlite3*) -> void { ++opened; });
     {
         db::sqlite::Pool pool(temp_db(), 3);
         CHECK(opened == 3);

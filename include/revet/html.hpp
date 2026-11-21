@@ -18,13 +18,14 @@ namespace html {
 // ── compile-time string for NTTP ─────────────────────────────────────────────
 template<size_t N>
 struct fixed_string {
-    char value[N]{};
-    consteval fixed_string(const char (&s)[N]) {
-        std::copy_n(s, N, value);
+    std::array<char, N> value{};
+    // A string literal binds only to a C array reference.
+    consteval fixed_string(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
+        std::copy_n(s, N, value.begin());
     }
 };
 template<size_t N>
-fixed_string(const char (&)[N]) -> fixed_string<N>;
+fixed_string(const char (&)[N]) -> fixed_string<N>; // NOLINT(*-avoid-c-arrays)
 
 // ── base node ─────────────────────────────────────────────────────────────────
 struct raw_tag {};
@@ -48,7 +49,7 @@ struct Node {
     // Literals may use the " #id" and " .class" shorthand. Runtime strings never can.
     constexpr Node(const char* s)
         : str(std::string_view(s).starts_with(" #") || std::string_view(s).starts_with(" .") ? sanitize::html_escape(s)
-                                                                                              : escape_text(s)) {}
+                                                                                             : escape_text(s)) {}
     constexpr Node(raw_tag, std::string s) : str(std::move(s)) {}
 
     template<std::integral T>
@@ -98,7 +99,7 @@ struct attr_value {
     std::string s;
     constexpr attr_value(std::string_view v) : s(v) {}
     constexpr attr_value(const char* v) : s(v) {}
-    constexpr attr_value(const std::string& v) : s(v) {}
+    constexpr attr_value(std::string v) : s(std::move(v)) {}
     template<std::integral T>
         requires(!std::is_same_v<T, bool>) && (!std::is_same_v<T, char>)
     attr_value(T v) : s(std::format("{}", v)) {}
@@ -114,7 +115,7 @@ constexpr auto raw(std::string s) -> Node {
 template<typename... Args>
 auto fragment(Args&&... args) -> Node {
     std::string result;
-    auto append = [&result](auto&& arg) { result.append(std::string(Node(std::forward<decltype(arg)>(arg)))); };
+    auto append = [&result](auto&& arg) -> auto { result.append(std::string(Node(std::forward<decltype(arg)>(arg)))); };
     (append(std::forward<Args>(args)), ...);
     return Node{raw_tag{}, std::move(result)};
 }
@@ -125,186 +126,186 @@ struct attr_t {
     }
 
     // Common Attributes
-    constexpr auto id(const attr_value& v) const {
+    [[nodiscard]] constexpr auto id(const attr_value& v) const {
         return (*this)("id", v);
     }
-    constexpr auto name(const attr_value& v) const {
+    [[nodiscard]] constexpr auto name(const attr_value& v) const {
         return (*this)("name", v);
     }
-    constexpr auto type(const attr_value& v) const {
+    [[nodiscard]] constexpr auto type(const attr_value& v) const {
         return (*this)("type", v);
     }
-    constexpr auto value(const attr_value& v) const {
+    [[nodiscard]] constexpr auto value(const attr_value& v) const {
         return (*this)("value", v);
     }
-    constexpr auto placeholder(const attr_value& v) const {
+    [[nodiscard]] constexpr auto placeholder(const attr_value& v) const {
         return (*this)("placeholder", v);
     }
-    auto href(const attr_value& v) const {
+    [[nodiscard]] auto href(const attr_value& v) const {
         return (*this)("href", sanitize::safe_url(v.s));
     }
-    auto src(const attr_value& v) const {
+    [[nodiscard]] auto src(const attr_value& v) const {
         return (*this)("src", sanitize::safe_url(v.s));
     }
-    constexpr auto for_(const attr_value& v) const {
+    [[nodiscard]] constexpr auto for_(const attr_value& v) const {
         return (*this)("for", v);
     }
-    constexpr auto style(const attr_value& v) const {
+    [[nodiscard]] constexpr auto style(const attr_value& v) const {
         return (*this)("style", v);
     }
-    constexpr auto title(const attr_value& v) const {
+    [[nodiscard]] constexpr auto title(const attr_value& v) const {
         return (*this)("title", v);
     }
-    constexpr auto width(const attr_value& v) const {
+    [[nodiscard]] constexpr auto width(const attr_value& v) const {
         return (*this)("width", v);
     }
-    constexpr auto height(const attr_value& v) const {
+    [[nodiscard]] constexpr auto height(const attr_value& v) const {
         return (*this)("height", v);
     }
-    constexpr auto alt(const attr_value& v) const {
+    [[nodiscard]] constexpr auto alt(const attr_value& v) const {
         return (*this)("alt", v);
     }
-    constexpr auto loading(const attr_value& v) const {
+    [[nodiscard]] constexpr auto loading(const attr_value& v) const {
         return (*this)("loading", v);
     }
-    constexpr auto rel(const attr_value& v) const {
+    [[nodiscard]] constexpr auto rel(const attr_value& v) const {
         return (*this)("rel", v);
     }
-    constexpr auto target(const attr_value& v) const {
+    [[nodiscard]] constexpr auto target(const attr_value& v) const {
         return (*this)("target", v);
     }
-    constexpr auto charset(const attr_value& v) const {
+    [[nodiscard]] constexpr auto charset(const attr_value& v) const {
         return (*this)("charset", v);
     }
-    constexpr auto content(const attr_value& v) const {
+    [[nodiscard]] constexpr auto content(const attr_value& v) const {
         return (*this)("content", v);
     }
-    constexpr auto method(const attr_value& v) const {
+    [[nodiscard]] constexpr auto method(const attr_value& v) const {
         return (*this)("method", v);
     }
-    constexpr auto action(const attr_value& v) const {
+    [[nodiscard]] constexpr auto action(const attr_value& v) const {
         return (*this)("action", v);
     }
-    constexpr auto autocomplete(const attr_value& v) const {
+    [[nodiscard]] constexpr auto autocomplete(const attr_value& v) const {
         return (*this)("autocomplete", v);
     }
-    constexpr auto enctype(const attr_value& v) const {
+    [[nodiscard]] constexpr auto enctype(const attr_value& v) const {
         return (*this)("enctype", v);
     }
-    constexpr auto accept(const attr_value& v) const {
+    [[nodiscard]] constexpr auto accept(const attr_value& v) const {
         return (*this)("accept", v);
     }
-    constexpr auto min(const attr_value& v) const {
+    [[nodiscard]] constexpr auto min(const attr_value& v) const {
         return (*this)("min", v);
     }
-    constexpr auto max(const attr_value& v) const {
+    [[nodiscard]] constexpr auto max(const attr_value& v) const {
         return (*this)("max", v);
     }
-    constexpr auto maxlength(const attr_value& v) const {
+    [[nodiscard]] constexpr auto maxlength(const attr_value& v) const {
         return (*this)("maxlength", v);
     }
-    constexpr auto step(const attr_value& v) const {
+    [[nodiscard]] constexpr auto step(const attr_value& v) const {
         return (*this)("step", v);
     }
-    constexpr auto class_(const attr_value& v) const {
+    [[nodiscard]] constexpr auto class_(const attr_value& v) const {
         return (*this)("class", v);
     }
-    auto data(std::string_view key, const attr_value& value) const {
+    [[nodiscard]] auto data(std::string_view key, const attr_value& value) const {
         return (*this)(std::format("data-{}", key), value);
     }
 
     // Fixed-value attributes — pre-fill common single-value attrs so callers never pass them as strings.
-    constexpr auto post() const {
+    [[nodiscard]] constexpr auto post() const {
         return Node{raw_tag{}, " method=\"POST\""};
     }
-    constexpr auto multipart() const {
+    [[nodiscard]] constexpr auto multipart() const {
         return Node{raw_tag{}, " enctype=\"multipart/form-data\""};
     }
-    constexpr auto accept_images() const {
+    [[nodiscard]] constexpr auto accept_images() const {
         return Node{raw_tag{}, " accept=\"image/*\""};
     }
-    constexpr auto accept_videos() const {
+    [[nodiscard]] constexpr auto accept_videos() const {
         return Node{raw_tag{}, " accept=\"video/*\""};
     }
-    constexpr auto accept_audio() const {
+    [[nodiscard]] constexpr auto accept_audio() const {
         return Node{raw_tag{}, " accept=\"audio/*\""};
     }
-    constexpr auto accept_pdf() const {
+    [[nodiscard]] constexpr auto accept_pdf() const {
         return Node{raw_tag{}, " accept=\".pdf\""};
     }
 
     // Boolean Attributes
-    constexpr auto required() const {
+    [[nodiscard]] constexpr auto required() const {
         return Node{raw_tag{}, " required"};
     }
-    constexpr auto disabled() const {
+    [[nodiscard]] constexpr auto disabled() const {
         return Node{raw_tag{}, " disabled"};
     }
-    constexpr auto readonly() const {
+    [[nodiscard]] constexpr auto readonly() const {
         return Node{raw_tag{}, " readonly"};
     }
-    constexpr auto checked() const {
+    [[nodiscard]] constexpr auto checked() const {
         return Node{raw_tag{}, " checked"};
     }
-    constexpr auto selected() const {
+    [[nodiscard]] constexpr auto selected() const {
         return Node{raw_tag{}, " selected"};
     }
-    constexpr auto multiple() const {
+    [[nodiscard]] constexpr auto multiple() const {
         return Node{raw_tag{}, " multiple"};
     }
-    constexpr auto autofocus() const {
+    [[nodiscard]] constexpr auto autofocus() const {
         return Node{raw_tag{}, " autofocus"};
     }
-    constexpr auto hidden() const {
+    [[nodiscard]] constexpr auto hidden() const {
         return Node{raw_tag{}, " hidden"};
     }
-    constexpr auto novalidate() const {
+    [[nodiscard]] constexpr auto novalidate() const {
         return Node{raw_tag{}, " novalidate"};
     }
 
     // Events
-    constexpr auto onclick(const attr_value& v) const {
+    [[nodiscard]] constexpr auto onclick(const attr_value& v) const {
         return (*this)("onclick", v);
     }
-    constexpr auto oninput(const attr_value& v) const {
+    [[nodiscard]] constexpr auto oninput(const attr_value& v) const {
         return (*this)("oninput", v);
     }
-    constexpr auto onchange(const attr_value& v) const {
+    [[nodiscard]] constexpr auto onchange(const attr_value& v) const {
         return (*this)("onchange", v);
     }
-    constexpr auto onsubmit(const attr_value& v) const {
+    [[nodiscard]] constexpr auto onsubmit(const attr_value& v) const {
         return (*this)("onsubmit", v);
     }
     // Accessibility and data
-    constexpr auto role(const attr_value& v) const {
+    [[nodiscard]] constexpr auto role(const attr_value& v) const {
         return (*this)("role", v);
     }
-    constexpr auto aria_label(const attr_value& v) const {
+    [[nodiscard]] constexpr auto aria_label(const attr_value& v) const {
         return (*this)("aria-label", v);
     }
     // aria("pressed", "true") -> aria-pressed="true"
-    auto aria(std::string_view name, const attr_value& v) const {
+    [[nodiscard]] auto aria(std::string_view name, const attr_value& v) const {
         return (*this)(std::format("aria-{}", name), v);
     }
-    constexpr auto inputmode(const attr_value& v) const {
+    [[nodiscard]] constexpr auto inputmode(const attr_value& v) const {
         return (*this)("inputmode", v);
     }
-    constexpr auto rows(const attr_value& v) const {
+    [[nodiscard]] constexpr auto rows(const attr_value& v) const {
         return (*this)("rows", v);
     }
-    constexpr auto cols(const attr_value& v) const {
+    [[nodiscard]] constexpr auto cols(const attr_value& v) const {
         return (*this)("cols", v);
     }
-    constexpr auto download(const attr_value& v = "") const {
+    [[nodiscard]] constexpr auto download(const attr_value& v = "") const {
         return (*this)("download", v);
     }
-    constexpr auto tabindex(const attr_value& v) const {
+    [[nodiscard]] constexpr auto tabindex(const attr_value& v) const {
         return (*this)("tabindex", v);
     }
-    constexpr auto lang(const attr_value& v) const {
+    [[nodiscard]] constexpr auto lang(const attr_value& v) const {
         return (*this)("lang", v);
     }
-    constexpr auto defer() const {
+    [[nodiscard]] constexpr auto defer() const {
         return Node{raw_tag{}, " defer"};
     }
 };
@@ -322,11 +323,11 @@ struct id {
     constexpr operator Node() const {
         return Node{raw_tag{}, std::format(" #{}", name)};
     }
-    constexpr auto for_() const -> Node {
+    [[nodiscard]] constexpr auto for_() const -> Node {
         return attr.for_(name);
     }
     // Returns "#name" for use in CSS selectors (htmx targets, querySelector, etc.)
-    auto selector() const -> std::string {
+    [[nodiscard]] auto selector() const -> std::string {
         return std::format("#{}", name);
     }
 };
@@ -346,10 +347,10 @@ struct typed_id {
     constexpr operator Node() const {
         return Node{raw_tag{}, std::format(" #{}", name)};
     }
-    constexpr auto for_() const -> Node {
+    [[nodiscard]] constexpr auto for_() const -> Node {
         return attr.for_(name);
     }
-    auto selector() const -> std::string {
+    [[nodiscard]] auto selector() const -> std::string {
         return std::format("#{}", name);
     }
 };
@@ -362,10 +363,10 @@ struct typed_id<bool> {
     constexpr operator Node() const {
         return Node{raw_tag{}, std::format(" #{}", name)};
     }
-    constexpr auto for_() const -> Node {
+    [[nodiscard]] constexpr auto for_() const -> Node {
         return attr.for_(name);
     }
-    auto selector() const -> std::string {
+    [[nodiscard]] auto selector() const -> std::string {
         return std::format("#{}", name);
     }
 };
@@ -408,7 +409,7 @@ constexpr auto void_tag(std::string_view name, std::initializer_list<Node> child
 // ── components ────────────────────────────────────────────────────────────────
 template<fixed_string Tag>
 struct elem : Node {
-    constexpr elem(std::initializer_list<Node> c) : Node{raw_tag{}, detail::tag(Tag.value, c)} {}
+    constexpr elem(std::initializer_list<Node> c) : Node{raw_tag{}, detail::tag(Tag.value.data(), c)} {}
 
     template<typename... Args>
     constexpr elem(Args&&... args) : elem({Node(std::forward<Args>(args))...}) {}
@@ -416,7 +417,7 @@ struct elem : Node {
 
 template<fixed_string Tag>
 struct void_elem : Node {
-    constexpr void_elem(std::initializer_list<Node> c = {}) : Node{raw_tag{}, detail::void_tag(Tag.value, c)} {}
+    constexpr void_elem(std::initializer_list<Node> c = {}) : Node{raw_tag{}, detail::void_tag(Tag.value.data(), c)} {}
 
     template<typename... Args>
     constexpr void_elem(Args&&... args) : void_elem({Node(std::forward<Args>(args))...}) {}
@@ -563,7 +564,7 @@ auto list(Range&& range) -> Node {
 template<typename... Args>
 auto classes(Args&&... args) -> Node {
     std::string result;
-    auto add = [&result](std::string_view s) {
+    auto add = [&result](std::string_view s) -> auto {
         if (!s.empty()) {
             if (!result.empty()) {
                 result += " ";
