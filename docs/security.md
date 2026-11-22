@@ -15,6 +15,7 @@ Before pointing real traffic at a revet app, verify every item below.
 - [ ] **Database file (SQLite)** is not in a directory served as static assets. `revet.toml` `path = "build/data/users.db"` — confirm `build/data/` is excluded from any reverse-proxy static fall-through.
 - [ ] **Error pages** don't leak internals. `web::on_error(status, handler)` lets you replace the default 500 body. Check no stack traces / SQL fragments leak.
 - [ ] **`THIRD_PARTY_LICENSES` ships with the binary.** Required by libcurl, simdjson, CTRE, libsodium, libpq when redistributing. See [deploy.md → Third-party license attribution](deploy.md#third-party-license-attribution).
+- [ ] **`REVET_TRUSTED_PROXIES` lists your reverse proxy** (e.g. `127.0.0.1`) when using `web::rate_limit`. If it is unset, every client behind the proxy shares the proxy's address and one bucket; if it is too broad, clients can forge `X-Forwarded-For` and dodge limits.
 - [ ] **Reverse proxy strips client-supplied `X-Forwarded-*` headers** and re-sets them itself. Otherwise a client can forge `X-Forwarded-For` and your logs/rate-limiter believe a fake IP.
 
 ## Generating `REVET_COOKIE_KEY`
@@ -47,7 +48,7 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 | Timing oracles on token compare | yes | `web::crypto::secure_eq` uses `sodium_memcmp`. CSRF + `bearer_static` use it. Custom auth must too. |
 | Cookie tampering | yes | State cookies and CSRF cookie are AEAD-sealed; tampering fails verification. |
 | Cookie theft via plain HTTP | opt-in | Enable via `secure_cookies(true)`. Off by default for dev. |
-| Rate limiting / brute force | no | Not in scope — put it in your reverse proxy or middleware. |
+| Rate limiting / brute force | opt-in | `web::rate_limit::by_ip` / `by_key` middleware; per process, in memory. See [api.md](api.md#rate-limiting-revetrate_limithpp-namespace-webrate_limit). |
 | Replay attacks on bearer tokens | no | Tokens are not time-bound or single-use unless the verifier checks revocation. |
 | Subresource integrity (SRI) | no | Bundled htmx is inlined into the binary; you serve it from `/_revet/`. External CDNs need SRI hashes from you. |
 | Audit logging | no | Application concern — no built-in audit log. |
