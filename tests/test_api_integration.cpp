@@ -9,7 +9,7 @@
 
 TEST_CASE("API query integration: generated code with mock client") {
     // Setup: Create mock client and stub response
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     http::Response github_response;
     github_response.status_code = 200;
@@ -32,18 +32,18 @@ TEST_CASE("API query integration: generated code with mock client") {
     // Assertions
     REQUIRE(response); // Operator bool checks 200-299
     REQUIRE(response.status_code == 200);
-    REQUIRE(response.body.find("alice") != std::string::npos);
+    REQUIRE(response.body.contains("alice"));
 
     // Verify the API was called correctly
     REQUIRE(mock->history().size() == 1);
-    REQUIRE(mock->history()[0].method == "GET");
-    REQUIRE(mock->history()[0].url == "https://api.github.com/users/alice");
+    REQUIRE(mock->history().at(0).method == "GET");
+    REQUIRE(mock->history().at(0).url == "https://api.github.com/users/alice");
 
     mock->clear();
 }
 
 TEST_CASE("API query integration: error handling in routes") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     http::Response error_response;
     error_response.status_code = 404;
@@ -53,7 +53,7 @@ TEST_CASE("API query integration: error handling in routes") {
     http::global::set_client(mock);
 
     // Simulate route error handling
-    auto response = mock->execute("GET", "https://api.github.com/users/unknown", {}, "");
+    const auto response = mock->execute("GET", "https://api.github.com/users/unknown", {}, "");
 
     // Should handle 404 gracefully
     REQUIRE(!response); // operator bool is false for non-2xx
@@ -66,7 +66,7 @@ TEST_CASE("API query integration: error handling in routes") {
 }
 
 TEST_CASE("API query integration: multiple queries in route") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stub multiple endpoints
     http::Response user_response;
@@ -96,7 +96,7 @@ TEST_CASE("API query integration: multiple queries in route") {
 }
 
 TEST_CASE("API query integration: parameter substitution") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stub with specific parameter value
     http::Response response;
@@ -118,7 +118,7 @@ TEST_CASE("API query integration: parameter substitution") {
 }
 
 TEST_CASE("API query integration: floating point responses") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stripe-like charge response with amounts
     http::Response response;
@@ -131,8 +131,8 @@ TEST_CASE("API query integration: floating point responses") {
     auto result = mock->execute("GET", "https://api.stripe.com/charges/ch_123", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.find("99.99") != std::string::npos);
-    REQUIRE(result.body.find("0.08") != std::string::npos);
+    REQUIRE(result.body.contains("99.99"));
+    REQUIRE(result.body.contains("0.08"));
 
     // Eventually: auto amount = response.amount (as double)
 
@@ -140,7 +140,7 @@ TEST_CASE("API query integration: floating point responses") {
 }
 
 TEST_CASE("API query integration: boolean status fields") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     http::Response response;
     response.status_code = 200;
@@ -152,8 +152,8 @@ TEST_CASE("API query integration: boolean status fields") {
     auto result = mock->execute("GET", "https://api.example.com/users/1", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.find("true") != std::string::npos);
-    REQUIRE(result.body.find("false") != std::string::npos);
+    REQUIRE(result.body.contains("true"));
+    REQUIRE(result.body.contains("false"));
 
     // Eventually: auto is_active = response.is_active (as bool)
 
@@ -161,7 +161,7 @@ TEST_CASE("API query integration: boolean status fields") {
 }
 
 TEST_CASE("API query integration: array responses") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     http::Response response;
     response.status_code = 200;
@@ -177,8 +177,8 @@ TEST_CASE("API query integration: array responses") {
     auto result = mock->execute("GET", "https://api.github.com/users/alice/repos", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.find("[") != std::string::npos);
-    REQUIRE(result.body.find("repo1") != std::string::npos);
+    REQUIRE(result.body.contains('['));
+    REQUIRE(result.body.contains("repo1"));
 
     // Eventually: auto repos = response.repos (as std::vector<std::string>)
 
@@ -186,7 +186,7 @@ TEST_CASE("API query integration: array responses") {
 }
 
 TEST_CASE("API query integration: optional/nullable fields") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // User with some optional fields missing
     http::Response response;
@@ -205,7 +205,7 @@ TEST_CASE("API query integration: optional/nullable fields") {
     auto result = mock->execute("GET", "https://api.example.com/users/1", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.find("null") != std::string::npos);
+    REQUIRE(result.body.contains("null"));
 
     // Eventually: auto bio = response.bio (as std::optional<std::string>, has no value)
     // Eventually: auto phone = response.phone (as std::optional<std::string>, has value)
@@ -214,7 +214,7 @@ TEST_CASE("API query integration: optional/nullable fields") {
 }
 
 TEST_CASE("API query integration: mixed data types") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Complex response with all types
     http::Response response;
@@ -237,10 +237,10 @@ TEST_CASE("API query integration: mixed data types") {
     auto result = mock->execute("GET", "https://api.example.com/items/123", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.find("123") != std::string::npos);
-    REQUIRE(result.body.find("98.5") != std::string::npos);
-    REQUIRE(result.body.find("true") != std::string::npos);
-    REQUIRE(result.body.find("important") != std::string::npos);
+    REQUIRE(result.body.contains("123"));
+    REQUIRE(result.body.contains("98.5"));
+    REQUIRE(result.body.contains("true"));
+    REQUIRE(result.body.contains("important"));
 
     // Eventually: auto score = response.score (double)
     // Eventually: auto is_active = response.is_active (bool)

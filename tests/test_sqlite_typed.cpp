@@ -1,16 +1,15 @@
 // Typed results (query_as, scalar), Decimal binding and backups on SQLite.
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
+#include <fstream>
 #include <revet/db/sqlite.hpp>
 #include <revet/decimal.hpp>
-
-#include <atomic>
-#include <fstream>
-#include <unistd.h>
-#include <filesystem>
 #include <string>
+#include <unistd.h>
 
 namespace {
-std::string unique_db_path() {
+auto unique_db_path() -> std::string {
     static std::atomic<int> seq{0};
     return std::format("/tmp/revet_typed_{}_{}.db", ::getpid(), seq++);
 }
@@ -26,10 +25,10 @@ TEST_CASE("query_as and scalar return typed values", "[sqlite]") {
 
     auto rows = h.query_as<std::string, std::optional<double>, int>("select name, amount, n from t order by name");
     REQUIRE(rows.size() == 2);
-    CHECK(std::get<0>(rows[0]) == "a");
-    CHECK(std::get<1>(rows[0]) == 1.5);
-    CHECK_FALSE(std::get<1>(rows[1]));
-    CHECK(std::get<2>(rows[1]) == 3);
+    CHECK(std::get<0>(rows.at(0)) == "a");
+    CHECK(std::get<1>(rows.at(0)) == 1.5);
+    CHECK_FALSE(std::get<1>(rows.at(1)));
+    CHECK(std::get<2>(rows.at(1)) == 3);
 
     CHECK(h.scalar<int64_t>("select count(*) from t") == 2);
     CHECK(h.scalar<int64_t>("select n from t where name = ?", "zzz") == std::nullopt);
@@ -46,7 +45,7 @@ TEST_CASE("Decimal binds as text", "[sqlite]") {
     h.exec("insert into m values (?)", revet::Decimal::parse("12.50"));
     h.exec("insert into m values (?)", std::optional<revet::Decimal>{});
     CHECK(h.scalar<std::string>("select v from m where v is not null") == "12.50");
-    CHECK(h.scalar<revet::Decimal>("select v from m where v is not null")->to_string() == "12.50");
+    CHECK(h.scalar<revet::Decimal>("select v from m where v is not null").value().to_string() == "12.50");
     std::filesystem::remove(path);
 }
 
@@ -65,13 +64,13 @@ TEST_CASE("backup copies, skips a second daily copy, and prunes", "[sqlite]") {
     }
     auto made = db::sqlite::backup(h, {.dir = dir, .prefix = "app", .keep = 2});
     REQUIRE(made);
-    CHECK(fs::exists(*made));
+    CHECK(fs::exists(made.value()));
     CHECK_FALSE(db::sqlite::backup(h, {.dir = dir, .prefix = "app", .keep = 2}));
     CHECK_FALSE(fs::exists(dir / "app-2020-01-01.db"));
     CHECK(fs::exists(dir / "app-2020-01-02.db"));
     CHECK(fs::exists(dir / "other-2020-01-01.db"));
 
-    db::sqlite::Pool copy(made->string(), 1);
+    db::sqlite::Pool copy(made.value().string(), 1);
     db::sqlite::Handle<db::Read> r(copy);
     CHECK(r.query("select v from x") == db::sqlite::Result{{"1"}});
     fs::remove_all(dir);

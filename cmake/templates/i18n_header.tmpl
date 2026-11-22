@@ -12,12 +12,12 @@ inline constexpr int locale_count = $n;
 
 inline void set_locale(std::string_view name) {
     for (int i = 0; i < locale_count; ++i)
-        if (locale_names[i] == name) { detail::locale_idx = i; return; }
-    detail::locale_idx = 0;
+        if (locale_names[i] == name) { detail::locale_idx() = i; return; }
+    detail::locale_idx() = 0;
 }
 
 inline auto current_locale() -> Locale {
-    return static_cast<Locale>(detail::locale_idx);
+    return static_cast<Locale>(detail::locale_idx());
 }
 
 // locale_picker() — renders a POST form with one button per locale.

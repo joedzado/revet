@@ -8,17 +8,14 @@ revet produces a single, static-ish executable at `build/revet`. Deployment is "
 # syntax=docker/dockerfile:1.6
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM debian:bookworm AS build
-ARG REVET_VERSION=0.1.5
+FROM ubuntu:26.04 AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates python3 python3-pip cmake ninja-build \
-    clang-19 libc++-19-dev libc++abi-19-dev \
-    libsodium-dev libcurl4-openssl-dev libsqlite3-dev libpq-dev \
+    g++ \
+    libcurl4-openssl-dev libsqlite3-dev libpq-dev \
  && rm -rf /var/lib/apt/lists/* \
  && pip3 install --break-system-packages conan
-
-ENV CC=clang-19 CXX=clang++-19
 
 # Install revet framework
 RUN curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | sh
@@ -29,9 +26,9 @@ COPY . .
 RUN revet build
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM ubuntu:26.04
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsodium23 libcurl4 libsqlite3-0 libpq5 ca-certificates \
+    libcurl4t64 libsqlite3-0 libpq5 ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 revet
 

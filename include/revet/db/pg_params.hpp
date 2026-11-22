@@ -16,7 +16,7 @@ namespace db::postgres::detail {
 // PQexecParams always uses text format (last arg = 0), so all params must be
 // valid Postgres literal representations of their type.
 template<typename T>
-inline std::string to_pg_param(T&& arg) {
+inline auto to_pg_param(T&& arg) -> std::string {
     using U = std::remove_cvref_t<T>;
     if constexpr (std::is_same_v<U, bool>) {
         return arg ? "true" : "false";
@@ -27,6 +27,7 @@ inline std::string to_pg_param(T&& arg) {
     } else if constexpr (requires { arg.to_string(); } && !std::is_convertible_v<U, std::string_view>) {
         return arg.to_string(); // revet::Decimal and similar
     } else {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
         return std::string(std::forward<T>(arg));
     }
 }
@@ -38,7 +39,7 @@ struct is_optional<std::optional<T>> : std::true_type {};
 
 // As to_pg_param, but nullptr and an empty std::optional bind as SQL NULL.
 template<typename T>
-inline std::optional<std::string> to_nullable_pg_param(T&& arg) {
+inline auto to_nullable_pg_param(T&& arg) -> std::optional<std::string> {
     using U = std::remove_cvref_t<T>;
     if constexpr (std::is_same_v<U, std::nullptr_t>) {
         return std::nullopt;
@@ -55,34 +56,34 @@ inline std::optional<std::string> to_nullable_pg_param(T&& arg) {
 // Translate ? placeholders to $1, $2, ... for PQexecParams. A ? inside a string
 // literal, quoted identifier, comment or dollar-quoted body is left alone. Write
 // ?? for a literal ? operator (for example the jsonb "has key" operator).
-inline std::string positional_sql(std::string_view sql) {
+inline auto positional_sql(std::string_view sql) -> std::string {
     std::string out;
     out.reserve(sql.size() + 16);
     int next_param = 1;
     size_t i = 0;
 
-    const auto copy_until = [&](size_t end) {
+    const auto copy_until = [&](size_t end) -> void {
         out.append(sql.substr(i, end - i));
         i = end;
     };
-    const auto is_ident = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
+    const auto is_ident = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
 
     while (i < sql.size()) {
-        const char c = sql[i];
-        const char next = i + 1 < sql.size() ? sql[i + 1] : '\0';
+        const char c = sql.at(i);
+        const char next = i + 1 < sql.size() ? sql.at(i + 1) : '\0';
 
         if (c == '\'' || c == '"') {
             // E'...' strings also escape with a backslash. The prefix only counts
             // when it is a whole token, so name'x' style text is not misread.
-            const bool backslash = c == '\'' && i > 0 && (sql[i - 1] == 'e' || sql[i - 1] == 'E') &&
-                                   (i < 2 || !is_ident(sql[i - 2]));
+            const bool backslash = c == '\'' && i > 0 && (sql.at(i - 1) == 'e' || sql.at(i - 1) == 'E') &&
+                                   (i < 2 || !is_ident(sql.at(i - 2)));
             size_t j = i + 1;
             while (j < sql.size()) {
-                if (backslash && sql[j] == '\\') {
+                if (backslash && sql.at(j) == '\\') {
                     j += 2;
-                } else if (sql[j] == c) {
+                } else if (sql.at(j) == c) {
                     // A doubled quote is an escaped quote, not the end.
-                    if (j + 1 < sql.size() && sql[j + 1] == c) {
+                    if (j + 1 < sql.size() && sql.at(j + 1) == c) {
                         j += 2;
                     } else {
                         break;
@@ -111,14 +112,14 @@ inline std::string positional_sql(std::string_view sql) {
                 }
             }
             copy_until(std::min(j, sql.size()));
-        } else if (c == '$' && (i == 0 || !is_ident(sql[i - 1]))) {
+        } else if (c == '$' && (i == 0 || !is_ident(sql.at(i - 1)))) {
             // $tag$ ... $tag$ (tag may be empty). Anything else, like $1, is copied.
             size_t tag_end = i + 1;
-            while (tag_end < sql.size() && is_ident(sql[tag_end])) {
+            while (tag_end < sql.size() && is_ident(sql.at(tag_end))) {
                 ++tag_end;
             }
-            const bool tag_ok = tag_end < sql.size() && sql[tag_end] == '$' &&
-                                std::isdigit(static_cast<unsigned char>(sql[i + 1])) == 0;
+            const bool tag_ok = tag_end < sql.size() && sql.at(tag_end) == '$' &&
+                                std::isdigit(static_cast<unsigned char>(sql.at(i + 1))) == 0;
             if (tag_ok) {
                 const std::string_view tag = sql.substr(i, tag_end - i + 1);
                 const size_t close = sql.find(tag, tag_end + 1);

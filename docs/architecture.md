@@ -33,7 +33,7 @@ A 10-minute tour of how a revet binary is put together and how a request flows t
                        build/revet           (single executable)
 ```
 
-The codegen scripts are independent — most can run in parallel. The only ordering is established by `#include` dependencies in the generated files (e.g. `apis.hpp` includes `models.hpp`).
+The generators are independent — most can run in parallel. The only ordering is established by `#include` dependencies in the generated files (e.g. `apis.hpp` includes `models.hpp`).
 
 ## Runtime architecture
 
@@ -98,20 +98,20 @@ Live as `static` inside generated `resources::_pools::_pool_<name>()`. Created a
 /Users/joedzado/revet/
 ├─ CMakeLists.txt        # framework's own build (revet_core, tests)
 ├─ VERSION               # single source of truth for the version string
-├─ bin/revet             # user-facing CLI (Python)
-├─ cmake/                # codegen scripts + shared helpers
+├─ cli/                  # user-facing `revet` CLI (C++)
+├─ cmake/                # codegen tool (cmake/codegen) and vendor.cmake
 ├─ include/revet/        # all header-only framework code
 ├─ src/                  # framework .cpp (http_client, json, ...)
 ├─ static/               # htmx, optimistic.ts → inlined into binary
 ├─ template/             # what `revet new` copies into a new project
 ├─ demo/                 # showcase site that exercises every feature
-├─ tests/                # framework tests (catch2 + Python unittest)
+├─ tests/                # framework tests (Catch2, codegen golden test, CLI test)
 ├─ docs/                 # this directory
-└─ scripts/revet-fw      # framework dev/install commands
+└─ scripts/install_local.sh  # builds and installs this checkout (install.sh clones, then calls it)
 ```
 
 When you build:
-- Framework's own CMakeLists is for hacking on the framework (`revet-fw test`).
+- Framework's own CMakeLists is for hacking on the framework (`install.sh test`).
 - `template/CMakeLists.txt` is what gets copied per-project by `revet build`.
 - `demo/CMakeLists.txt` is the demo's own copy.
 
@@ -119,11 +119,11 @@ If you change build behavior, edit `template/CMakeLists.txt`. The demo's copy re
 
 ## Distribution & install
 
-`scripts/revet-fw install` does two things:
+`install.sh` clones the repo when piped from curl, then runs `scripts/install_local.sh`, which does two things:
 
 1. Copies the source tree to `~/.revet/current/` so the CLI can find it from `FRAMEWORK_DIR = "/Users/joedzado/.revet/current"` (baked into the per-project CMakeLists).
-2. Symlinks `~/.revet/current/bin/revet` to `/usr/local/bin/revet`.
+2. Installs the CLI, codegen tool and vendored libs to `~/.revet/current/prebuilt/`, and symlinks `/usr/local/bin/revet` to `prebuilt/bin/revet`.
 
-The CLI (`bin/revet`) reads `VERSION` from its parent directory, so it correctly reports the *installed* version even if you have an unsynced source repo elsewhere.
+The CLI finds the framework from its own path (`prebuilt/bin/revet` → the framework root) and reads `VERSION` there, so it correctly reports the *installed* version even if you have an unsynced source repo elsewhere.
 
-End-users install via the curl-pipe-to-sh installer (`install.sh`); contributors who hack the framework re-run `revet-fw install` after edits.
+End-users install via the curl-pipe-to-sh installer (`install.sh`); contributors who hack the framework re-run `install.sh` after edits.

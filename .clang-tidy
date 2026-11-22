@@ -1,16 +1,11 @@
 ---
+# misc-no-recursion is off: the recursive descent parsers (JSON, TOML, nested types) recurse by design.
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   cert-*,
   cppcoreguidelines-*,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-type-member-init,
-  -cppcoreguidelines-avoid-non-const-global-variables,
-  -cppcoreguidelines-init-variables,
   -cppcoreguidelines-avoid-magic-numbers,
   google-*,
   -google-explicit-constructor,
@@ -18,19 +13,39 @@ Checks: >
   -google-runtime-int,
   hicpp-*,
   -hicpp-explicit-conversions,
-  -hicpp-member-init,
   -hicpp-braces-around-statements,
-  -hicpp-no-array-decay,
   performance-*,
   readability-*,
   -readability-identifier-length,
+  -readability-trailing-comma,
   -readability-braces-around-statements,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
   -readability-convert-member-functions-to-static,
+  misc-*,
   -misc-include-cleaner,
-  -misc-const-correctness,
-  -misc-use-internal-linkage
+  -misc-use-internal-linkage,
+  -misc-no-recursion,
+  modernize-*
 
 WarningsAsErrors: true
-HeaderFilterRegex: '^(src/|include/)'
+# clang-tidy matches these against absolute paths. The exclusion keeps an app's `revet tidy` off the
+# installed framework (~/.revet), vendored code and generated files.
+HeaderFilterRegex: '.*/(src|include|app|cli|cmake/codegen|tests)/.*'
+ExcludeHeaderFilterRegex: '^/(usr|opt)/.*|.*/(\.revet|\.conan2|vendor|build|_deps)/.*'
+
+CheckOptions:
+  # Map-like operator[] (insert or key lookup), not an index.
+  cppcoreguidelines-pro-bounds-avoid-unchecked-container-access.ExcludeClasses: '::std::map;::std::unordered_map;::std::flat_map;::web::ParamMap;::simdjson::dom::object;::simdjson::dom::element'
+  # Plain structs with all-public members are fine.
+  misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
+  # Positive literals in bit operations (`x & 0x3F`, `n << 8`) can't carry a sign.
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  # value() throws on an empty optional, so it is a checked access.
+  bugprone-unchecked-optional-access.IgnoreValueCalls: true
+  hicpp-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  modernize-loop-convert.MinConfidence: risky
+  modernize-use-auto.MinTypeNameLength: 0
+  modernize-use-designated-initializers.IgnoreSingleElementAggregates: false
+  modernize-use-std-print.StrictMode: true
+  modernize-use-std-format.StrictMode: true

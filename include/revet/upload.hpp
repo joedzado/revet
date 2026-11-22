@@ -9,8 +9,8 @@ using FileValidator = std::function<bool(web::UploadedFile&)>;
 
 namespace detail {
 
-inline void remove_all_files(std::vector<web::UploadedFile>& files) {
-    for (auto& f : files) {
+inline void remove_all_files(const std::vector<web::UploadedFile>& files) {
+    for (const auto& f : files) {
         std::error_code ec;
         std::filesystem::remove(f.path, ec);
     }
@@ -34,7 +34,7 @@ inline auto atomic_move(const std::filesystem::path& from, const std::filesystem
 // world-readable, or resolves outside project_root.
 inline auto validate_dir(const std::filesystem::path& dir, const std::filesystem::path& project_root) -> bool {
     std::error_code ec;
-    auto canon = std::filesystem::canonical(dir, ec);
+    const auto canon = std::filesystem::canonical(dir, ec);
     if (ec) {
         return false;
     }
@@ -43,7 +43,7 @@ inline auto validate_dir(const std::filesystem::path& dir, const std::filesystem
     }
 
     // Not world-readable
-    auto perms = std::filesystem::status(canon, ec).permissions();
+    const auto perms = std::filesystem::status(canon, ec).permissions();
     if (ec) {
         return false;
     }
@@ -52,7 +52,7 @@ inline auto validate_dir(const std::filesystem::path& dir, const std::filesystem
     }
 
     // Jailed to project_root
-    auto root = std::filesystem::canonical(project_root, ec);
+    const auto root = std::filesystem::canonical(project_root, ec);
     if (ec) {
         return false;
     }
@@ -60,12 +60,8 @@ inline auto validate_dir(const std::filesystem::path& dir, const std::filesystem
     if (root_s.back() != '/') {
         root_s += '/';
     }
-    auto canon_s = canon.string();
-    if (canon_s != root_s.substr(0, root_s.size() - 1) && !canon_s.starts_with(root_s)) {
-        return false;
-    }
-
-    return true;
+    const auto canon_s = canon.string();
+    return canon_s == root_s.substr(0, root_s.size() - 1) || canon_s.starts_with(root_s);
 }
 
 } // namespace detail
@@ -127,11 +123,9 @@ inline auto allow(AllowConfig cfg) -> web::Middleware {
                 }
             }
 
-            for (const auto& v : cfg.validators) {
-                if (!v(file)) {
-                    detail::remove_all_files(files);
-                    return {.status = web::status::unprocessable_entity};
-                }
+            if (!std::ranges::all_of(cfg.validators, [&](const auto& v) -> bool { return v(file); })) {
+                detail::remove_all_files(files);
+                return {.status = web::status::unprocessable_entity};
             }
 
             auto dest = file.validated_dir / file.path.filename();

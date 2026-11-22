@@ -10,12 +10,12 @@ namespace web::states {
 template<typename T>
 struct Traits;
 template<typename T>
-std::string pack(const T& val);
+auto pack(const T& val) -> std::string;
 
 static constexpr std::string_view cookie_prefix = "_cw_";
 
 // Check whether a state cookie is present in a request's cookie map.
 // Use in route_guards() where web::State<T> injection hasn't happened yet.
 template<typename T>
-[[nodiscard]] inline bool has(const web::ParamMap& cookies);
+[[nodiscard]] inline auto has(const web::ParamMap& cookies) -> bool;
 } // namespace web::states

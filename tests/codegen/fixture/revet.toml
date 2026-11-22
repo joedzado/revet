@@ -1,0 +1,24 @@
+name = "edge"
+port = 8090
+max_body = "16MiB"
+data_dir = "var/data"
+
+[htmx]
+version = "2.0.9"
+
+[resources.users_db]
+type = "sqlite"
+path = "app/data/edge.db"
+pool_size = 2
+
+[resources.analytics]
+type = "postgres"
+url = "postgres://localhost/edge"
+
+[uploads.files]
+[uploads.avatars]
+
+[build.dependencies]
+webp = "libwebp/1.3.2"
+"fmt" = "fmt/10.2.1"
+zstd = "zstd/1.5.5"

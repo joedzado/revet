@@ -9,22 +9,25 @@
 //   every: run `fn` on a background thread at a fixed interval, for the life of the process.
 //     web::jobs::every(std::chrono::hours{24}, [] { backup(); });
 
-#include "log.hpp"
-
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "background.hpp"
+#include "log.hpp"
+
 namespace web::jobs {
 
 inline auto now_ms() -> int64_t {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 struct Status {
@@ -35,7 +38,7 @@ struct Status {
     int64_t finished_ms = 0; // 0 until a run finishes
 };
 
-// Must outlive its runs: make it static (start() runs on a detached thread that uses it).
+// Must outlive its runs: make it static (start() runs on a background thread that uses it).
 class SingleFlight {
 public:
     using Job = std::function<std::string()>;
@@ -45,7 +48,7 @@ public:
         if (!begin()) {
             return false;
         }
-        std::thread([this, job = std::move(job)] { finish(invoke(job)); }).detach();
+        revet::background::spawn([this, job = std::move(job)](const std::stop_token&) -> void { finish(invoke(job)); });
         return true;
     }
 
@@ -59,7 +62,7 @@ public:
     }
 
     auto status() -> Status {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         return status_;
     }
 
@@ -70,7 +73,7 @@ private:
     };
 
     auto begin() -> bool {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         if (status_.running) {
             return false;
         }
@@ -80,15 +83,15 @@ private:
     }
     static auto invoke(const Job& job) -> Outcome {
         try {
-            return {job(), true};
+            return {.text = job(), .ok = true};
         } catch (const std::exception& e) {
-            return {std::string("failed: ") + e.what(), false};
+            return {.text = std::string("failed: ") + e.what(), .ok = false};
         } catch (...) {
-            return {"failed", false};
+            return {.text = "failed", .ok = false};
         }
     }
     void finish(Outcome o) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         status_.running = false;
         status_.last_result = std::move(o.text);
         status_.last_ok = o.ok;
@@ -103,19 +106,25 @@ private:
 // An exception is logged and the schedule continues. Runs until the process exits.
 inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
                   std::chrono::milliseconds first_delay = std::chrono::milliseconds{0}) {
-    std::thread([interval, first_delay, fn = std::move(fn)] {
-        std::this_thread::sleep_for(first_delay);
-        for (;;) {
+    revet::background::spawn([interval, first_delay, fn = std::move(fn)](const std::stop_token& stop) -> void {
+        std::mutex mu;
+        std::condition_variable_any cv;
+        // Sleeps for d; false once the process is shutting down.
+        const auto sleep = [&](std::chrono::milliseconds d) -> bool {
+            std::unique_lock lock(mu);
+            (void)cv.wait_for(lock, stop, d, [] -> bool { return false; });
+            return !stop.stop_requested();
+        };
+        for (bool running = sleep(first_delay); running; running = sleep(interval)) {
             try {
                 fn();
             } catch (const std::exception& e) {
-                ::log::error("jobs::every: {}", e.what());
+                log::error("jobs::every: {}", e.what());
             } catch (...) {
-                ::log::error("jobs::every: unknown exception");
+                log::error("jobs::every: unknown exception");
             }
-            std::this_thread::sleep_for(interval);
         }
-    }).detach();
+    });
 }
 
 } // namespace web::jobs

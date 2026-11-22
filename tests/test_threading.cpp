@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -13,15 +14,13 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
     all_routes.push_back(
         {.path = "/", .get = [](const auto&) -> web::Response { return web::to_response("ThreadSafe"); }, .post = {}});
 
-    auto const handle_req = [&](int fd) -> void {
-        auto const req = web::parse_request(fd);
-        for (const auto& r : all_routes) {
-            if (r.path == req.path.path) {
-                web::send_response(fd, r.get(req));
-                return;
-            }
-        }
-        web::send_response(fd, {.body = "404", .location = {}, .cookies = {}, .status = web::status::not_found});
+    const auto handle_req = [&](int fd) -> void {
+        const auto req = web::parse_request(fd);
+        const auto route = std::ranges::find(all_routes, req.path.path, &web::Route::path);
+        web::send_response(
+            fd, route != all_routes.end()
+                    ? route->get(req)
+                    : web::Response{.body = "404", .location = {}, .cookies = {}, .status = web::status::not_found});
     };
 
     SECTION("Concurrent requests on same router") {
@@ -31,7 +30,7 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
         workers.reserve(static_cast<size_t>(num_threads));
 
         for (int i = 0; i < num_threads; ++i) {
-            workers.emplace_back([&]() -> void {
+            workers.emplace_back([&] -> void {
                 std::array<int, 2> fds{};
                 if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) < 0) {
                     return;
@@ -43,10 +42,10 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
                 handle_req(fds[0] /* NOLINT */);
 
                 std::array<char, 1024> buf{};
-                ssize_t const n = recv(fds[1] /* NOLINT */, buf.data(), buf.size(), 0);
-                std::string const res(buf.data(), static_cast<size_t>(n));
+                const ssize_t n = recv(fds[1] /* NOLINT */, buf.data(), buf.size(), 0);
+                const std::string res(buf.data(), static_cast<size_t>(n));
 
-                if (res.find("ThreadSafe") != std::string::npos) {
+                if (res.contains("ThreadSafe")) {
                     ++successes;
                 }
 

@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cctype>
-
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -53,7 +52,7 @@ inline auto safe_url(std::string_view url) -> std::string {
         return std::string(url);
     }
 
-    auto const colon = trimmed.find(':');
+    const auto colon = trimmed.find(':');
     if (colon == std::string_view::npos) {
         return std::string(url); // Relative path like "users/1"
     }
@@ -61,14 +60,14 @@ inline auto safe_url(std::string_view url) -> std::string {
     // Check scheme
     static constexpr std::array<std::string_view, 4> safe_schemes = {"http", "https", "mailto", "tel"};
     auto scheme = trimmed.substr(0, colon);
-    auto scheme_matches = [](std::string_view s, std::string_view p) {
+    auto scheme_matches = [](std::string_view s, std::string_view p) -> bool {
         if (s.size() != p.size()) {
             return false;
         }
-        return std::ranges::equal(s, p, [](unsigned char a, unsigned char b) { return std::tolower(a) == b; });
+        return std::ranges::equal(s, p, [](unsigned char a, unsigned char b) -> bool { return std::tolower(a) == b; });
     };
 
-    if (std::ranges::any_of(safe_schemes, [&](std::string_view p) { return scheme_matches(scheme, p); })) {
+    if (std::ranges::any_of(safe_schemes, [&](std::string_view p) -> bool { return scheme_matches(scheme, p); })) {
         return std::string(url);
     }
 
@@ -79,19 +78,20 @@ inline auto url_decode(std::string_view str) -> std::string {
     std::string res;
     res.reserve(str.size());
     for (size_t i = 0; i < str.size(); ++i) {
-        if (str[i] == '+') {
+        if (str.at(i) == '+') {
             res += ' ';
-        } else if (str[i] == '%' && i + 2 < str.size()) {
+        } else if (str.at(i) == '%' && i + 2 < str.size()) {
             int v = 0;
-            auto [ptr, ec] = std::from_chars(str.data() + i + 1, str.data() + i + 3, v, 16);
-            if (ec != std::errc{} || ptr != str.data() + i + 3) {
-                res += str[i];
+            const auto hex = str.substr(i + 1, 2);
+            auto [ptr, ec] = std::from_chars(std::to_address(hex.begin()), std::to_address(hex.end()), v, 16);
+            if (ec != std::errc{} || ptr != std::to_address(hex.end())) {
+                res += str.at(i);
             } else {
                 res += static_cast<char>(v);
                 i += 2;
             }
         } else {
-            res += str[i];
+            res += str.at(i);
         }
     }
     return res;
@@ -103,15 +103,16 @@ inline auto url_decode_path(std::string_view str) -> std::string {
     res.reserve(str.size());
     for (size_t i = 0; i < str.size(); ++i) {
         int v = 0;
-        if (str[i] == '%' && i + 3 <= str.size()) {
-            auto [ptr, ec] = std::from_chars(str.data() + i + 1, str.data() + i + 3, v, 16);
-            if (ec == std::errc{} && ptr == str.data() + i + 3) {
+        if (str.at(i) == '%' && i + 3 <= str.size()) {
+            const auto hex = str.substr(i + 1, 2);
+            auto [ptr, ec] = std::from_chars(std::to_address(hex.begin()), std::to_address(hex.end()), v, 16);
+            if (ec == std::errc{} && ptr == std::to_address(hex.end())) {
                 res += static_cast<char>(v);
                 i += 2;
                 continue;
             }
         }
-        res += str[i];
+        res += str.at(i);
     }
     return res;
 }
@@ -128,8 +129,8 @@ inline auto url_encode(std::string_view str) -> std::string {
             res += ch;
         } else {
             res += '%';
-            res += hex[c >> 4];
-            res += hex[c & 0xF];
+            res += hex.at(c >> 4);
+            res += hex.at(c & 0xF);
         }
     }
     return res;
@@ -144,16 +145,16 @@ inline auto base64_encode(std::string_view in) -> std::string {
     out.reserve((in.size() + 2) / 3 * 4);
     uint32_t val = 0;
     int valb = -6;
-    for (unsigned char const c : in) {
+    for (const unsigned char c : in) {
         val = (val << 8U) + c;
         valb += 8;
         while (valb >= 0) {
-            out.push_back(lookup[(val >> static_cast<uint32_t>(valb)) & 0x3FU]);
+            out.push_back(lookup.at((val >> static_cast<uint32_t>(valb)) & 0x3FU));
             valb -= 6;
         }
     }
     if (valb > -6) {
-        out.push_back(lookup[((val << 8U) >> static_cast<uint32_t>(valb + 8)) & 0x3FU]);
+        out.push_back(lookup.at(((val << 8U) >> static_cast<uint32_t>(valb + 8)) & 0x3FU));
     }
     while ((out.size() % 4) != 0U) {
         out.push_back('=');
@@ -162,24 +163,24 @@ inline auto base64_encode(std::string_view in) -> std::string {
 }
 
 inline auto base64_decode(std::string_view in) -> std::string {
-    static const std::array<int, 256> T = []() -> std::array<int, 256> {
+    static const std::array<int, 256> T = [] -> std::array<int, 256> {
         std::array<int, 256> t{};
         t.fill(-1);
-        std::string_view const l = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const std::string_view l = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         for (size_t i = 0; i < l.size(); i++) {
             t.at(static_cast<unsigned char>(l.at(i))) = static_cast<int>(i);
         }
         return t;
     }();
     std::string out;
-    out.reserve(in.size() * 3 / 4 + 1);
+    out.reserve((in.size() * 3 / 4) + 1);
     uint32_t val = 0;
     int valb = -8;
-    for (unsigned char const c : in) {
-        if (T[c] == -1) {
+    for (const unsigned char c : in) {
+        if (T.at(c) == -1) {
             break;
         }
-        val = (val << 6U) + static_cast<uint32_t>(T[c]);
+        val = (val << 6U) + static_cast<uint32_t>(T.at(c));
         valb += 6;
         if (valb >= 0) {
             out.push_back(static_cast<char>((val >> static_cast<uint32_t>(valb)) & 0xFFU));

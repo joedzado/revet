@@ -194,7 +194,7 @@ struct Field {
             }
         }
 
-        auto check_rule = [this]<typename R>() -> bool {
+        auto check_rule = [this]<typename R> -> bool {
             if (!R::check(value)) {
                 error = R::msg();
                 return false;
@@ -204,12 +204,14 @@ struct Field {
         (void)(check_rule.template operator()<Rules>() && ...);
     }
 
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, forms render where an html node is expected
     operator html::Node() const {
+        // NOLINTEND(*-explicit-constructor)
         std::string class_attr;
-        if (_style) {
-            html::detail::style_registry[_style->name] = _style->rules;
+        if (_style != nullptr) {
+            html::detail::style_registry()[_style->name] = _style->rules;
             for (const auto& [sel, r] : _style->pseudo) {
-                html::detail::style_registry[_style->name + sel] = r;
+                html::detail::style_registry()[_style->name + sel] = r;
             }
             class_attr = std::format(" class=\"{}\"", _style->name);
         }
@@ -227,12 +229,12 @@ struct Field {
 
         html::Node input_node;
         if constexpr (FieldType::is_textarea) {
-            input_node = html::Node{html::raw_tag{}, "<textarea name=\"" + name + "\" rows=\"5\"" + class_attr + extra +
+            input_node = html::Node{html::raw_tag{}, "<textarea name=\"" + name + R"(" rows="5")" + class_attr + extra +
                                                          ">" + sanitize::html_escape(value) + "</textarea>"};
         } else {
-            input_node = html::Node{html::raw_tag{}, std::format("<input type=\"{}\" name=\"{}\" value=\"{}\"{}{}>",
-                                                                 FieldType::input_type, name,
-                                                                 sanitize::html_escape(value), class_attr, extra)};
+            input_node = html::Node{html::raw_tag{},
+                                    std::format(R"(<input type="{}" name="{}" value="{}"{}{}>)", FieldType::input_type,
+                                                name, sanitize::html_escape(value), class_attr, extra)};
         }
 
         html::Node error_node;

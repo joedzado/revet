@@ -27,16 +27,16 @@ using db::postgres::Transaction;
 
 namespace {
 
-const char* test_url() {
+auto test_url() -> const char* {
     return std::getenv("REVET_TEST_PG_URL");
 }
 
-#define REQUIRE_PG()                                       \
-    do {                                                   \
-        if (test_url() == nullptr) {                       \
-            SKIP("REVET_TEST_PG_URL not set");             \
-        }                                                  \
-    } while (false)
+// Skips the test case when no test database is configured.
+void require_pg() {
+    if (test_url() == nullptr) {
+        SKIP("REVET_TEST_PG_URL not set");
+    }
+}
 
 // Drives a Task<void> to completion on the I/O pool.
 template<typename MakeTask>
@@ -45,14 +45,14 @@ void run_task(MakeTask make_task) {
     std::mutex m;
     std::condition_variable cv;
     bool done = false;
-    std::move(make_task()).start([&] {
-        std::lock_guard lk(m);
+    std::move(make_task()).start([&] -> void {
+        const std::scoped_lock lk(m);
         done = true;
         cv.notify_one();
     });
     {
         std::unique_lock lk(m);
-        cv.wait_for(lk, std::chrono::seconds(10), [&] { return done; });
+        cv.wait_for(lk, std::chrono::seconds(10), [&] -> bool { return done; });
     }
     web::detail::io_pool().reset();
     REQUIRE(done);
@@ -61,7 +61,7 @@ void run_task(MakeTask make_task) {
 } // namespace
 
 TEST_CASE("postgres: NULL and empty string stay distinct", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
 
@@ -76,7 +76,7 @@ TEST_CASE("postgres: NULL and empty string stay distinct", "[postgres]") {
 }
 
 TEST_CASE("postgres: NULL binds from nullptr and empty optional", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
 
@@ -89,7 +89,7 @@ TEST_CASE("postgres: NULL binds from nullptr and empty optional", "[postgres]") 
 }
 
 TEST_CASE("postgres: numeric survives exactly as text", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<Write> h(pool);
     h.exec("drop table if exists e2e_money");
@@ -110,13 +110,12 @@ TEST_CASE("postgres: numeric survives exactly as text", "[postgres]") {
 }
 
 TEST_CASE("postgres: uuid, date, timestamp and jsonb read as text", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
-    const auto r = h.query(
-        "select ?::uuid, ?::date, ?::timestamp, ?::jsonb->>'k'",
-        std::string("7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11"), std::string("2026-11-05"),
-        std::string("2026-11-05 12:34:56"), std::string(R"({"k":"v"})"));
+    const auto r = h.query("select ?::uuid, ?::date, ?::timestamp, ?::jsonb->>'k'",
+                           std::string("7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11"), std::string("2026-11-05"),
+                           std::string("2026-11-05 12:34:56"), std::string(R"({"k":"v"})"));
     CHECK(r[0][0] == "7f1c7a5e-3c1d-4c7a-9a55-0d8f8a7e2b11");
     CHECK(r[0][1] == "2026-11-05");
     CHECK(r[0][2] == "2026-11-05 12:34:56");
@@ -124,7 +123,7 @@ TEST_CASE("postgres: uuid, date, timestamp and jsonb read as text", "[postgres]"
 }
 
 TEST_CASE("postgres: ? in literals, comments and operators is not a placeholder", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
 
@@ -145,7 +144,7 @@ TEST_CASE("postgres: ? in literals, comments and operators is not a placeholder"
 }
 
 TEST_CASE("postgres: a string_view that is not NUL-terminated stops at its end", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
     const std::string s = "select 1;garbage";
@@ -153,7 +152,7 @@ TEST_CASE("postgres: a string_view that is not NUL-terminated stops at its end",
 }
 
 TEST_CASE("postgres: Transaction commits and rolls back", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<Write> h(pool);
     h.exec("drop table if exists e2e_tx");
@@ -167,14 +166,14 @@ TEST_CASE("postgres: Transaction commits and rolls back", "[postgres]") {
     CHECK(h.query("select count(*) from e2e_tx")[0][0] == "1");
 
     {
-        Transaction tx(h);
+        const Transaction tx(h);
         h.exec("insert into e2e_tx values (?)", 2);
     }
     CHECK(h.query("select count(*) from e2e_tx")[0][0] == "1");
 
     // A failed statement aborts the transaction, and scope exit still cleans up.
     {
-        Transaction tx(h);
+        const Transaction tx(h);
         CHECK_THROWS_AS(h.exec("insert into e2e_tx values (?)", std::string("not an int")), std::runtime_error);
     }
     CHECK(h.query("select count(*) from e2e_tx")[0][0] == "1");
@@ -182,7 +181,7 @@ TEST_CASE("postgres: Transaction commits and rolls back", "[postgres]") {
 }
 
 TEST_CASE("postgres: an open transaction does not reach the next borrower", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     {
         Handle<Write> w(pool);
@@ -195,7 +194,7 @@ TEST_CASE("postgres: an open transaction does not reach the next borrower", "[po
 }
 
 TEST_CASE("postgres: the pool recovers after a connection is lost", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     {
         Handle<> h(pool);
@@ -206,7 +205,7 @@ TEST_CASE("postgres: the pool recovers after a connection is lost", "[postgres]"
 }
 
 TEST_CASE("postgres: a lost connection reports a real error message", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
     std::string message;
@@ -219,18 +218,20 @@ TEST_CASE("postgres: a lost connection reports a real error message", "[postgres
 }
 
 TEST_CASE("postgres: a failed connect throws", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     CHECK_THROWS_AS(Pool("host=127.0.0.1 port=1 connect_timeout=2", 2), std::runtime_error);
 }
 
 TEST_CASE("postgres: async variants run and propagate errors", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     std::string value;
     std::optional<std::string> nullable = "unset";
     std::string count;
-    bool threw = false;
+    bool threw = false; // NOLINT(misc-const-correctness): set inside the coroutine
 
+    // run_task waits for the coroutine, so the captured locals outlive it.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
     run_task([&]() -> web::Task<void> {
         Handle<Write> h(pool);
         co_await h.async_exec("drop table if exists e2e_async");
@@ -254,7 +255,7 @@ TEST_CASE("postgres: async variants run and propagate errors", "[postgres]") {
 }
 
 TEST_CASE("postgres: concurrent readers and writers lose nothing", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 4);
     {
         Handle<Write> w(pool);
@@ -266,8 +267,9 @@ TEST_CASE("postgres: concurrent readers and writers lose nothing", "[postgres]")
     constexpr int kPerThread = 200;
     std::atomic<int> failures{0};
     std::vector<std::thread> threads;
+    threads.reserve(kThreads);
     for (int t = 0; t < kThreads; ++t) {
-        threads.emplace_back([&, t] {
+        threads.emplace_back([&, t] -> void {
             for (int i = 0; i < kPerThread; ++i) {
                 try {
                     if (t % 2 == 0) {
@@ -296,15 +298,32 @@ TEST_CASE("postgres: concurrent readers and writers lose nothing", "[postgres]")
 }
 
 TEST_CASE("postgres: Decimal arithmetic matches the server byte for byte", "[postgres]") {
-    REQUIRE_PG();
+    require_pg();
     Pool pool(test_url(), 1);
     Handle<> h(pool);
 
     using revet::Decimal;
-    const std::vector<std::string> values = {
-        "0",      "0.00",   "1",       "-1",     "0.0001",   "-0.0001", "1.005",  "-1.005", "2.5",
-        "-2.5",   "12.3400", "99999.99", "0.1",   "0.2",      "3.14159", "1000000", "1234.5678",
-        "999999999999999.9999", "-999999999999999.9999", "1234.567890123456789012", "512.3456789012"};
+    const std::vector<std::string> values = {"0",
+                                             "0.00",
+                                             "1",
+                                             "-1",
+                                             "0.0001",
+                                             "-0.0001",
+                                             "1.005",
+                                             "-1.005",
+                                             "2.5",
+                                             "-2.5",
+                                             "12.3400",
+                                             "99999.99",
+                                             "0.1",
+                                             "0.2",
+                                             "3.14159",
+                                             "1000000",
+                                             "1234.5678",
+                                             "999999999999999.9999",
+                                             "-999999999999999.9999",
+                                             "1234.567890123456789012",
+                                             "512.3456789012"};
 
     for (const auto& a : values) {
         for (const auto& b : values) {
@@ -316,7 +335,8 @@ TEST_CASE("postgres: Decimal arithmetic matches the server byte for byte", "[pos
             CHECK((da + db_).to_string() == row[0]);
             CHECK((da - db_).to_string() == row[1]);
             // Over 38 digits a product may not fit: throwing is correct, a wrong value is not.
-            const auto digits = std::count_if(row[2].begin(), row[2].end(), [](char c) { return c >= '0' && c <= '9'; });
+            const auto digits =
+                std::count_if(row[2].begin(), row[2].end(), [](char c) -> bool { return c >= '0' && c <= '9'; });
             std::optional<std::string> product;
             try {
                 product = (da * db_).to_string();

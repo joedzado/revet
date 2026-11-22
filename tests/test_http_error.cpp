@@ -12,7 +12,7 @@ TEST_CASE("Response::ok() true for 2xx", "[http]") {
 }
 
 TEST_CASE("Response::ok() false for non-2xx and transport failure", "[http]") {
-    REQUIRE_FALSE(http::Response{0,   "", {}}.ok());  // transport failure
+    REQUIRE_FALSE(http::Response{0, "", {}}.ok()); // transport failure
     REQUIRE_FALSE(http::Response{199, "", {}}.ok());
     REQUIRE_FALSE(http::Response{300, "", {}}.ok());
     REQUIRE_FALSE(http::Response{404, "", {}}.ok());
@@ -30,23 +30,23 @@ TEST_CASE("http::Error stores HTTP status + body", "[http]") {
     REQUIRE(e.status_code == 404);
     REQUIRE(e.body == R"({"message":"Not Found"})");
     const std::string what = e.what();
-    REQUIRE(what.find("404") != std::string::npos);
-    REQUIRE(what.find("Not Found") != std::string::npos);
+    REQUIRE(what.contains("404"));
+    REQUIRE(what.contains("Not Found"));
 }
 
 TEST_CASE("http::Error for transport failure uses status 0", "[http]") {
-    http::Error e(0, "Curl error: Could not resolve host");
+    const http::Error e(0, "Curl error: Could not resolve host");
     REQUIRE(e.status_code == 0);
     const std::string what = e.what();
-    REQUIRE(what.find("transport") != std::string::npos);
-    REQUIRE(what.find("Could not resolve host") != std::string::npos);
+    REQUIRE(what.contains("transport"));
+    REQUIRE(what.contains("Could not resolve host"));
     // Note: must NOT contain "0:" — that would imply 0 was a real HTTP code.
-    REQUIRE(what.find("http error 0") == std::string::npos);
+    REQUIRE(!what.contains("http error 0"));
 }
 
 TEST_CASE("http::Error is catchable as std::runtime_error", "[http]") {
     bool caught_as_runtime = false;
-    int  saw_status        = -1;
+    int saw_status = -1;
     try {
         throw http::Error(503, "Service Unavailable");
     } catch (const std::runtime_error& e) {
@@ -71,13 +71,12 @@ TEST_CASE("http::Error is also catchable directly as http::Error", "[http]") {
     }
 }
 
-TEST_CASE("MockClient returns 404 with no stub — still a Response, not throw",
-          "[http][mock]") {
+TEST_CASE("MockClient returns 404 with no stub — still a Response, not throw", "[http][mock]") {
     // Low-level client itself never throws — only the *generated* apis.hpp
     // wrapper translates !ok() into an http::Error throw. This lets advanced
     // users opt out of exceptions by calling http::get(...) directly.
     http::MockClient mock;
-    auto resp = mock.execute("GET", "https://example.com/missing", {}, "");
+    const auto resp = mock.execute("GET", "https://example.com/missing", {}, "");
     REQUIRE(resp.status_code == 404);
     REQUIRE_FALSE(resp.ok());
 }

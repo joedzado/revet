@@ -12,8 +12,8 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
     }
 
     SECTION("empty string") {
-        std::string ct = web::crypto::encrypt("");
-        REQUIRE(web::crypto::decrypt(ct) == "");
+        const std::string ct = web::crypto::encrypt("");
+        REQUIRE(web::crypto::decrypt(ct).empty());
     }
 
     SECTION("different nonces produce different ciphertext") {
@@ -26,8 +26,8 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
 
     SECTION("tampered ciphertext returns empty") {
         std::string ct = web::crypto::encrypt("secret");
-        ct[ct.size() / 2] ^= 0xFF;
-        REQUIRE(web::crypto::decrypt(ct) == "");
+        ct.at(ct.size() / 2) = static_cast<char>(~static_cast<unsigned char>(ct.at(ct.size() / 2)));
+        REQUIRE(web::crypto::decrypt(ct).empty());
     }
 
     unsetenv("REVET_COOKIE_KEY");
@@ -35,19 +35,19 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
 
 TEST_CASE("crypto get_key rejects wrong-length key", "[crypto]") {
     setenv("REVET_COOKIE_KEY", "tooshort", 1);
-    unsigned char buf[crypto_secretbox_KEYBYTES]{};
+    web::crypto::Key buf{};
     REQUIRE_THROWS_AS(web::crypto::get_key(buf), std::runtime_error);
     unsetenv("REVET_COOKIE_KEY");
 }
 
 TEST_CASE("crypto hostname fallback still round-trips", "[crypto]") {
     unsetenv("REVET_COOKIE_KEY");
-    std::string ct = web::crypto::encrypt("fallback test");
+    const std::string ct = web::crypto::encrypt("fallback test");
     REQUIRE(web::crypto::decrypt(ct) == "fallback test");
 }
 
 TEST_CASE("a cookie key must be real hex, and can be required", "[crypto]") {
-    unsigned char key[crypto_secretbox_KEYBYTES];
+    web::crypto::Key key{};
     const char* saved = std::getenv("REVET_COOKIE_KEY");
     const std::string restore = saved != nullptr ? saved : "";
 

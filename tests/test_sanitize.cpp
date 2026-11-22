@@ -13,7 +13,7 @@ TEST_CASE("safe_url — passes safe schemes", "[sanitize]") {
     CHECK(sanitize::safe_url("#anchor") == "#anchor");
     CHECK(sanitize::safe_url("mailto:a@b.com") == "mailto:a@b.com");
     CHECK(sanitize::safe_url("tel:+123456789") == "tel:+123456789");
-    CHECK(sanitize::safe_url("") == "");
+    CHECK(sanitize::safe_url("").empty());
 }
 
 TEST_CASE("safe_url — blocks javascript: URI", "[sanitize]") {
@@ -40,14 +40,14 @@ TEST_CASE("url_decode — valid percent-encoding", "[sanitize]") {
     CHECK(sanitize::url_decode("a%2Bb") == "a+b");
     CHECK(sanitize::url_decode("%41%42%43") == "ABC");
     CHECK(sanitize::url_decode("+") == " ");
-    CHECK(sanitize::url_decode("") == "");
+    CHECK(sanitize::url_decode("").empty());
 }
 
 TEST_CASE("url_decode — invalid %XX passes through literally, no null byte", "[sanitize]") {
     // %GG is not valid hex — must NOT produce a null byte
     std::string result = sanitize::url_decode("%GG");
     CHECK(result == "%GG");
-    CHECK(result.find('\0') == std::string::npos);
+    CHECK(!result.contains('\0'));
 
     // truncated sequence at end of string
     CHECK(sanitize::url_decode("%4") == "%4");
@@ -71,8 +71,8 @@ TEST_CASE("Base64 Encoding/Decoding", "[sanitize]") {
     }
 
     SECTION("Binary data") {
-        std::string const binary{"\x00\x01\x02\x03\xFF", 5};
-        std::string const encoded = sanitize::base64_encode(binary);
+        const std::string binary{"\x00\x01\x02\x03\xFF", 5};
+        const std::string encoded = sanitize::base64_encode(binary);
         REQUIRE(sanitize::base64_decode(encoded) == binary);
     }
 }

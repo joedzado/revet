@@ -136,7 +136,7 @@ Internal — used by `http::get/post/...`. You typically don't construct one you
 
 ## See also
 
-- [codegen.md](./codegen.md) for what each script generates.
+- [codegen.md](./codegen.md) for what each generator produces.
 - [attributes.md](./attributes.md) for the markers the codegen reads.
 - [security.md](security.md) for the pre-deploy checklist.
 - [config.md](config.md) for env vars + `revet.toml` reference.

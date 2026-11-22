@@ -2,7 +2,9 @@
 
 #include "html.hpp"
 
+#include <algorithm>
 #include <array>
+#include <format>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -35,7 +37,7 @@ struct css_props {
 
     [[nodiscard]] auto to_string() const -> std::string {
         std::string s;
-        auto emit = [&](std::string_view prop, std::string_view val) -> void {
+        const auto emit = [&](std::string_view prop, std::string_view val) -> void {
             if (!val.empty()) {
                 s += prop;
                 s += ':';
@@ -135,37 +137,36 @@ struct css_props {
 namespace detail {
 // Accumulates per-request dynamic classes. Thread-local so concurrent requests
 // don't mix class registrations. Flushed into <style> by html_doc::render().
-inline thread_local std::unordered_map<std::string, std::string> style_registry;
+inline auto style_registry() -> std::unordered_map<std::string, std::string>& {
+    thread_local std::unordered_map<std::string, std::string> registry;
+    return registry;
+}
 
 // ui:: component CSS/JS — keyed by component name, value is static string_view.
 // Thread-local but idempotent: same key always has the same value.
-inline thread_local std::unordered_map<std::string_view, std::string_view> ui_css_registry;
-inline thread_local std::unordered_map<std::string_view, std::string_view> ui_js_registry;
+inline auto ui_css_registry() -> std::unordered_map<std::string_view, std::string_view>& {
+    thread_local std::unordered_map<std::string_view, std::string_view> registry;
+    return registry;
+}
+inline auto ui_js_registry() -> std::unordered_map<std::string_view, std::string_view>& {
+    thread_local std::unordered_map<std::string_view, std::string_view> registry;
+    return registry;
+}
 
 // Pre-built CSS injected before dynamic classes (populated by the generated styles.hpp).
 // Not thread-local — written once at startup and read-only thereafter.
-inline std::string all_css_block;
+inline auto all_css_block() -> std::string& {
+    static std::string block;
+    return block;
+}
 
 constexpr auto fnv1a(std::string_view s) -> uint32_t {
-    uint32_t h = 2166136261U;
-    for (auto c : s) {
-        h = (h ^ static_cast<uint8_t>(c)) * 16777619U;
-    }
-    return h;
+    return std::ranges::fold_left(
+        s, 2166136261U, [](uint32_t h, char c) -> uint32_t { return (h ^ static_cast<uint8_t>(c)) * 16777619U; });
 }
 
 inline auto make_class_name(std::string_view rules) -> std::string {
-    uint32_t h = fnv1a(rules);
-    std::array<char, 10> buf{};
-    buf[0] = 'c';
-    buf[1] = 'w';
-    buf[2] = '-';
-    for (int i = 8; i >= 3; --i) {
-        buf[static_cast<size_t>(i)] = "0123456789abcdef"[h & 0xf];
-        h >>= 4;
-    }
-    buf[9] = '\0';
-    return buf.data();
+    return std::format("cw-{:06x}", fnv1a(rules) & 0xFFFFFFU);
 }
 } // namespace detail
 
@@ -174,8 +175,8 @@ struct css_class {
     std::string name;
     std::vector<std::pair<std::string, std::string>> pseudo;
 
-    css_class(std::string_view raw) : rules(raw), name(detail::make_class_name(raw)) {}
-    css_class(const css_props& p) : rules(p.to_string()), name(detail::make_class_name(rules)) {}
+    explicit css_class(std::string_view raw) : rules(raw), name(detail::make_class_name(raw)) {}
+    explicit css_class(const css_props& p) : rules(p.to_string()), name(detail::make_class_name(rules)) {}
 
     [[nodiscard]] auto hover(const css_props& p) const -> css_class {
         return _pseudo(":hover", p.to_string());
@@ -196,10 +197,11 @@ struct css_class {
         return c;
     }
 
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, classes are passed directly as html nodes
     operator Node() const {
-        detail::style_registry[name] = rules;
+        detail::style_registry()[name] = rules;
         for (const auto& [sel, r] : pseudo) {
-            detail::style_registry[name + sel] = r;
+            detail::style_registry()[name + sel] = r;
         }
         return Node{raw_tag{}, std::format(" .{}", name)};
     }
@@ -219,12 +221,13 @@ struct named_class {
 
     [[nodiscard]] auto extra(std::string_view rules) const -> Node {
         std::string dyn_name = detail::make_class_name(rules);
-        detail::style_registry[dyn_name] = std::string(rules);
+        detail::style_registry()[dyn_name] = std::string(rules);
         // " .sec-label cw-abc123" → split() strips " ." prefix → "sec-label cw-abc123" → class="sec-label cw-abc123"
         return Node{raw_tag{}, std::format(" .{} {}", css_name, dyn_name)};
     }
 
     operator Node() const {
+        // NOLINTEND(*-explicit-constructor)
         return Node{raw_tag{}, std::format(" .{}", css_name)};
     }
 };
@@ -259,17 +262,16 @@ struct html_doc : Node {
         str = render();
     }
 
-
     [[nodiscard]] auto render() const -> std::string {
         std::string css;
-        css.reserve(50 + detail::all_css_block.size() + detail::ui_css_registry.size() * 100 +
-                    detail::style_registry.size() * 150);
+        css.reserve(50 + detail::all_css_block().size() + (detail::ui_css_registry().size() * 100) +
+                    (detail::style_registry().size() * 150));
         css += "<style>";
-        css += detail::all_css_block;
-        for (const auto& [k, rules] : detail::ui_css_registry) {
+        css += detail::all_css_block();
+        for (const auto& [k, rules] : detail::ui_css_registry()) {
             css += rules;
         }
-        for (const auto& [name, rules] : detail::style_registry) {
+        for (const auto& [name, rules] : detail::style_registry()) {
             css += '.';
             css += name;
             css += '{';
@@ -282,17 +284,17 @@ struct html_doc : Node {
                                        : std::format("<!DOCTYPE html><html lang=\"{}\">", sanitize::html_escape(lang));
         out += inner;
         out += "</html>";
-        auto pos = out.find(STYLES_SENTINEL);
+        const auto pos = out.find(STYLES_SENTINEL);
         if (pos != std::string::npos) {
             out.replace(pos, STYLES_SENTINEL.size(), css);
-        } else if (size_t head = out.find("<head>"); head != std::string::npos) {
+        } else if (const size_t head = out.find("<head>"); head != std::string::npos) {
             out.insert(head + 6, css);
         } else {
             out.insert(0, css);
         }
 
         std::string js;
-        for (const auto& [k, snippet] : detail::ui_js_registry) {
+        for (const auto& [k, snippet] : detail::ui_js_registry()) {
             js += snippet;
         }
         if (!js.empty()) {
@@ -304,9 +306,9 @@ struct html_doc : Node {
                 out += script;
             }
         }
-        detail::style_registry.clear();
-        detail::ui_css_registry.clear();
-        detail::ui_js_registry.clear();
+        detail::style_registry().clear();
+        detail::ui_css_registry().clear();
+        detail::ui_js_registry().clear();
         return out;
     }
 };

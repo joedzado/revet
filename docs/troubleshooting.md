@@ -4,14 +4,14 @@ When something goes wrong, in roughly the order it tends to go wrong.
 
 ## "My framework change isn't taking effect"
 
-Symptom: you edited `~/revet/cmake/gen_routes.py` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
+Symptom: you edited `~/revet/cmake/codegen/gen_routes.cpp` (or anything in the framework source tree), ran `revet dev`, the change didn't appear.
 
-Cause: `revet dev` reads the framework from `~/.revet/current/`, which is populated by `revet-fw install` at install time. Editing the source repo does not redeploy.
+Cause: `revet dev` reads the framework from `~/.revet/current/`, which is populated by `install.sh` at install time. Editing the source repo does not redeploy.
 
 Fix:
 
 ```bash
-sudo ~/revet/scripts/revet-fw install
+~/revet/install.sh
 ```
 
 This wipes `~/.revet/current/` and copies the source over. Re-run `revet dev` afterwards.
@@ -41,15 +41,9 @@ The framework always installs Release-config packages (`-s build_type=Release`).
 
 ## Build error: `'concept' is not a class or namespace`, or similar C++23 errors
 
-revet requires a C++23-capable compiler. macOS users: Apple clang on Xcode 16+ works for most of the surface; for the rest, install LLVM 19 via Homebrew (`brew install llvm`) and:
+revet requires a C++23-capable compiler. macOS: revet builds with Apple clang (`/usr/bin/clang++`) from a current Xcode or its Command Line Tools (tested with Xcode 27); update them with `softwareupdate` or Xcode. Homebrew LLVM lacks Apple's SDK setup, so leave `CC`/`CXX` unset or pointed at `/usr/bin/clang`.
 
-```bash
-export CC=$(brew --prefix llvm)/bin/clang
-export CXX=$(brew --prefix llvm)/bin/clang++
-revet clean && revet build
-```
-
-Linux: clang 18+ or gcc 14+.
+Linux: gcc 15+, or clang 20+ with libc++ 20+ or libstdc++ 15+ (Ubuntu 26.04's defaults work).
 
 ## "Built target revet" but `./build/revet` exits immediately
 
@@ -111,7 +105,7 @@ Symptom:
 fatal: could not create work tree dir '/Users/you/.revet/src': Permission denied
 ```
 
-Cause: `~/.revet/` is owned by root from a prior `sudo revet-fw install`. The user-facing `install.sh` runs as your user and cannot write into it. `sudo curl ... | sh` does not help — only `curl` runs as root; the `sh` after the pipe runs as you.
+Cause: `~/.revet/` is owned by root from a prior `./install.sh`. The user-facing `install.sh` runs as your user and cannot write into it. `sudo curl ... | sh` does not help — only `curl` runs as root; the `sh` after the pipe runs as you.
 
 Fix:
 

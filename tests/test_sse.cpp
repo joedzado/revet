@@ -1,3 +1,4 @@
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <revet/web.hpp>
 #include <string>
@@ -5,30 +6,34 @@
 #include <thread>
 #include <unistd.h>
 
-static auto make_socketpair() -> std::pair<int, int> {
-    int fds[2];
-    REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
-    return {fds[0], fds[1]};
+namespace {
+auto make_socketpair() -> std::pair<int, int> {
+    std::array<int, 2> fds{};
+    REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
+    return {fds.at(0), fds.at(1)};
 }
 
-static auto read_all(int fd, int timeout_ms = 200) -> std::string {
+auto read_all(int fd, int timeout_ms = 200) -> std::string {
     std::string out;
-    char buf[4096];
-    struct timeval tv{0, timeout_ms * 1000};
+    std::array<char, 4096> buf{};
+    struct timeval tv {
+        .tv_sec = 0, .tv_usec = timeout_ms * 1000
+    };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     while (true) {
-        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
         if (n <= 0) {
             break;
         }
-        out.append(buf, static_cast<size_t>(n));
+        out.append(buf.data(), static_cast<size_t>(n));
     }
     return out;
 }
+} // namespace
 
 TEST_CASE("SSEWriter::send emits correct event format") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("hello world");
     ::shutdown(writer_fd, SHUT_WR);
@@ -42,15 +47,15 @@ TEST_CASE("SSEWriter::send emits correct event format") {
 
 TEST_CASE("SSEWriter::send includes event and id fields") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("payload", "update", "42");
     ::shutdown(writer_fd, SHUT_WR);
 
-    auto got = read_all(reader_fd);
-    REQUIRE(got.find("id: 42\n") != std::string::npos);
-    REQUIRE(got.find("event: update\n") != std::string::npos);
-    REQUIRE(got.find("data: payload\n") != std::string::npos);
+    const auto got = read_all(reader_fd);
+    REQUIRE(got.contains("id: 42\n"));
+    REQUIRE(got.contains("event: update\n"));
+    REQUIRE(got.contains("data: payload\n"));
 
     ::close(writer_fd);
     ::close(reader_fd);
@@ -58,14 +63,14 @@ TEST_CASE("SSEWriter::send includes event and id fields") {
 
 TEST_CASE("SSEWriter::send splits multi-line data") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("line1\nline2");
     ::shutdown(writer_fd, SHUT_WR);
 
-    auto got = read_all(reader_fd);
-    REQUIRE(got.find("data: line1\n") != std::string::npos);
-    REQUIRE(got.find("data: line2\n") != std::string::npos);
+    const auto got = read_all(reader_fd);
+    REQUIRE(got.contains("data: line1\n"));
+    REQUIRE(got.contains("data: line2\n"));
 
     ::close(writer_fd);
     ::close(reader_fd);
@@ -73,7 +78,7 @@ TEST_CASE("SSEWriter::send splits multi-line data") {
 
 TEST_CASE("SSEWriter::comment emits SSE comment") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.comment("keepalive");
     ::shutdown(writer_fd, SHUT_WR);
@@ -87,7 +92,7 @@ TEST_CASE("SSEWriter::comment emits SSE comment") {
 
 TEST_CASE("SSEWriter::alive returns true on open socket") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
     REQUIRE(sse.alive());
     ::close(writer_fd);
     ::close(reader_fd);
@@ -95,7 +100,7 @@ TEST_CASE("SSEWriter::alive returns true on open socket") {
 
 TEST_CASE("SSEWriter::alive returns false after peer closes") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
     ::close(reader_fd);
     // Give OS time to propagate FIN
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -109,7 +114,7 @@ TEST_CASE("Route with sse handler sends SSE headers and streams") {
     std::vector<web::Route> routes;
     routes.push_back({
         .path = "/events",
-        .sse = [](const web::Request&, web::SSEWriter& sse) { sse.send("tick", "update"); },
+        .sse = [](const web::Request&, web::SSEWriter& sse) -> void { sse.send("tick", "update"); },
     });
 
     // Simulate what listen() does for an SSE route
@@ -118,7 +123,7 @@ TEST_CASE("Route with sse handler sends SSE headers and streams") {
     req.path = web::Url("/events");
 
     auto it = std::ranges::find_if(
-        routes, [&req](const web::Route& r) { return web::match_route(r.path, req.path.path, req.params); });
+        routes, [&req](const web::Route& r) -> bool { return web::match_route(r.path, req.path.path, req.params); });
 
     REQUIRE(it != routes.end());
     REQUIRE(it->sse);
@@ -130,14 +135,14 @@ TEST_CASE("Route with sse handler sends SSE headers and streams") {
                                       "X-Accel-Buffering: no\r\n"
                                       "\r\n";
     ::send(server_fd, sse_head.data(), sse_head.size(), 0);
-    web::SSEWriter writer{server_fd};
+    web::SSEWriter writer{.fd = server_fd};
     it->sse(req, writer);
     ::shutdown(server_fd, SHUT_WR);
 
-    auto got = read_all(client_fd);
-    REQUIRE(got.find("Content-Type: text/event-stream") != std::string::npos);
-    REQUIRE(got.find("event: update\n") != std::string::npos);
-    REQUIRE(got.find("data: tick\n") != std::string::npos);
+    const auto got = read_all(client_fd);
+    REQUIRE(got.contains("Content-Type: text/event-stream"));
+    REQUIRE(got.contains("event: update\n"));
+    REQUIRE(got.contains("data: tick\n"));
 
     ::close(server_fd);
     ::close(client_fd);

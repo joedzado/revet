@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <sodium.h>
 #include <stdexcept>
 #include <string>
@@ -19,10 +20,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <utility>
-
-#include "hash.hpp"
-
 #include <zlib.h>
+
+#include "c_api.hpp"
+#include "hash.hpp"
 
 // RFC 6455 WebSocket: handshake, frame codec, and a server-side connection.
 
@@ -34,7 +35,7 @@ inline constexpr int k_idle_timeout_ms = 30'000;                   // ping after
 inline constexpr int k_max_connections = 256;                      // process-wide cap on open sockets
 inline constexpr int k_send_timeout_ms = 5'000;                    // a stalled peer can't hold the write lock forever
 inline constexpr auto k_frame_deadline = std::chrono::seconds(10); // bounds a slow-drip frame, not just one recv
-inline constexpr size_t k_max_buffered = size_t{256} << 20;       // bytes held by in-flight messages, process-wide
+inline constexpr size_t k_max_buffered = size_t{256} << 20;        // bytes held by in-flight messages, process-wide
 
 enum class Opcode : uint8_t {
     Continuation = 0x0,
@@ -79,7 +80,9 @@ public:
     auto operator=(const Budget&) -> Budget& = delete;
     Budget(Budget&&) = delete;
     auto operator=(Budget&&) -> Budget& = delete;
-    ~Budget() { buffered_total().fetch_sub(held_); }
+    ~Budget() {
+        buffered_total().fetch_sub(held_);
+    }
 
     [[nodiscard]] auto reserve(size_t n) -> bool {
         if (buffered_total().fetch_add(n) + n > k_max_buffered) {
@@ -98,7 +101,7 @@ private:
 inline auto utf8_valid(std::string_view s) -> bool {
     size_t i = 0;
     while (i < s.size()) {
-        const auto lead = static_cast<uint8_t>(s[i]);
+        const auto lead = static_cast<uint8_t>(s.at(i));
         if (lead < 0x80) {
             ++i;
             continue;
@@ -125,11 +128,11 @@ inline auto utf8_valid(std::string_view s) -> bool {
             return false;
         }
         for (size_t k = 1; k <= extra; ++k) {
-            const auto cont = static_cast<uint8_t>(s[i + k]);
+            const auto cont = static_cast<uint8_t>(s.at(i + k));
             if ((cont & 0xC0) != 0x80) {
                 return false;
             }
-            cp = (cp << 6) | (cont & 0x3F);
+            cp = (cp << 6U) | (cont & 0x3FU);
         }
         if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
             return false;
@@ -142,7 +145,7 @@ inline auto utf8_valid(std::string_view s) -> bool {
 // Length of the trailing, possibly incomplete UTF-8 sequence in s; bytes before it can be validated now.
 inline auto utf8_cut(std::string_view s) -> size_t {
     for (size_t back = 1; back <= 3 && back <= s.size(); ++back) {
-        const auto b = static_cast<uint8_t>(s[s.size() - back]);
+        const auto b = static_cast<uint8_t>(s.at(s.size() - back));
         if ((b & 0xC0) == 0x80) {
             continue;
         }
@@ -165,33 +168,28 @@ inline auto utf8_tail_ok(std::string_view tail) -> bool {
     if (tail.empty()) {
         return true;
     }
-    const auto lead = static_cast<uint8_t>(tail[0]);
+    const auto lead = static_cast<uint8_t>(tail.at(0));
     uint8_t lo2 = 0x80;
     uint8_t hi2 = 0xBF;
-    if (lead >= 0xC2 && lead <= 0xDF) {
-    } else if (lead == 0xE0) {
-        lo2 = 0xA0;
-    } else if (lead >= 0xE1 && lead <= 0xEC) {
-    } else if (lead == 0xED) {
-        hi2 = 0x9F;
-    } else if (lead >= 0xEE && lead <= 0xEF) {
-    } else if (lead == 0xF0) {
-        lo2 = 0x90;
-    } else if (lead >= 0xF1 && lead <= 0xF3) {
-    } else if (lead == 0xF4) {
-        hi2 = 0x8F;
-    } else {
+    if (lead < 0xC2 || lead > 0xF4) {
         return false;
     }
-    for (size_t i = 1; i < tail.size(); ++i) {
-        const auto b = static_cast<uint8_t>(tail[i]);
-        const uint8_t lo = i == 1 ? lo2 : uint8_t{0x80};
-        const uint8_t hi = i == 1 ? hi2 : uint8_t{0xBF};
-        if (b < lo || b > hi) {
-            return false;
-        }
+    if (lead == 0xE0) {
+        lo2 = 0xA0;
+    } else if (lead == 0xED) {
+        hi2 = 0x9F;
+    } else if (lead == 0xF0) {
+        lo2 = 0x90;
+    } else if (lead == 0xF4) {
+        hi2 = 0x8F;
     }
-    return true;
+    // The second byte has the lead's range; later ones are plain continuation bytes.
+    return std::ranges::all_of(std::views::zip(std::views::iota(1UZ), tail.substr(1)),
+                               [&](const auto& indexed) -> bool {
+                                   const auto [i, c] = indexed;
+                                   const auto b = static_cast<uint8_t>(c);
+                                   return i == 1 ? (b >= lo2 && b <= hi2) : (b >= 0x80 && b <= 0xBF);
+                               });
 }
 
 // Codes a peer may send. 1004, 1005, 1006 and 1015 are reserved and never on the wire.
@@ -225,7 +223,7 @@ inline auto valid_key(std::string_view key) -> bool {
 inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true, bool rsv1 = false) -> std::string {
     std::string out;
     out.reserve(payload.size() + 10);
-    out += static_cast<char>((fin ? 0x80 : 0x00) | (rsv1 ? 0x40 : 0x00) | static_cast<uint8_t>(op));
+    out += static_cast<char>((fin ? 0x80U : 0x00U) | (rsv1 ? 0x40U : 0x00U) | static_cast<uint8_t>(op));
     const size_t n = payload.size();
     if (n < 126) {
         out += static_cast<char>(n);
@@ -236,7 +234,7 @@ inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true, b
     } else {
         out += static_cast<char>(127);
         for (int i = 7; i >= 0; --i) {
-            out += static_cast<char>((static_cast<uint64_t>(n) >> (i * 8)) & 0xFF);
+            out += static_cast<char>((static_cast<uint64_t>(n) >> (static_cast<unsigned>(i) * 8U)) & 0xFFU);
         }
     }
     out += payload;
@@ -253,22 +251,20 @@ struct Deflate {
 
 namespace detail {
 
-inline auto trim(std::string_view s) -> std::string_view {
-    while (!s.empty() && s.front() == ' ') {
-        s.remove_prefix(1);
+// `s` without leading and trailing characters from `chars`.
+inline auto trim(std::string_view s, std::string_view chars = " ") -> std::string_view {
+    const auto first = s.find_first_not_of(chars);
+    if (first == std::string_view::npos) {
+        return {};
     }
-    while (!s.empty() && s.back() == ' ') {
-        s.remove_suffix(1);
-    }
-    return s;
+    return s.substr(first, s.find_last_not_of(chars) - first + 1);
 }
 
 inline auto lower(std::string_view s) -> std::string {
-    std::string out(s);
-    for (char& c : out) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return out;
+    return s | std::views::transform([](char c) -> char {
+               return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+           }) |
+           std::ranges::to<std::string>();
 }
 
 // A window size in 8..15, optionally quoted. nullopt for anything else.
@@ -276,7 +272,7 @@ inline auto window_bits(std::string_view v) -> std::optional<int> {
     if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
         v = v.substr(1, v.size() - 2);
     }
-    if (v.empty() || v.size() > 2 || !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+    if (v.empty() || v.size() > 2 || !std::ranges::all_of(v, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
         return std::nullopt;
     }
     const int n = std::stoi(std::string(v));
@@ -288,68 +284,69 @@ inline auto window_bits(std::string_view v) -> std::optional<int> {
 
 } // namespace detail
 
+namespace detail {
+// One offer's agreement, or nullopt when it isn't permessage-deflate or has a parameter we can't honor.
+inline auto accept_deflate_offer(std::string_view offer) -> std::optional<Deflate> {
+    const auto semi = offer.find(';');
+    if (lower(trim(offer.substr(0, semi))) != "permessage-deflate") {
+        return std::nullopt;
+    }
+    std::string_view rest = semi == std::string_view::npos ? std::string_view{} : offer.substr(semi + 1);
+    if (rest.ends_with(';')) {
+        rest.remove_suffix(1); // a trailing ';' ends the list rather than adding an empty parameter
+    }
+
+    Deflate d;
+    d.enabled = true;
+    std::string response = "permessage-deflate";
+    bool seen_sn = false;
+    bool seen_cn = false;
+    bool seen_sb = false;
+    bool seen_cb = false;
+    for (auto part : rest | std::views::split(';')) {
+        const auto param = trim(std::string_view(part));
+        const auto eq = param.find('=');
+        const auto key = lower(trim(param.substr(0, eq)));
+        const bool has_value = eq != std::string_view::npos;
+        const auto value = has_value ? trim(param.substr(eq + 1)) : std::string_view{};
+
+        if (key == "server_no_context_takeover" && !has_value && !seen_sn) {
+            seen_sn = true;
+            d.server_no_ctx = true;
+            response += "; server_no_context_takeover";
+        } else if (key == "client_no_context_takeover" && !has_value && !seen_cn) {
+            // Accepted but not echoed: the client may keep its context, so our inflater always keeps its.
+            seen_cn = true;
+        } else if (key == "server_max_window_bits" && !seen_sb) {
+            seen_sb = true;
+            if (has_value) {
+                // zlib cannot make a raw 8-bit window, so 8 is declined rather than rounded up.
+                const auto bits = window_bits(value);
+                if (!bits || *bits == 8) {
+                    return std::nullopt;
+                }
+                d.server_bits = *bits;
+                response += std::format("; server_max_window_bits={}", *bits);
+            }
+        } else if (key == "client_max_window_bits" && !seen_cb) {
+            seen_cb = true;
+            if (has_value && !window_bits(value)) {
+                return std::nullopt;
+            }
+        } else {
+            return std::nullopt;
+        }
+    }
+    d.response = std::move(response);
+    return d;
+}
+} // namespace detail
+
 // Picks the first permessage-deflate offer we can accept; anything we can't honor is declined.
 inline auto negotiate_deflate(std::string_view header) -> Deflate {
-    while (!header.empty()) {
-        const auto comma = header.find(',');
-        const auto offer = detail::trim(header.substr(0, comma));
-        header = comma == std::string_view::npos ? std::string_view{} : header.substr(comma + 1);
-
-        const auto semi = offer.find(';');
-        if (detail::lower(detail::trim(offer.substr(0, semi))) != "permessage-deflate") {
-            continue;
-        }
-        std::string_view rest = semi == std::string_view::npos ? std::string_view{} : offer.substr(semi + 1);
-
-        Deflate d;
-        d.enabled = true;
-        std::string response = "permessage-deflate";
-        bool ok = true;
-        bool seen_sn = false;
-        bool seen_cn = false;
-        bool seen_sb = false;
-        bool seen_cb = false;
-        while (ok && !rest.empty()) {
-            const auto next = rest.find(';');
-            const auto param = detail::trim(rest.substr(0, next));
-            rest = next == std::string_view::npos ? std::string_view{} : rest.substr(next + 1);
-
-            const auto eq = param.find('=');
-            const auto key = detail::lower(detail::trim(param.substr(0, eq)));
-            const bool has_value = eq != std::string_view::npos;
-            const auto value = has_value ? detail::trim(param.substr(eq + 1)) : std::string_view{};
-
-            if (key == "server_no_context_takeover" && !has_value && !seen_sn) {
-                seen_sn = true;
-                d.server_no_ctx = true;
-                response += "; server_no_context_takeover";
-            } else if (key == "client_no_context_takeover" && !has_value && !seen_cn) {
-                // Accepted but not echoed: the client may keep its context, so our inflater always keeps its.
-                seen_cn = true;
-            } else if (key == "server_max_window_bits" && !seen_sb) {
-                seen_sb = true;
-                if (has_value) {
-                    // zlib cannot make a raw 8-bit window, so 8 is declined rather than rounded up.
-                    const auto bits = detail::window_bits(value);
-                    if (!bits || *bits == 8) {
-                        ok = false;
-                    } else {
-                        d.server_bits = *bits;
-                        response += std::format("; server_max_window_bits={}", *bits);
-                    }
-                }
-            } else if (key == "client_max_window_bits" && !seen_cb) {
-                seen_cb = true;
-                if (has_value && !detail::window_bits(value)) {
-                    ok = false;
-                }
-            } else {
-                ok = false;
-            }
-        }
-        if (ok) {
-            d.response = std::move(response);
-            return d;
+    for (auto offer : header | std::views::split(',')) {
+        if (auto d = detail::accept_deflate_offer(detail::trim(std::string_view(offer)))) {
+            return *d;
         }
     }
     return {};
@@ -406,10 +403,10 @@ public:
     [[nodiscard]] static auto make(int fd, Slot slot,
                                    int idle_timeout_ms = k_idle_timeout_ms) -> std::shared_ptr<Conn> {
         if (idle_timeout_ms > 0) {
-            timeval tv{idle_timeout_ms / 1000, (idle_timeout_ms % 1000) * 1000};
+            timeval tv{.tv_sec = idle_timeout_ms / 1000, .tv_usec = (idle_timeout_ms % 1000) * 1000};
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         }
-        timeval send_tv{k_send_timeout_ms / 1000, (k_send_timeout_ms % 1000) * 1000};
+        timeval send_tv{.tv_sec = k_send_timeout_ms / 1000, .tv_usec = (k_send_timeout_ms % 1000) * 1000};
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send_tv, sizeof(send_tv));
         return std::shared_ptr<Conn>(new Conn(fd, std::move(slot)));
     }
@@ -452,13 +449,13 @@ public:
     auto recv() -> std::optional<Message> {
         Message msg;
         bool in_fragment = false;
-        bool compressed = false;   // the current message arrived with RSV1 set
+        bool compressed = false; // the current message arrived with RSV1 set
         bool ping_outstanding = false;
-        std::string utf8_pending;  // trailing bytes of a text message split mid-codepoint
-        detail::Budget held;       // what this message holds in the process-wide budget
+        std::string utf8_pending; // trailing bytes of a text message split mid-codepoint
+        detail::Budget held;      // what this message holds in the process-wide budget
 
         // Appends decoded message bytes; text is checked for UTF-8 as it arrives.
-        auto absorb = [&](std::string_view bytes) {
+        auto absorb = [&](std::string_view bytes) -> void {
             if (msg.data.size() + bytes.size() > k_max_message) {
                 fail(CloseCode::TooBig, "message too large");
             }
@@ -478,19 +475,20 @@ public:
         };
 
         // Runs compressed bytes through the inflater. Z_SYNC_FLUSH only at the end of a message.
-        auto inflate_into = [&](std::string_view input, int flush) {
-            zin_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(input.data()));
+        auto inflate_into = [&](std::string_view input, int flush) -> void {
+            zin_.next_in = c_api::zlib_input(input);
             zin_.avail_in = static_cast<uInt>(input.size());
             std::array<unsigned char, 16384> out{};
-            do {
+            // Until inflate leaves room in the buffer, there may be more output.
+            for (bool more = true; more; more = zin_.avail_out == 0) {
                 zin_.next_out = out.data();
                 zin_.avail_out = static_cast<uInt>(out.size());
                 const int rc = inflate(&zin_, flush);
                 if (rc == Z_NEED_DICT || rc == Z_DATA_ERROR || rc == Z_MEM_ERROR || rc == Z_STREAM_ERROR) {
                     fail(CloseCode::InvalidData, "invalid permessage-deflate data");
                 }
-                absorb(std::string_view(reinterpret_cast<const char*>(out.data()), out.size() - zin_.avail_out));
-            } while (zin_.avail_out == 0);
+                absorb(c_api::chars(std::span<const unsigned char>(out)).substr(0, out.size() - zin_.avail_out));
+            }
         };
 
         while (open_.load()) {
@@ -562,9 +560,10 @@ public:
                 fail(CloseCode::TooBig, "message too large");
             }
 
-            const bool ok = compressed
-                                ? read_payload(*head, st, [&](std::string_view bytes) { inflate_into(bytes, Z_NO_FLUSH); })
-                                : read_payload(*head, st, [&](std::string_view bytes) { absorb(bytes); });
+            const bool ok =
+                compressed
+                    ? read_payload(*head, st, [&](std::string_view bytes) -> void { inflate_into(bytes, Z_NO_FLUSH); })
+                    : read_payload(*head, st, [&](std::string_view bytes) -> void { absorb(bytes); });
             if (!ok) {
                 open_ = false;
                 return std::nullopt;
@@ -594,7 +593,7 @@ public:
     void close(CloseCode code = CloseCode::Normal) {
         const auto raw = static_cast<uint16_t>(code);
         const std::string payload{static_cast<char>(raw >> 8), static_cast<char>(raw & 0xFF)};
-        std::lock_guard lock(write_mu_);
+        const std::scoped_lock lock(write_mu_);
         if (!open_.exchange(false)) {
             return;
         }
@@ -606,7 +605,7 @@ public:
 private:
     Conn(int fd, Slot slot) : fd_(fd), slot_(std::move(slot)) {}
 
-    enum class IoStatus { Ok, Closed, Timeout };
+    enum class IoStatus : std::uint8_t { Ok, Closed, Timeout };
 
     struct Header {
         bool fin = false;
@@ -628,8 +627,8 @@ private:
         if (payload.size() == 1) {
             fail(CloseCode::Protocol, "close payload of one byte");
         }
-        const auto code =
-            static_cast<uint16_t>((static_cast<uint8_t>(payload[0]) << 8) | static_cast<uint8_t>(payload[1]));
+        const auto code = static_cast<uint16_t>((static_cast<unsigned>(static_cast<uint8_t>(payload.at(0))) << 8U) |
+                                                static_cast<unsigned>(static_cast<uint8_t>(payload.at(1))));
         if (!detail::close_code_valid(code)) {
             fail(CloseCode::Protocol, "invalid close code");
         }
@@ -675,7 +674,7 @@ private:
     auto read_exact(char* buf, size_t n, IoStatus& st) -> bool {
         size_t got = 0;
         while (got < n) {
-            const size_t r = read_some(buf + got, n - got, st);
+            const size_t r = read_some(std::span(buf, n).subspan(got).data(), n - got, st);
             if (r == 0) {
                 if (got > 0 && st == IoStatus::Timeout) {
                     st = IoStatus::Closed;
@@ -693,8 +692,8 @@ private:
         if (!read_exact(head.data(), head.size(), st)) {
             return std::nullopt;
         }
-        const auto b0 = static_cast<uint8_t>(head[0]);
-        const auto b1 = static_cast<uint8_t>(head[1]);
+        const auto b0 = static_cast<uint8_t>(head.at(0));
+        const auto b1 = static_cast<uint8_t>(head.at(1));
         if ((b0 & 0x30) != 0) {
             fail(CloseCode::Protocol, "reserved bits set");
         }
@@ -723,7 +722,7 @@ private:
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame<Header>(st);
             }
-            len = (static_cast<uint64_t>(static_cast<uint8_t>(ext[0])) << 8) | static_cast<uint8_t>(ext[1]);
+            len = (static_cast<uint64_t>(static_cast<uint8_t>(ext.at(0))) << 8) | static_cast<uint8_t>(ext.at(1));
             if (len < 126) {
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }
@@ -732,13 +731,12 @@ private:
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame<Header>(st);
             }
-            if ((static_cast<uint8_t>(ext[0]) & 0x80) != 0) {
+            if ((static_cast<uint8_t>(ext.at(0)) & 0x80) != 0) {
                 fail(CloseCode::Protocol, "payload length high bit set");
             }
-            len = 0;
-            for (char c : ext) {
-                len = (len << 8) | static_cast<uint8_t>(c);
-            }
+            len = std::ranges::fold_left(ext, uint64_t{0}, [](uint64_t acc, char c) -> uint64_t {
+                return (acc << 8) | static_cast<uint8_t>(c);
+            });
             if (len <= 0xFFFF) {
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }
@@ -759,8 +757,8 @@ private:
     }
 
     // Reads and unmasks a payload in pieces; on_bytes sees each piece before the rest of the frame arrives.
-    template <typename OnBytes>
-    auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> bool {
+    template<typename OnBytes>
+    auto read_payload(const Header& h, IoStatus& st, OnBytes on_bytes) -> bool {
         std::array<char, 16384> buf{};
         uint64_t done = 0;
         while (done < h.len) {
@@ -773,7 +771,8 @@ private:
                 return false;
             }
             for (size_t i = 0; i < got; ++i) {
-                buf[i] = static_cast<char>(buf[i] ^ h.mask[(done + i) % 4]);
+                buf.at(i) = static_cast<char>(static_cast<unsigned>(static_cast<uint8_t>(buf.at(i))) ^
+                                              static_cast<unsigned>(static_cast<uint8_t>(h.mask.at((done + i) % 4))));
             }
             on_bytes(std::string_view(buf.data(), got));
             done += got;
@@ -784,14 +783,14 @@ private:
     // Control frames are at most 125 bytes, so they can be held whole.
     auto read_control(const Header& h, IoStatus& st) -> std::optional<std::string> {
         std::string out;
-        if (!read_payload(h, st, [&](std::string_view bytes) { out.append(bytes); })) {
+        if (!read_payload(h, st, [&](std::string_view bytes) -> void { out.append(bytes); })) {
             return std::nullopt;
         }
         return out;
     }
 
     // A timeout after the frame has started is a dead peer, not an idle one.
-    template <typename T>
+    template<typename T>
     static auto fail_mid_frame(IoStatus& st) -> std::optional<T> {
         if (st == IoStatus::Timeout) {
             st = IoStatus::Closed;
@@ -800,7 +799,7 @@ private:
     }
 
     auto write(Opcode op, std::string_view payload) -> bool {
-        std::lock_guard lock(write_mu_);
+        const std::scoped_lock lock(write_mu_);
         if (!open_.load()) {
             return false;
         }
@@ -815,18 +814,18 @@ private:
         if (server_no_ctx_) {
             deflateReset(&zout_);
         }
-        zout_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(in.data()));
+        zout_.next_in = c_api::zlib_input(in);
         zout_.avail_in = static_cast<uInt>(in.size());
         std::string out;
         std::array<unsigned char, 16384> buf{};
-        do {
+        for (bool more = true; more; more = zout_.avail_out == 0) {
             zout_.next_out = buf.data();
             zout_.avail_out = static_cast<uInt>(buf.size());
             deflate(&zout_, Z_SYNC_FLUSH);
-            out.append(reinterpret_cast<const char*>(buf.data()), buf.size() - zout_.avail_out);
-        } while (zout_.avail_out == 0);
+            out.append(c_api::chars(std::span<const unsigned char>(buf)).substr(0, buf.size() - zout_.avail_out));
+        }
         constexpr std::string_view kTail("\0\0\xff\xff", 4);
-        if (out.size() >= kTail.size() && out.compare(out.size() - kTail.size(), kTail.size(), kTail) == 0) {
+        if (out.size() >= kTail.size() && out.ends_with(kTail)) {
             out.resize(out.size() - kTail.size());
         }
         return out;
@@ -836,7 +835,7 @@ private:
     auto send_all(const std::string& bytes) -> bool {
         size_t sent = 0;
         while (sent < bytes.size()) {
-            const ssize_t r = ::send(fd_, bytes.data() + sent, bytes.size() - sent, 0);
+            const ssize_t r = ::send(fd_, std::string_view(bytes).substr(sent).data(), bytes.size() - sent, 0);
             if (r < 0 && errno == EINTR) {
                 continue;
             }
@@ -858,7 +857,7 @@ private:
     z_stream zin_{};
     z_stream zout_{};
     std::string inbuf_; // bytes read with the upgrade request, served before the socket
-    std::chrono::steady_clock::time_point frame_deadline_{};
+    std::chrono::steady_clock::time_point frame_deadline_;
     std::atomic<bool> open_{true};
     std::mutex write_mu_;
 };

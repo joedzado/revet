@@ -8,10 +8,13 @@ namespace svg {
 template<html::fixed_string Tag>
 struct leaf : html::Node {
     leaf(std::initializer_list<html::Node> c = {})
-        : html::Node{html::raw_tag{}, std::format("<{}{}/>", Tag.value, html::detail::split(c).first)} {}
+        : html::Node{html::raw_tag{}, std::format("<{}{}/>", Tag.value.data(), html::detail::split(c).first)} {}
 
     template<typename... Args>
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the svg DSL builds nodes and attributes from plain
+    // values
     leaf(Args&&... args) : leaf({html::Node(std::forward<Args>(args))...}) {}
+    // NOLINTEND(*-explicit-constructor)
 };
 
 // ── Attribute helpers ─────────────────────────────────────────────────────────
@@ -21,144 +24,144 @@ struct attr_t {
     }
 
     // Presentation
-    constexpr auto fill(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto fill(const html::attr_value& v) const {
         return (*this)("fill", v);
     }
-    constexpr auto stroke(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke(const html::attr_value& v) const {
         return (*this)("stroke", v);
     }
-    constexpr auto stroke_width(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke_width(const html::attr_value& v) const {
         return (*this)("stroke-width", v);
     }
-    constexpr auto stroke_linecap(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke_linecap(const html::attr_value& v) const {
         return (*this)("stroke-linecap", v);
     }
-    constexpr auto stroke_linejoin(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke_linejoin(const html::attr_value& v) const {
         return (*this)("stroke-linejoin", v);
     }
-    constexpr auto fill_rule(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto fill_rule(const html::attr_value& v) const {
         return (*this)("fill-rule", v);
     }
-    constexpr auto opacity(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto opacity(const html::attr_value& v) const {
         return (*this)("opacity", v);
     }
 
     // Dimensions & position
-    constexpr auto width(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto width(const html::attr_value& v) const {
         return (*this)("width", v);
     }
-    constexpr auto height(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto height(const html::attr_value& v) const {
         return (*this)("height", v);
     }
-    constexpr auto x(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto x(const html::attr_value& v) const {
         return (*this)("x", v);
     }
-    constexpr auto y(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto y(const html::attr_value& v) const {
         return (*this)("y", v);
     }
-    constexpr auto rx(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto rx(const html::attr_value& v) const {
         return (*this)("rx", v);
     }
-    constexpr auto ry(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto ry(const html::attr_value& v) const {
         return (*this)("ry", v);
     }
-    constexpr auto cx(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto cx(const html::attr_value& v) const {
         return (*this)("cx", v);
     }
-    constexpr auto cy(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto cy(const html::attr_value& v) const {
         return (*this)("cy", v);
     }
-    constexpr auto r(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto r(const html::attr_value& v) const {
         return (*this)("r", v);
     }
-    constexpr auto x1(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto x1(const html::attr_value& v) const {
         return (*this)("x1", v);
     }
-    constexpr auto y1(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto y1(const html::attr_value& v) const {
         return (*this)("y1", v);
     }
-    constexpr auto x2(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto x2(const html::attr_value& v) const {
         return (*this)("x2", v);
     }
-    constexpr auto y2(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto y2(const html::attr_value& v) const {
         return (*this)("y2", v);
     }
 
     // Path & shape data
-    constexpr auto d(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto d(const html::attr_value& v) const {
         return (*this)("d", v);
     }
-    constexpr auto points(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto points(const html::attr_value& v) const {
         return (*this)("points", v);
     }
 
     // Viewport & transform
-    constexpr auto viewBox(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto viewBox(const html::attr_value& v) const {
         return (*this)("viewBox", v);
     }
-    constexpr auto transform(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto transform(const html::attr_value& v) const {
         return (*this)("transform", v);
     }
-    constexpr auto preserveAspectRatio(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto preserveAspectRatio(const html::attr_value& v) const {
         return (*this)("preserveAspectRatio", v);
     }
 
     // Gradient
-    constexpr auto offset(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto offset(const html::attr_value& v) const {
         return (*this)("offset", v);
     }
-    constexpr auto stop_color(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stop_color(const html::attr_value& v) const {
         return (*this)("stop-color", v);
     }
-    constexpr auto stop_opacity(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stop_opacity(const html::attr_value& v) const {
         return (*this)("stop-opacity", v);
     }
-    constexpr auto gradientUnits(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto gradientUnits(const html::attr_value& v) const {
         return (*this)("gradientUnits", v);
     }
 
     // General
-    constexpr auto id(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto id(const html::attr_value& v) const {
         return (*this)("id", v);
     }
-    constexpr auto class_(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto class_(const html::attr_value& v) const {
         return (*this)("class", v);
     }
-    constexpr auto style(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto style(const html::attr_value& v) const {
         return (*this)("style", v);
     }
-    constexpr auto href(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto href(const html::attr_value& v) const {
         return (*this)("href", v);
     }
-    constexpr auto aria_label(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto aria_label(const html::attr_value& v) const {
         return (*this)("aria-label", v);
     }
-    constexpr auto xmlns(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto xmlns(const html::attr_value& v) const {
         return (*this)("xmlns", v);
     }
-    constexpr auto vector_effect(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto vector_effect(const html::attr_value& v) const {
         return (*this)("vector-effect", v);
     }
-    constexpr auto stroke_dasharray(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke_dasharray(const html::attr_value& v) const {
         return (*this)("stroke-dasharray", v);
     }
-    constexpr auto stroke_opacity(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto stroke_opacity(const html::attr_value& v) const {
         return (*this)("stroke-opacity", v);
     }
-    constexpr auto fill_opacity(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto fill_opacity(const html::attr_value& v) const {
         return (*this)("fill-opacity", v);
     }
-    constexpr auto text_anchor(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto text_anchor(const html::attr_value& v) const {
         return (*this)("text-anchor", v);
     }
-    constexpr auto role(const html::attr_value& v) const {
+    [[nodiscard]] constexpr auto role(const html::attr_value& v) const {
         return (*this)("role", v);
     }
     // viewBox="0 0 w h"
-    auto viewbox(double w, double h) const {
+    [[nodiscard]] auto viewbox(double w, double h) const {
         return (*this)("viewBox", std::format("0 0 {} {}", html::num(w), html::num(h)));
     }
-    auto viewbox(double x, double y, double w, double h) const {
+    [[nodiscard]] auto viewbox(double x, double y, double w, double h) const {
         return (*this)("viewBox", std::format("{} {} {} {}", html::num(x), html::num(y), html::num(w), html::num(h)));
     }
 };
@@ -213,7 +216,10 @@ public:
     [[nodiscard]] auto str() const -> const std::string& {
         return d_;
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the svg DSL builds nodes and attributes from plain
+    // values
     operator html::attr_value() const {
+        // NOLINTEND(*-explicit-constructor)
         return html::attr_value{d_};
     }
 
@@ -221,7 +227,7 @@ private:
     auto cmd(char c, std::initializer_list<double> args) -> path_data& {
         d_ += c;
         bool first = true;
-        for (double a : args) {
+        for (const double a : args) {
             if (!first) {
                 d_ += ',';
             }

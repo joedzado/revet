@@ -8,7 +8,8 @@
 #include <unistd.h>
 
 // Send raw HTTP text into a socketpair and parse it
-static auto parse(const char* raw) -> web::Request {
+namespace {
+auto parse(const char* raw) -> web::Request {
     std::array<int, 2> fds{};
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) != 0) {
         return {};
@@ -19,6 +20,7 @@ static auto parse(const char* raw) -> web::Request {
     close(fds[0] /* NOLINT */);
     return req;
 }
+} // namespace
 
 // ── method parsing ────────────────────────────────────────────────────────────
 
@@ -191,7 +193,7 @@ TEST_CASE("parse_request — oversized body is not parsed", "[request]") {
 }
 
 TEST_CASE("parse_request — rejects smuggled lengths and folded headers", "[request]") {
-    auto dropped = [](const char* raw) {
+    const auto dropped = [](const char* raw) -> void {
         const auto r = parse(raw);
         CHECK(r.path.path.empty());
         CHECK(r.raw_body.empty());
@@ -216,21 +218,19 @@ TEST_CASE("parse_request handles Cookie header > 8192 bytes", "[request]") {
     REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
 
     // Send in a thread — avoids deadlock when request exceeds socket send buffer
-    std::jthread sender([&raw, &fds]() {
-        const char* p = raw.data();
-        size_t remaining = raw.size();
-        while (remaining > 0) {
-            ssize_t sent = ::send(fds[1], p, remaining, 0);
+    const std::jthread sender([&raw, &fds] -> void {
+        std::string_view remaining = raw;
+        while (!remaining.empty()) {
+            const ssize_t sent = ::send(fds.at(1), remaining.data(), remaining.size(), 0);
             if (sent <= 0) {
                 break;
             }
-            p += sent;
-            remaining -= static_cast<size_t>(sent);
+            remaining.remove_prefix(static_cast<size_t>(sent));
         }
-        close(fds[1]);
+        close(fds.at(1));
     });
 
-    const auto r = web::parse_request(fds[0]);
-    close(fds[0]);
+    const auto r = web::parse_request(fds.at(0));
+    close(fds.at(0));
     CHECK(r.cookies.get("session") == big_value);
 }

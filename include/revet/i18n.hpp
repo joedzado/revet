@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <string_view>
 
 // ── i18n:: compile-time string table ──────────────────────────────────────────
@@ -11,16 +12,22 @@
 namespace i18n {
 
 namespace detail {
-inline thread_local int locale_idx = 0;
+// The current request's locale, as an index into the generated locale list.
+inline auto locale_idx() -> int& {
+    thread_local int idx = 0;
+    return idx;
 }
+} // namespace detail
 
 template<int N>
 struct Str {
-    std::string_view data[N];
-    auto get() const -> std::string_view {
-        return data[detail::locale_idx];
+    std::array<std::string_view, N> data;
+    [[nodiscard]] auto get() const -> std::string_view {
+        return data.at(detail::locale_idx());
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, translated strings are passed directly as text
     operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return get();
     }
 };

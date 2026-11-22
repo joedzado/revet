@@ -1,6 +1,7 @@
 #pragma once
 
 #include <coroutine>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <optional>
@@ -16,41 +17,56 @@ namespace web {
 // initial_suspend = always → caller controls when execution starts via start().
 // Supports both fire-and-forget (start + callback) and co_await chaining.
 
+// Runs a completion callback inside final_suspend, which must not throw: a failure is reported, not propagated.
+template<typename F>
+void run_callback(F&& f) noexcept {
+    try {
+        std::forward<F>(f)();
+    } catch (const std::exception& e) {
+        (void)std::fputs("task completion callback failed: ", stderr);
+        (void)std::fputs(e.what(), stderr);
+        (void)std::fputc('\n', stderr);
+    } catch (...) {
+        (void)std::fputs("task completion callback failed\n", stderr);
+    }
+}
+
 template<typename T>
 class Task {
 public:
+    auto operator=(Task&&) -> Task& = delete;
     struct promise_type {
         std::optional<T> result;
         std::exception_ptr exception;
         std::function<void(T)> on_done;       // fire-and-forget completion
         std::coroutine_handle<> continuation; // parent when co_awaited
 
-        Task get_return_object() {
+        auto get_return_object() -> Task {
             return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
-        std::suspend_always initial_suspend() noexcept {
+        auto initial_suspend() noexcept -> std::suspend_always {
             return {};
         }
 
         struct Final {
-            bool await_ready() noexcept {
+            auto await_ready() noexcept -> bool {
                 return false;
             }
             void await_resume() noexcept {}
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+            auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<> {
                 auto& p = h.promise();
                 if (p.continuation) {
                     return p.continuation; // resume parent
                 }
                 // top-level: fire callback, self-destruct
                 if (p.on_done && p.result) {
-                    p.on_done(std::move(*p.result));
+                    run_callback([&] -> void { p.on_done(std::move(p.result).value()); });
                 }
                 h.destroy();
                 return std::noop_coroutine();
             }
         };
-        Final final_suspend() noexcept {
+        auto final_suspend() noexcept -> Final {
             return {};
         }
 
@@ -72,7 +88,7 @@ public:
         }
     }
     Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    auto operator=(const Task&) -> Task& = delete;
 
     // Fire-and-forget: attach callback, start coroutine, release ownership.
     // The coroutine self-destructs in Final::await_suspend when done.
@@ -82,18 +98,18 @@ public:
     }
 
     // Awaitable interface for co_await Task inside another coroutine
-    bool await_ready() const noexcept {
+    [[nodiscard]] auto await_ready() const noexcept -> bool {
         return false;
     }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> cont) noexcept {
+    auto await_suspend(std::coroutine_handle<> cont) noexcept -> std::coroutine_handle<> {
         h_.promise().continuation = cont;
         return h_; // symmetric transfer — don't release h_ (destructor cleans up)
     }
-    T await_resume() {
+    auto await_resume() -> T {
         if (h_.promise().exception) {
             std::rethrow_exception(h_.promise().exception);
         }
-        return std::move(*h_.promise().result);
+        return std::move(h_.promise().result).value();
     }
 
 private:
@@ -104,36 +120,37 @@ private:
 template<>
 class Task<void> {
 public:
+    auto operator=(Task&&) -> Task& = delete;
     struct promise_type {
         std::exception_ptr exception;
         std::function<void()> on_done;
         std::coroutine_handle<> continuation;
 
-        Task get_return_object() {
+        auto get_return_object() -> Task {
             return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
-        std::suspend_always initial_suspend() noexcept {
+        auto initial_suspend() noexcept -> std::suspend_always {
             return {};
         }
 
         struct Final {
-            bool await_ready() noexcept {
+            auto await_ready() noexcept -> bool {
                 return false;
             }
             void await_resume() noexcept {}
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
-                auto& p = h.promise();
+            auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<> {
+                const auto& p = h.promise();
                 if (p.continuation) {
                     return p.continuation;
                 }
                 if (p.on_done) {
-                    p.on_done();
+                    run_callback([&] -> void { p.on_done(); });
                 }
                 h.destroy();
                 return std::noop_coroutine();
             }
         };
-        Final final_suspend() noexcept {
+        auto final_suspend() noexcept -> Final {
             return {};
         }
 
@@ -153,17 +170,17 @@ public:
         }
     }
     Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    auto operator=(const Task&) -> Task& = delete;
 
     void start(std::function<void()> cb) && {
         h_.promise().on_done = std::move(cb);
         std::exchange(h_, {}).resume();
     }
 
-    bool await_ready() const noexcept {
+    [[nodiscard]] auto await_ready() const noexcept -> bool {
         return false;
     }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> cont) noexcept {
+    auto await_suspend(std::coroutine_handle<> cont) noexcept -> std::coroutine_handle<> {
         h_.promise().continuation = cont;
         return h_;
     }
@@ -188,12 +205,12 @@ class IOAwaitable {
 public:
     explicit IOAwaitable(F fn) : fn_(std::move(fn)) {}
 
-    bool await_ready() {
+    auto await_ready() -> bool {
         return false;
     }
 
     void await_suspend(std::coroutine_handle<> h) {
-        detail::io_submit([this, h]() mutable {
+        detail::io_submit([this, h] mutable -> auto {
             try {
                 if constexpr (std::is_void_v<R>) {
                     fn_();
@@ -207,12 +224,12 @@ public:
         });
     }
 
-    R await_resume() {
+    auto await_resume() -> R {
         if (exception_) {
             std::rethrow_exception(exception_);
         }
         if constexpr (!std::is_void_v<R>) {
-            return std::move(*result_);
+            return std::move(result_).value();
         }
     }
 

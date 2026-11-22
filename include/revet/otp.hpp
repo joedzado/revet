@@ -9,9 +9,8 @@
 //   if (throttle.locked(username)) return locked_page();
 //   ok ? throttle.reset(username) : throttle.fail(username);
 
-#include "crypto.hpp"
-#include "hash.hpp"
-
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -19,6 +18,9 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+
+#include "crypto.hpp"
+#include "hash.hpp"
 
 namespace web::otp {
 
@@ -57,11 +59,11 @@ inline auto base32_encode(std::string_view bytes) -> std::string {
         bits += 8;
         while (bits >= 5) {
             bits -= 5;
-            out += alphabet[(buffer >> static_cast<unsigned>(bits)) & 0x1FU];
+            out += alphabet.at((buffer >> static_cast<unsigned>(bits)) & 0x1FU);
         }
     }
     if (bits > 0) {
-        out += alphabet[(buffer << static_cast<unsigned>(5 - bits)) & 0x1FU];
+        out += alphabet.at((buffer << static_cast<unsigned>(5 - bits)) & 0x1FU);
     }
     return out;
 }
@@ -75,34 +77,32 @@ inline auto now_step(std::chrono::system_clock::time_point t = std::chrono::syst
 inline auto code(std::string_view secret, std::uint64_t counter) -> std::string {
     std::string message(8, '\0');
     for (int i = 7; i >= 0; --i) {
-        message[static_cast<std::size_t>(i)] = static_cast<char>(counter & 0xFFU);
+        message.at(static_cast<std::size_t>(i)) = static_cast<char>(counter & 0xFFU);
         counter >>= 8U;
     }
     const auto mac = hash::hmac_sha1(std::string(secret), message);
-    const std::size_t offset = mac[19] & 0x0FU;
-    const std::uint32_t value = ((static_cast<std::uint32_t>(mac[offset]) & 0x7FU) << 24U) |
-                                (static_cast<std::uint32_t>(mac[offset + 1]) << 16U) |
-                                (static_cast<std::uint32_t>(mac[offset + 2]) << 8U) |
-                                static_cast<std::uint32_t>(mac[offset + 3]);
+    const std::size_t offset = mac.at(19) & 0x0FU;
+    const std::uint32_t value = ((static_cast<std::uint32_t>(mac.at(offset)) & 0x7FU) << 24U) |
+                                (static_cast<std::uint32_t>(mac.at(offset + 1)) << 16U) |
+                                (static_cast<std::uint32_t>(mac.at(offset + 2)) << 8U) |
+                                static_cast<std::uint32_t>(mac.at(offset + 3));
     return std::format("{:06}", value % 1000000);
 }
 
 // The step `code` matches, allowing one step of clock drift either way; 0 if none.
-inline auto matching_step(std::string_view secret, std::string_view submitted, std::uint64_t now = now_step())
-    -> std::uint64_t {
-    for (const std::uint64_t step : {now - 1, now, now + 1}) {
-        if (crypto::secure_eq(code(secret, step), submitted)) {
-            return step;
-        }
-    }
-    return 0;
+inline auto matching_step(std::string_view secret, std::string_view submitted,
+                          std::uint64_t now = now_step()) -> std::uint64_t {
+    const auto steps = std::to_array<std::uint64_t>({now - 1, now, now + 1});
+    const auto* const match = std::ranges::find_if(
+        steps, [&](std::uint64_t step) -> bool { return crypto::secure_eq(code(secret, step), submitted); });
+    return match == steps.end() ? 0 : *match;
 }
 
 // Accepts each code once: a code seen at or before the last accepted step is refused.
 class ReplayGuard {
 public:
     auto verify(std::string_view secret, std::string_view submitted, std::uint64_t now = now_step()) -> bool {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         const auto step = matching_step(secret, submitted, now);
         if (step == 0 || step <= last_) {
             return false;
@@ -122,16 +122,16 @@ public:
     Throttle(int max_failures, std::chrono::seconds lockout) : max_(max_failures), lockout_(lockout) {}
 
     auto locked(const std::string& key) -> bool {
-        const std::lock_guard lock(mu_);
-        auto it = entries_.find(key);
+        const std::scoped_lock lock(mu_);
+        const auto it = entries_.find(key);
         return it != entries_.end() && it->second.until > std::chrono::steady_clock::now();
     }
     void fail(const std::string& key) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         // Keys can be attacker-chosen (usernames), so don't let the map grow without bound.
         if (entries_.size() >= 10000) {
             const auto now = std::chrono::steady_clock::now();
-            std::erase_if(entries_, [&](const auto& kv) { return kv.second.until <= now; });
+            std::erase_if(entries_, [&](const auto& kv) -> auto { return kv.second.until <= now; });
         }
         auto& e = entries_[key];
         if (++e.failures >= max_) {
@@ -140,14 +140,14 @@ public:
         }
     }
     void reset(const std::string& key) {
-        const std::lock_guard lock(mu_);
+        const std::scoped_lock lock(mu_);
         entries_.erase(key);
     }
 
 private:
     struct Entry {
         int failures = 0;
-        std::chrono::steady_clock::time_point until{};
+        std::chrono::steady_clock::time_point until;
     };
     std::mutex mu_;
     int max_;

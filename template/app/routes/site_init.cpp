@@ -1,13 +1,18 @@
-#include <revet/log.hpp>
-#include <revet/web.hpp>
-#include <revet/csrf.hpp>
 #include "resources.hpp"
+
 #include "queries.hpp"
 
-static const log::TuTag LOG(log::tags::APP);
+#include <revet/csrf.hpp>
+#include <revet/log.hpp>
+#include <revet/web.hpp>
 
+namespace {
+const log::TuTag LOG(log::tags::APP);
+} // namespace
+
+// Called by the framework before the server starts listening.
 void site_init() {
-    web::use([](const web::Request& req, const web::Next& next) {
+    web::use([](const web::Request& req, const web::Next& next) -> web::Response {
         log::info("{} {}", web::to_string(req.method), static_cast<std::string>(req.path));
         auto resp = next();
         log::info("  → {}", resp.status);

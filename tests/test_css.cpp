@@ -73,9 +73,9 @@ TEST_CASE("html_doc — injects styles", "[css]") {
     const html::css_class c{"color:red;"};
     const std::string out = html::html_doc{html::body{html::div{c, "hello"}}};
 
-    CHECK(out.find("<style>") != std::string::npos);
-    CHECK(out.find(".cw-") != std::string::npos);
-    CHECK(out.find("color:red;") != std::string::npos);
+    CHECK(out.contains("<style>"));
+    CHECK(out.contains(".cw-"));
+    CHECK(out.contains("color:red;"));
 }
 
 TEST_CASE("html_doc — multiple classes", "[css]") {
@@ -83,14 +83,14 @@ TEST_CASE("html_doc — multiple classes", "[css]") {
     const html::css_class c2{"font-weight:bold;"};
     const std::string out = html::html_doc{html::body{html::div{c1, c2, "hello"}}};
 
-    CHECK(out.find("color:red;") != std::string::npos);
-    CHECK(out.find("font-weight:bold;") != std::string::npos);
+    CHECK(out.contains("color:red;"));
+    CHECK(out.contains("font-weight:bold;"));
 }
 
 TEST_CASE("html_doc — pseudo selectors", "[css]") {
     const html::css_class c = html::css_class{"color:red;"}.hover(html::css_props{.color = "blue"});
     const std::string out = html::html_doc{html::body{html::div{c, "hello"}}};
 
-    CHECK(out.find(":hover") != std::string::npos);
-    CHECK(out.find("color:blue;") != std::string::npos);
+    CHECK(out.contains(":hover"));
+    CHECK(out.contains("color:blue;"));
 }

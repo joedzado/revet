@@ -29,20 +29,22 @@ struct DocumentImpl;
 class Value {
 public:
     Value(const Value& other);
-    Value& operator=(const Value& other);
+    auto operator=(const Value& other) -> Value&;
     Value(Value&& other) noexcept;
-    Value& operator=(Value&& other) noexcept;
+    auto operator=(Value&& other) noexcept -> Value&;
     ~Value();
 
     // Field access by key
-    Value at(std::string_view key);
+    auto at(std::string_view key) -> Value;
 
     // Array access by index
-    Value at(size_t index);
+    auto at(size_t index) -> Value;
 
     // Type conversions
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, json values convert to the type they are read into
     operator std::string();
     operator std::string_view();
+    // into
     operator int32_t();
     operator int64_t();
     operator uint32_t();
@@ -54,11 +56,12 @@ public:
     // Optional conversions
     template<typename T>
     operator std::optional<T>() {
+        // into
         try {
             if (is_null()) {
                 return std::nullopt;
             }
-            T val = static_cast<T>(*this);
+            auto val = static_cast<T>(*this);
             return std::optional<T>(val);
         } catch (...) {
             return std::nullopt;
@@ -68,18 +71,20 @@ public:
     // Array conversion
     template<typename T>
     operator std::vector<T>() {
+        // NOLINTEND(*-explicit-constructor)
+        // into
         std::vector<T> result;
         auto elems = get_array_elements();
-        std::ranges::transform(elems, std::back_inserter(result), [](auto& e) { return static_cast<T>(e); });
+        std::ranges::transform(elems, std::back_inserter(result), [](auto& e) -> auto { return static_cast<T>(e); });
         return result;
     }
 
     // Check if field exists
-    bool has(std::string_view key);
+    auto has(std::string_view key) -> bool;
 
     // The field converted to T, or `fallback` if it is missing, null, or the wrong type.
     template<typename T>
-    T get(std::string_view key, T fallback = T{}) {
+    auto get(std::string_view key, T fallback = T{}) -> T {
         try {
             if (!has(key)) {
                 return fallback;
@@ -93,12 +98,12 @@ public:
             return fallback;
         }
     }
-    std::string get(std::string_view key, const char* fallback) {
+    auto get(std::string_view key, const char* fallback) -> std::string {
         return get<std::string>(key, std::string(fallback));
     }
 
     // Check if null
-    bool is_null();
+    auto is_null() -> bool;
 
 private:
     friend class Document;
@@ -107,7 +112,7 @@ private:
 
     explicit Value(std::shared_ptr<simdjson_types::ValueImpl> impl);
 
-    std::vector<Value> get_array_elements();
+    auto get_array_elements() -> std::vector<Value>;
 };
 
 // Parse JSON string — move-only (not copyable; the underlying parser is uniquely owned)
@@ -116,14 +121,14 @@ public:
     explicit Document(std::string_view json_str);
     ~Document();
     Document(Document&&) noexcept = default;
-    Document& operator=(Document&&) noexcept = default;
+    auto operator=(Document&&) noexcept -> Document& = default;
     Document(const Document&) = delete;
-    Document& operator=(const Document&) = delete;
+    auto operator=(const Document&) -> Document& = delete;
 
-    Value root();
+    auto root() -> Value;
 
-    Value at(std::string_view key);
-    Value operator[](std::string_view key);
+    auto at(std::string_view key) -> Value;
+    auto operator[](std::string_view key) -> Value;
 
 private:
     std::unique_ptr<simdjson_types::DocumentImpl> impl_;

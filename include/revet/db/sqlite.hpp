@@ -5,9 +5,9 @@
 #ifdef REVET_DB_SQLITE
 #include <algorithm>
 #include <chrono>
-#include <filesystem>
 #include <condition_variable>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <functional>
 #include <mutex>
@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "../c_api.hpp"
 #include "common.hpp"
 
 namespace db::sqlite {
@@ -36,7 +37,10 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
     using U = std::remove_cvref_t<T>;
     if constexpr (std::is_same_v<U, std::nullopt_t>) {
         sqlite3_bind_null(stmt, idx);
-    } else if constexpr (requires { arg.has_value(); *arg; }) {
+    } else if constexpr (requires {
+                             arg.has_value();
+                             *arg;
+                         }) {
         if (arg) {
             bind_arg(stmt, idx, *arg);
         } else {
@@ -56,7 +60,8 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
         const std::string s = arg.to_string(); // revet::Decimal and similar
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     } else {
-        std::string s{std::forward<T>(arg)};
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+        const std::string s{std::forward<T>(arg)};
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     }
 }
@@ -74,6 +79,8 @@ inline void on_open(std::function<void(sqlite3*)> hook) {
 
 class Pool {
 public:
+    Pool(Pool&&) = delete;
+    auto operator=(Pool&&) -> Pool& = delete;
     Pool(std::string_view path, int size) {
         conns_.reserve(size);
         std::string path_str(path); // Convert to null-terminated string
@@ -84,12 +91,12 @@ public:
             }
             path_str = value;
         }
-        std::generate_n(std::back_inserter(conns_), size, [&] {
+        std::generate_n(std::back_inserter(conns_), size, [&] -> sqlite3* {
             sqlite3* c = nullptr;
             int rc = sqlite3_open_v2(path_str.c_str(), &c, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
             if (rc != SQLITE_OK) {
                 const char* errmsg = c ? sqlite3_errmsg(c) : "unknown";
-                std::string full_error =
+                const std::string full_error =
                     std::format("db::sqlite: cannot open {} (errno={}, msg={})", path_str, rc, errmsg);
                 if (c) {
                     sqlite3_close(c);
@@ -99,7 +106,8 @@ public:
             // Readers keep working during a write, a busy database waits rather than
             // failing at once, and foreign keys are off unless asked for.
             sqlite3_busy_timeout(c, 5000);
-            sqlite3_exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
+            sqlite3_exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;", nullptr,
+                         nullptr, nullptr);
             for (const auto& hook : connection_hooks()) {
                 hook(c);
             }
@@ -107,28 +115,26 @@ public:
         });
     }
     ~Pool() {
-        for (auto c : conns_) {
-            sqlite3_close(c);
-        }
+        std::ranges::for_each(conns_, sqlite3_close);
     }
     Pool(const Pool&) = delete;
-    Pool& operator=(const Pool&) = delete;
+    auto operator=(const Pool&) -> Pool& = delete;
 
-    sqlite3* acquire() {
+    auto acquire() -> sqlite3* {
         std::unique_lock lock(mu_);
-        cv_.wait(lock, [&] { return !conns_.empty(); });
-        const auto c = conns_.back();
+        cv_.wait(lock, [&] -> bool { return !conns_.empty(); });
+        auto* const c = conns_.back();
         conns_.pop_back();
         return c;
     }
     void release(sqlite3* c) {
         {
-            std::lock_guard lock(mu_);
+            const std::scoped_lock lock(mu_);
             conns_.push_back(c);
         }
         cv_.notify_one();
     }
-    std::mutex& write_mutex() {
+    auto write_mutex() -> std::mutex& {
         return write_mu_;
     }
 
@@ -144,22 +150,25 @@ private:
 template<typename Intent = Read>
 class Handle {
 public:
-    Handle(Pool& pool) : pool_(pool), conn_(pool.acquire()) {
+    Handle(Handle&&) = delete;
+    auto operator=(Handle&&) -> Handle& = delete;
+    explicit Handle(Pool& pool) : pool_(pool), conn_(pool.acquire()) {
         if constexpr (std::is_same_v<Intent, Write>) {
             write_lock_.emplace(pool.write_mutex());
         }
     }
+    // NOLINTNEXTLINE(bugprone-exception-escape): release() only push_backs into capacity reserved for every connection
     ~Handle() {
         pool_.release(conn_);
     }
     Handle(const Handle&) = delete;
-    Handle& operator=(const Handle&) = delete;
+    auto operator=(const Handle&) -> Handle& = delete;
 
     // Read — always available
-    Result query(std::string_view sql) {
+    auto query(std::string_view sql) -> Result {
         return const_cast<const Handle*>(this)->query(sql);
     }
-    Result query(std::string_view sql) const {
+    [[nodiscard]] auto query(std::string_view sql) const -> Result {
         Result result;
         char* err = nullptr;
         // string_view does not guarantee a terminating NUL.
@@ -168,16 +177,15 @@ public:
             conn_, text.c_str(),
             [](void* data, int cols, char** vals, char**) -> int {
                 auto& res = *static_cast<Result*>(data);
-                Row row;
-                for (auto i : std::views::iota(0, cols)) {
-                    row.emplace_back(vals[i] ? vals[i] : "");
-                }
-                res.push_back(std::move(row));
+                res.push_back(
+                    std::span(vals, static_cast<size_t>(cols)) |
+                    std::views::transform([](const char* v) -> std::string { return v != nullptr ? v : ""; }) |
+                    std::ranges::to<Row>());
                 return 0;
             },
             &result, &err);
-        if (err) {
-            std::string msg(err);
+        if (err != nullptr) {
+            const std::string msg(err);
             sqlite3_free(err);
             throw std::runtime_error(msg);
         }
@@ -185,17 +193,17 @@ public:
     }
 
     template<typename... Args>
-    Result query(std::string_view sql, Args&&... args) {
+    auto query(std::string_view sql, Args&&... args) -> Result {
         return const_cast<const Handle*>(this)->query(sql, std::forward<Args>(args)...);
     }
     template<typename... Args>
-    Result query(std::string_view sql, Args&&... args) const {
+    [[nodiscard]] [[nodiscard]] auto query(std::string_view sql, Args&&... args) const -> Result {
         return run<Row>(sql, std::forward<Args>(args)...);
     }
 
     // As query, but a NULL column is std::nullopt rather than an empty string.
     template<typename... Args>
-    NullableResult query_nullable(std::string_view sql, Args&&... args) const {
+    [[nodiscard]] auto query_nullable(std::string_view sql, Args&&... args) const -> NullableResult {
         return run<NullableRow>(sql, std::forward<Args>(args)...);
     }
 
@@ -210,10 +218,10 @@ public:
     template<typename T, typename... Args>
     auto scalar(std::string_view sql, Args&&... args) -> std::optional<T> {
         auto raw = query_nullable(sql, std::forward<Args>(args)...);
-        if (raw.empty() || raw[0].empty() || !raw[0][0]) {
+        if (raw.empty() || raw.at(0).empty() || !raw.at(0).at(0)) {
             return std::nullopt;
         }
-        return db::detail::convert<T>(raw[0][0], 0);
+        return db::detail::convert<T>(raw.at(0).at(0), 0);
     }
 
     // Write — only available on Handle<Write>
@@ -224,20 +232,28 @@ public:
         query(sql, std::forward<Args>(args)...);
     }
 
+    // Runs a statement without parameters and reports failure instead of throwing; for cleanup paths.
+    auto try_exec(const char* sql) noexcept -> bool
+        requires std::is_same_v<Intent, Write>
+    {
+        return sqlite3_exec(conn_, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+    }
+
     // Async variants — run on the I/O pool, free the calling coroutine
+    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward): args are forwarded into the captured tuple
     template<typename... Args>
     auto async_query(std::string_view sql, Args&&... args) const {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() {
-                return std::apply([&](const auto&... a) { return query(s, a...); }, t);
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
+                return std::apply([&](const auto&... a) -> auto { return query(s, a...); }, t);
             });
     }
 
     template<typename... Args>
     auto async_query_nullable(std::string_view sql, Args&&... args) const {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() {
-                return std::apply([&](const auto&... a) { return query_nullable(s, a...); }, t);
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
+                return std::apply([&](const auto&... a) -> auto { return query_nullable(s, a...); }, t);
             });
     }
 
@@ -246,10 +262,11 @@ public:
         requires std::is_same_v<Intent, Write>
     {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() {
-                std::apply([&](const auto&... a) { exec(s, a...); }, t);
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
+                std::apply([&](const auto&... a) -> auto { exec(s, a...); }, t);
             });
     }
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
 
     // For a loadable extension or a custom function on this connection.
     [[nodiscard]] auto native() const -> sqlite3* {
@@ -258,14 +275,14 @@ public:
 
 private:
     template<typename RowT, typename... Args>
-    std::vector<RowT> run(std::string_view sql, Args&&... args) const {
+    [[nodiscard]] auto run(std::string_view sql, Args&&... args) const -> std::vector<RowT> {
         sqlite3_stmt* stmt = nullptr;
         // Passing the length: string_view does not guarantee a terminating NUL.
         if (sqlite3_prepare_v2(conn_, sql.data(), static_cast<int>(sql.size()), &stmt, nullptr) != SQLITE_OK) {
-            std::string err = sqlite3_errmsg(conn_);
+            const std::string err = sqlite3_errmsg(conn_);
             throw std::runtime_error("db::sqlite: prepare failed: " + err + " (SQL: " + std::string(sql) + ")");
         }
-        int idx = 1;
+        int idx = 1; // NOLINT(misc-const-correctness): incremented by the pack expansion
         (bind_arg(stmt, idx++, std::forward<Args>(args)), ...);
         const int cols = sqlite3_column_count(stmt);
         std::vector<RowT> result;
@@ -273,8 +290,8 @@ private:
         while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
             RowT row;
             row.reserve(static_cast<size_t>(cols));
-            for (auto i : std::views::iota(0, cols)) {
-                const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+            for (const auto i : std::views::iota(0, cols)) {
+                const auto* txt = web::c_api::c_str(sqlite3_column_text(stmt, i));
                 if constexpr (std::is_same_v<RowT, NullableRow>) {
                     row.emplace_back(txt ? std::optional<std::string>(txt) : std::nullopt);
                 } else {
@@ -287,7 +304,7 @@ private:
             // Don't surface errmsg before finalize — errmsg is a pointer to
             // memory owned by the connection and finalize may invalidate it
             // on some sqlite builds. Snapshot the message first.
-            std::string err = sqlite3_errmsg(conn_);
+            const std::string err = sqlite3_errmsg(conn_);
             sqlite3_finalize(stmt);
             throw std::runtime_error("db::sqlite: step failed: " + err + " (SQL: " + std::string(sql) + ")");
         }
@@ -306,20 +323,19 @@ private:
 // IMMEDIATE takes the write lock now, so a read inside can't fail upgrading later.
 class Transaction {
 public:
+    Transaction(Transaction&&) = delete;
+    auto operator=(Transaction&&) -> Transaction& = delete;
     explicit Transaction(Handle<Write>& handle) : handle_(handle) {
         handle_.exec("BEGIN IMMEDIATE");
     }
     ~Transaction() {
         if (open_) {
-            try {
-                handle_.exec("ROLLBACK");
-            } catch (...) {
-                // SQLite may have rolled back already, on a full disk for example.
-            }
+            // A failed ROLLBACK means SQLite rolled back already (a full disk, say); nothing is left to undo.
+            (void)handle_.try_exec("ROLLBACK");
         }
     }
     Transaction(const Transaction&) = delete;
-    Transaction& operator=(const Transaction&) = delete;
+    auto operator=(const Transaction&) -> Transaction& = delete;
 
     void commit() {
         handle_.exec("COMMIT");
@@ -334,7 +350,7 @@ private:
 // ── Backup ────────────────────────────────────────────────────────────────────
 
 struct BackupOptions {
-    std::filesystem::path dir;    // created if missing
+    std::filesystem::path dir;     // created if missing
     std::string prefix = "backup"; // files are <prefix>-<stamp>.db
     std::size_t keep = 14;         // newest N with this prefix are kept, older ones deleted
     bool daily = true;             // stamp is the UTC date, and an existing file for today means no new copy
@@ -348,7 +364,7 @@ auto backup(Handle<Intent>& h, const BackupOptions& o) -> std::optional<std::fil
     fs::create_directories(o.dir);
     const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
     const std::string stamp = o.daily ? std::format("{:%Y-%m-%d}", now) : std::format("{:%Y%m%d-%H%M%S}", now);
-    const fs::path file = o.dir / std::format("{}-{}.db", o.prefix, stamp);
+    fs::path file = o.dir / std::format("{}-{}.db", o.prefix, stamp);
     if (fs::exists(file)) {
         if (o.daily) {
             return std::nullopt;
@@ -357,17 +373,15 @@ auto backup(Handle<Intent>& h, const BackupOptions& o) -> std::optional<std::fil
     }
     h.query("VACUUM INTO ?", file.string());
     fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write);
-    std::vector<fs::path> kept;
-    for (const auto& e : fs::directory_iterator(o.dir)) {
-        const auto name = e.path().filename().string();
-        if (e.path().extension() == ".db" && name.starts_with(o.prefix + "-")) {
-            kept.push_back(e.path());
-        }
-    }
+    auto kept = fs::directory_iterator(o.dir) | std::views::filter([&](const fs::directory_entry& e) -> bool {
+                    return e.path().extension() == ".db" && e.path().filename().string().starts_with(o.prefix + "-");
+                }) |
+                std::views::transform([](const fs::directory_entry& e) -> fs::path { return e.path(); }) |
+                std::ranges::to<std::vector<fs::path>>();
     std::ranges::sort(kept); // stamps sort by time
-    for (std::size_t i = 0; i + o.keep < kept.size(); ++i) {
-        fs::remove(kept[i]);
-    }
+    // All but the newest o.keep.
+    const auto stale = kept.size() > o.keep ? kept.size() - o.keep : 0;
+    std::ranges::for_each(kept | std::views::take(stale), [](const fs::path& p) -> void { fs::remove(p); });
     return file;
 }
 

@@ -2,6 +2,7 @@
 
 #include "web.hpp"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -14,11 +15,11 @@ static constexpr std::string_view k_cookie_name = "_csrf";
 static constexpr std::string_view k_header_name = "x-csrf-token";
 
 inline auto generate_token() -> std::string {
-    unsigned char buf[32];
-    randombytes_buf(buf, sizeof(buf));
-    std::vector<char> hex(sizeof(buf) * 2 + 1);
-    sodium_bin2hex(hex.data(), hex.size(), buf, sizeof(buf));
-    return std::string(hex.data());
+    std::array<unsigned char, 32> buf{};
+    randombytes_buf(buf.data(), buf.size());
+    std::vector<char> hex((buf.size() * 2) + 1);
+    sodium_bin2hex(hex.data(), hex.size(), buf.data(), buf.size());
+    return {hex.data()};
 }
 
 struct CsrfToken {
@@ -56,7 +57,7 @@ inline auto htmx_headers(const Request& req) -> html::Node {
     if (tok.empty()) {
         return html::Node{};
     }
-    return html::attr("hx-headers", std::format("{{\"{}\":\"{}\"}}", k_header_name, tok));
+    return html::attr("hx-headers", std::format(R"({{"{}":"{}"}})", k_header_name, tok));
 }
 
 // Recover the plaintext CSRF token from an encrypted cookie value. Returns
@@ -65,7 +66,9 @@ inline auto htmx_headers(const Request& req) -> html::Node {
 // cookie. The decryption is AEAD (XChaCha20-Poly1305) so tampering also
 // fails closed.
 inline auto unseal_cookie(std::string_view sealed) -> std::string {
-    if (sealed.empty()) return "";
+    if (sealed.empty()) {
+        return "";
+    }
     return web::crypto::decrypt(sealed);
 }
 
@@ -80,9 +83,9 @@ inline auto unseal_cookie(std::string_view sealed) -> std::string {
 //   - Tampering with the cookie ciphertext fails AEAD verification → 403.
 //   - The compare against the form/header is constant-time.
 inline auto middleware(const Request& req, const Next& next) -> Response {
-    const std::string sealed_in   = req.cookies.get(k_cookie_name);
-    std::string       raw_token   = unseal_cookie(sealed_in);
-    const bool        need_rotate = raw_token.empty();
+    const std::string sealed_in = req.cookies.get(k_cookie_name);
+    std::string raw_token = unseal_cookie(sealed_in);
+    const bool need_rotate = raw_token.empty();
 
     if (need_rotate) {
         raw_token = generate_token();
@@ -91,11 +94,11 @@ inline auto middleware(const Request& req, const Next& next) -> Response {
     // Store the *raw* token in context — that's what gets rendered into
     // forms and request headers.
     auto& ctx = Context::current();
-    ctx.states[typeid(CsrfToken)] = CsrfToken{raw_token};
+    ctx.states[typeid(CsrfToken)] = CsrfToken{.value = raw_token};
 
     // Validate for state-changing methods.
-    if (req.method == Method::POST || req.method == Method::PUT ||
-        req.method == Method::PATCH || req.method == Method::DEL) {
+    if (req.method == Method::POST || req.method == Method::PUT || req.method == Method::PATCH ||
+        req.method == Method::DEL) {
         std::string provided = req.form.get(k_field_name);
         if (provided.empty()) {
             provided = req.headers.get(k_header_name);
@@ -107,8 +110,7 @@ inline auto middleware(const Request& req, const Next& next) -> Response {
         //     so this is always a forgery.
         //  2. Provided token doesn't equal the unsealed raw token,
         //     constant-time compared.
-        if (need_rotate || provided.empty() ||
-            !web::crypto::secure_eq(provided, raw_token)) {
+        if (need_rotate || provided.empty() || !web::crypto::secure_eq(provided, raw_token)) {
             log::warn("CSRF: token mismatch for {}", std::string(req.path));
             Response resp = to_response(std::string(status::forbidden.text));
             resp.status = status::forbidden;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <expected>
 #include <format>
 #include <revet/ctre.hpp>
@@ -13,12 +14,15 @@ namespace validate {
 
 template<std::size_t N>
 struct msg_str {
-    char data[N]{};
-    constexpr msg_str(const char (&s)[N]) {
-        std::copy_n(s, N, data);
+    std::array<char, N> data{};
+    // A string literal binds only to a C array reference.
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, messages are template arguments and text
+    constexpr msg_str(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
+        std::ranges::copy(s, data.begin());
     }
     constexpr operator std::string_view() const {
-        return {data, N - 1};
+        // NOLINTEND(*-explicit-constructor)
+        return {data.data(), N - 1};
     }
 };
 
@@ -34,10 +38,10 @@ using Result = std::expected<void, std::vector<Error>>;
 // ── Rules ─────────────────────────────────────────────────────────────────────
 
 struct required_t {
-    static constexpr bool check(std::string_view val) {
+    static constexpr auto check(std::string_view val) -> bool {
         return !val.empty();
     }
-    static std::string msg() {
+    static auto msg() -> std::string { // NOLINT(modernize-use-string-view): same type as the other rules
         return "required";
     }
 };
@@ -45,10 +49,10 @@ inline constexpr required_t required;
 
 template<std::size_t N>
 struct min_len_t {
-    static constexpr bool check(std::string_view val) {
+    static constexpr auto check(std::string_view val) -> bool {
         return val.size() >= N;
     }
-    static std::string msg() {
+    static auto msg() -> std::string {
         return std::format("min length {}", N);
     }
 };
@@ -57,10 +61,10 @@ inline constexpr min_len_t<N> min_len;
 
 template<std::size_t N>
 struct max_len_t {
-    static constexpr bool check(std::string_view val) {
+    static constexpr auto check(std::string_view val) -> bool {
         return val.size() <= N;
     }
-    static std::string msg() {
+    static auto msg() -> std::string {
         return std::format("max length {}", N);
     }
 };
@@ -69,10 +73,10 @@ inline constexpr max_len_t<N> max_len;
 
 template<ctll::fixed_string Pattern, msg_str Msg = "invalid format">
 struct regex_t {
-    static bool check(std::string_view val) {
+    static auto check(std::string_view val) -> bool {
         return static_cast<bool>(ctre::match<Pattern>(val));
     }
-    static std::string msg() {
+    static auto msg() -> std::string {
         return std::string(std::string_view(Msg));
     }
 };
@@ -86,10 +90,10 @@ struct Field {
     std::string_view name;
     std::tuple<Rules...> rules;
 
-    constexpr Field(std::string_view n, Rules... rs) : name(n), rules(rs...) {}
+    explicit constexpr Field(std::string_view n, Rules... rs) : name(n), rules(rs...) {}
 
     void validate(std::string_view val, std::vector<Error>& out) const {
-        std::apply([&val, &out, this](const auto&... rule) { (check_rule(rule, val, out), ...); }, rules);
+        std::apply([&val, &out, this](const auto&... rule) -> auto { (check_rule(rule, val, out), ...); }, rules);
     }
 
 private:
@@ -125,7 +129,7 @@ constexpr auto schema(Fields... fs) {
 template<typename... Fields>
 auto check(const web::ParamMap& data, const Schema<Fields...>& s) -> Result {
     std::vector<Error> errs;
-    std::apply([&](const auto&... f) { (f.validate(data.get(f.name), errs), ...); }, s.fields);
+    std::apply([&](const auto&... f) -> auto { (f.validate(data.get(f.name), errs), ...); }, s.fields);
     if (errs.empty()) {
         return {};
     }

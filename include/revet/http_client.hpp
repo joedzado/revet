@@ -18,8 +18,12 @@ struct Response {
 
     // True iff the response is a successful HTTP 2xx. Transport failures
     // (status_code == 0) and 4xx/5xx are false.
-    bool ok() const { return status_code >= 200 && status_code < 300; }
-    explicit operator bool() const { return ok(); }
+    [[nodiscard]] auto ok() const -> bool {
+        return status_code >= 200 && status_code < 300;
+    }
+    explicit operator bool() const {
+        return ok();
+    }
 };
 
 // Thrown by generated API client functions (apis.hpp) on non-2xx responses
@@ -27,12 +31,9 @@ struct Response {
 class Error : public std::runtime_error {
 public:
     Error(int status, std::string body)
-        : std::runtime_error(
-              status == 0
-                  ? ("http transport error: " + body)
-                  : ("http error " + std::to_string(status) + ": " + body)),
-          status_code(status),
-          body(std::move(body)) {}
+        : std::runtime_error(status == 0 ? ("http transport error: " + body)
+                                         : ("http error " + std::to_string(status) + ": " + body)),
+          status_code(status), body(std::move(body)) {}
 
     int status_code;
     std::string body;
@@ -41,14 +42,16 @@ public:
 // Abstract HTTP client interface
 class Client {
 public:
+    Client(Client&&) = delete;
+    auto operator=(Client&&) -> Client& = delete;
     Client() = default;
     virtual ~Client() = default;
 
     Client(const Client&) = delete;
-    Client& operator=(const Client&) = delete;
+    auto operator=(const Client&) -> Client& = delete;
 
-    virtual Response execute(const std::string& method, const std::string& url,
-                             const std::map<std::string, std::string>& headers, const std::string& body) = 0;
+    virtual auto execute(const std::string& method, const std::string& url,
+                         const std::map<std::string, std::string>& headers, const std::string& body) -> Response = 0;
 };
 
 // Production HTTP client using libcurl
@@ -62,8 +65,8 @@ public:
     CurlClient() = default;
     explicit CurlClient(Options options) : options_(options) {}
 
-    Response execute(const std::string& method, const std::string& url,
-                     const std::map<std::string, std::string>& headers, const std::string& body) override;
+    auto execute(const std::string& method, const std::string& url, const std::map<std::string, std::string>& headers,
+                 const std::string& body) -> Response override;
 
 private:
     Options options_;
@@ -84,12 +87,12 @@ public:
     }
 
     // Get call history for assertions
-    const auto& history() const {
+    [[nodiscard]] auto history() const -> const auto& {
         return call_history_;
     }
 
-    Response execute(const std::string& method, const std::string& url,
-                     const std::map<std::string, std::string>& headers, const std::string& body) override;
+    auto execute(const std::string& method, const std::string& url, const std::map<std::string, std::string>& headers,
+                 const std::string& body) -> Response override;
 
 private:
     struct Call {
@@ -105,7 +108,7 @@ private:
 
 // Global client management
 namespace global {
-Client& default_client();
+auto default_client() -> Client&;
 void set_client(std::shared_ptr<Client> client);
 } // namespace global
 

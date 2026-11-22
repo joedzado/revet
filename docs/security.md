@@ -22,8 +22,6 @@ Before pointing real traffic at a revet app, verify every item below.
 ```bash
 openssl rand -hex 32
 # or
-python3 -c 'import secrets; print(secrets.token_hex(32))'
-# or
 hexdump -n 32 -v -e '/1 "%02x"' /dev/urandom
 ```
 
@@ -45,7 +43,7 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 |---|---|---|
 | CSRF | yes | AEAD-sealed cookie + raw token in form/header. Defeats subdomain cookie injection. |
 | XSS via HTML DSL | yes | All text rendered via `html::*` is HTML-escaped by default. Use `html::raw(...)` only for trusted strings. |
-| SQL injection | yes | Generated queries (`gen_queries.py`) emit parameterized SQL exclusively. `db::sqlite::Handle::query/exec` only takes bound params. |
+| SQL injection | yes | Generated queries (`gen_queries`) emit parameterized SQL exclusively. `db::sqlite::Handle::query/exec` only takes bound params. |
 | Timing oracles on token compare | yes | `web::crypto::secure_eq` uses `sodium_memcmp`. CSRF + `bearer_static` use it. Custom auth must too. |
 | Cookie tampering | yes | State cookies and CSRF cookie are AEAD-sealed; tampering fails verification. |
 | Cookie theft via plain HTTP | opt-in | Enable via `secure_cookies(true)`. Off by default for dev. |

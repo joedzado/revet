@@ -95,10 +95,10 @@ TEST_CASE("HTMX attributes in form element", "[htmx]") {
         std::string(html::form{htmx::attr::get("/search"), htmx::attr::target("#results"),
                                htmx::attr::swap("outerHTML"), htmx::attr::trigger("keyup changed delay:500ms"),
                                html::input{html::attr("type", "text"), html::attr("name", "q")}});
-    CHECK(s.find("hx-get=\"/search\"") != std::string::npos);
-    CHECK(s.find("hx-target=\"#results\"") != std::string::npos);
-    CHECK(s.find("hx-swap=\"outerHTML\"") != std::string::npos);
-    CHECK(s.find("hx-trigger=\"keyup changed delay:500ms\"") != std::string::npos);
+    CHECK(s.contains("hx-get=\"/search\""));
+    CHECK(s.contains("hx-target=\"#results\""));
+    CHECK(s.contains("hx-swap=\"outerHTML\""));
+    CHECK(s.contains("hx-trigger=\"keyup changed delay:500ms\""));
 }
 
 TEST_CASE("HTMX attributes with HTML escaping", "[htmx]") {
@@ -115,7 +115,7 @@ TEST_CASE("htmx::is_request — detects HTMX request", "[htmx]") {
 }
 
 TEST_CASE("htmx::is_request — returns false for non-HTMX request", "[htmx]") {
-    web::Request req;
+    const web::Request req;
     CHECK(htmx::is_request(req) == false);
 }
 
@@ -126,8 +126,8 @@ TEST_CASE("htmx::get_target — reads HX-Target header", "[htmx]") {
 }
 
 TEST_CASE("htmx::get_target — returns empty string if missing", "[htmx]") {
-    web::Request req;
-    CHECK(htmx::get_target(req) == "");
+    const web::Request req;
+    CHECK(htmx::get_target(req).empty());
 }
 
 TEST_CASE("htmx::get_trigger — reads HX-Trigger header", "[htmx]") {
@@ -216,82 +216,82 @@ TEST_CASE("HTMX response helpers are chainable", "[htmx]") {
 TEST_CASE("htmx::js::increment<int> — calls revet.opt.incrInt", "[htmx][optimistic]") {
     static constexpr html::typed_id<int> k{"count"};
     const auto n = htmx::optimistic(k, +1);
-    CHECK(n.str.find("revet.opt.incrInt") != std::string::npos);
-    CHECK(n.str.find("count") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.incrInt"));
+    CHECK(n.str.contains("count"));
 }
 
 TEST_CASE("htmx::js::decrement<int> — calls revet.opt.decrInt", "[htmx][optimistic]") {
     static constexpr html::typed_id<int> k{"count"};
     const auto n = htmx::optimistic(k, -1);
-    CHECK(n.str.find("revet.opt.decrInt") != std::string::npos);
-    CHECK(n.str.find("count") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.decrInt"));
+    CHECK(n.str.contains("count"));
 }
 
 TEST_CASE("htmx::js::increment<double> — calls revet.opt.incrFloat", "[htmx][optimistic]") {
     static constexpr html::typed_id<double> k{"price"};
     const auto n = htmx::optimistic(k, +0.5);
-    CHECK(n.str.find("revet.opt.incrFloat") != std::string::npos);
-    CHECK(n.str.find("price") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.incrFloat"));
+    CHECK(n.str.contains("price"));
 }
 
 TEST_CASE("htmx::js::decrement<double> — calls revet.opt.decrFloat", "[htmx][optimistic]") {
     static constexpr html::typed_id<double> k{"price"};
     const auto n = htmx::optimistic(k, -0.5);
-    CHECK(n.str.find("revet.opt.decrFloat") != std::string::npos);
-    CHECK(n.str.find("price") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.decrFloat"));
+    CHECK(n.str.contains("price"));
 }
 
 TEST_CASE("htmx::optimistic delta=0 — routes to increment", "[htmx][optimistic]") {
     static constexpr html::typed_id<int> k{"val"};
     const auto n = htmx::optimistic(k, 0);
-    CHECK(n.str.find("revet.opt.incrInt") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.incrInt"));
 }
 
 TEST_CASE("htmx::optimistic typed_id<bool> — calls revet.opt.toggleClass", "[htmx][optimistic]") {
     static constexpr html::typed_id<bool> k{"like-btn", "active"};
     const auto n = htmx::optimistic(k);
-    CHECK(n.str.find("revet.opt.toggleClass") != std::string::npos);
-    CHECK(n.str.find("active") != std::string::npos);
-    CHECK(n.str.find("like-btn") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.toggleClass"));
+    CHECK(n.str.contains("active"));
+    CHECK(n.str.contains("like-btn"));
 }
 
 TEST_CASE("htmx::optimistic JsMappable custom op", "[htmx][optimistic]") {
     struct Clamp {
         int max;
-        auto to_js(std::string_view id) const -> std::string {
+        [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
             return std::format("revet.opt.clamp('{}',{})", id, max);
         }
     };
     static constexpr html::typed_id<int> k{"score"};
     const auto n = htmx::optimistic(k, Clamp{.max = 100});
-    CHECK(n.str.find("revet.opt.clamp") != std::string::npos);
-    CHECK(n.str.find("score") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.clamp"));
+    CHECK(n.str.contains("score"));
 }
 
 TEST_CASE("htmx::optimistic untyped fallback — binds element to e", "[htmx][optimistic]") {
     static constexpr html::id k{"my-el"};
     const auto n = htmx::optimistic(k, "e.classList.toggle('active')");
-    CHECK(n.str.find("getElementById") != std::string::npos);
-    CHECK(n.str.find("my-el") != std::string::npos);
-    CHECK(n.str.find("classList.toggle") != std::string::npos);
+    CHECK(n.str.contains("getElementById"));
+    CHECK(n.str.contains("my-el"));
+    CHECK(n.str.contains("classList.toggle"));
 }
 
 TEST_CASE("htmx::optimistic — emits hx-on:htmx:before-request attribute", "[htmx][optimistic]") {
     static constexpr html::typed_id<int> k{"counter"};
     const auto n = htmx::optimistic(k, +1);
-    CHECK(n.str.find("hx-on:htmx:before-request") != std::string::npos);
+    CHECK(n.str.contains("hx-on:htmx:before-request"));
 }
 
 TEST_CASE("htmx::js::set_text — calls revet.opt.setText", "[htmx][optimistic]") {
-    const auto s = htmx::js::set_text{"done"}.to_js("status");
-    CHECK(s.find("revet.opt.setText") != std::string::npos);
-    CHECK(s.find("status") != std::string::npos);
-    CHECK(s.find("done") != std::string::npos);
+    const auto s = htmx::js::set_text{.value = "done"}.to_js("status");
+    CHECK(s.contains("revet.opt.setText"));
+    CHECK(s.contains("status"));
+    CHECK(s.contains("done"));
 }
 
 TEST_CASE("htmx::js::add_class / remove_class — call revet.opt.*", "[htmx][optimistic]") {
-    CHECK(htmx::js::add_class{"hidden"}.to_js("el").find("revet.opt.addClass") != std::string::npos);
-    CHECK(htmx::js::remove_class{"hidden"}.to_js("el").find("revet.opt.removeClass") != std::string::npos);
+    CHECK(htmx::js::add_class{"hidden"}.to_js("el").contains("revet.opt.addClass"));
+    CHECK(htmx::js::remove_class{"hidden"}.to_js("el").contains("revet.opt.removeClass"));
 }
 
 // ── Rollback Tests ────────────────────────────────────────────────────────
@@ -299,62 +299,62 @@ TEST_CASE("htmx::js::add_class / remove_class — call revet.opt.*", "[htmx][opt
 TEST_CASE("htmx::optimistic scalar — emits send-error rollback", "[htmx][rollback]") {
     static constexpr html::typed_id<int> k{"score"};
     const auto n = htmx::optimistic(k, +1);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
-    CHECK(n.str.find("revet.opt.restoreText") != std::string::npos);
+    CHECK(n.str.contains("htmx:send-error"));
+    CHECK(n.str.contains("revet.opt.restoreText"));
 }
 
 TEST_CASE("htmx::optimistic scalar — rollback calls restoreText", "[htmx][rollback]") {
     static constexpr html::typed_id<int> k{"score"};
     const auto n = htmx::optimistic(k, +1);
-    CHECK(n.str.find("revet.opt.incrInt") != std::string::npos);
-    CHECK(n.str.find("revet.opt.restoreText") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.incrInt"));
+    CHECK(n.str.contains("revet.opt.restoreText"));
 }
 
 TEST_CASE("htmx::optimistic double — rollback calls restoreText", "[htmx][rollback]") {
     static constexpr html::typed_id<double> k{"price"};
     const auto n = htmx::optimistic(k, +1.5);
-    CHECK(n.str.find("revet.opt.incrFloat") != std::string::npos);
-    CHECK(n.str.find("revet.opt.restoreText") != std::string::npos);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.incrFloat"));
+    CHECK(n.str.contains("revet.opt.restoreText"));
+    CHECK(n.str.contains("htmx:send-error"));
 }
 
 TEST_CASE("htmx::optimistic bool — rollback calls rollbackClass", "[htmx][rollback]") {
     static constexpr html::typed_id<bool> k{"like-btn", "active"};
     const auto n = htmx::optimistic(k);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
-    CHECK(n.str.find("revet.opt.toggleClass") != std::string::npos);
-    CHECK(n.str.find("revet.opt.rollbackClass") != std::string::npos);
+    CHECK(n.str.contains("htmx:send-error"));
+    CHECK(n.str.contains("revet.opt.toggleClass"));
+    CHECK(n.str.contains("revet.opt.rollbackClass"));
 }
 
 TEST_CASE("htmx::js::toggle_class — rollback_js calls rollbackClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::toggle_class{"active"}.rollback_js("my-btn");
-    CHECK(rb.find("revet.opt.rollbackClass") != std::string::npos);
-    CHECK(rb.find("my-btn") != std::string::npos);
-    CHECK(rb.find("active") != std::string::npos);
+    const auto rb = htmx::js::toggle_class{.cls = "active"}.rollback_js("my-btn");
+    CHECK(rb.contains("revet.opt.rollbackClass"));
+    CHECK(rb.contains("my-btn"));
+    CHECK(rb.contains("active"));
 }
 
 TEST_CASE("htmx::js::add_class — rollback_js calls removeClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::add_class{"selected"}.rollback_js("el");
-    CHECK(rb.find("revet.opt.removeClass") != std::string::npos);
-    CHECK(rb.find("selected") != std::string::npos);
+    const auto rb = htmx::js::add_class{.cls = "selected"}.rollback_js("el");
+    CHECK(rb.contains("revet.opt.removeClass"));
+    CHECK(rb.contains("selected"));
 }
 
 TEST_CASE("htmx::js::remove_class — rollback_js calls addClass", "[htmx][rollback]") {
-    const auto rb = htmx::js::remove_class{"hidden"}.rollback_js("el");
-    CHECK(rb.find("revet.opt.addClass") != std::string::npos);
-    CHECK(rb.find("hidden") != std::string::npos);
+    const auto rb = htmx::js::remove_class{.cls = "hidden"}.rollback_js("el");
+    CHECK(rb.contains("revet.opt.addClass"));
+    CHECK(rb.contains("hidden"));
 }
 
 TEST_CASE("htmx::optimistic JsMappable without rollback_js — no send-error attr", "[htmx][rollback]") {
     struct NoRollback {
-        auto to_js(std::string_view id) const -> std::string {
+        [[nodiscard]] auto to_js(std::string_view id) const -> std::string {
             return std::format("revet.opt.custom('{}')", id);
         }
     };
     static constexpr html::typed_id<int> k{"el"};
     const auto n = htmx::optimistic(k, NoRollback{});
-    CHECK(n.str.find("htmx:send-error") == std::string::npos);
-    CHECK(n.str.find("htmx:before-request") != std::string::npos);
+    CHECK(!n.str.contains("htmx:send-error"));
+    CHECK(n.str.contains("htmx:before-request"));
 }
 
 // ── Container Optimistic Tests ────────────────────────────────────────────
@@ -362,28 +362,28 @@ TEST_CASE("htmx::optimistic JsMappable without rollback_js — no send-error att
 TEST_CASE("htmx::optimistic_append — emits before-request and send-error", "[htmx][container]") {
     static constexpr html::id k_feed{"msg-feed"};
     const auto n = htmx::optimistic_append(k_feed, html::div{"Hello"});
-    CHECK(n.str.find("htmx:before-request") != std::string::npos);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
+    CHECK(n.str.contains("htmx:before-request"));
+    CHECK(n.str.contains("htmx:send-error"));
 }
 
 TEST_CASE("htmx::optimistic_append — calls revet.opt.appendPending", "[htmx][container]") {
     static constexpr html::id k_feed{"msg-feed"};
     const auto n = htmx::optimistic_append(k_feed, html::div{"Hello"});
-    CHECK(n.str.find("revet.opt.appendPending") != std::string::npos);
-    CHECK(n.str.find("msg-feed") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.appendPending"));
+    CHECK(n.str.contains("msg-feed"));
 }
 
 TEST_CASE("htmx::optimistic_append — rollback calls revet.opt.removePending", "[htmx][container]") {
     static constexpr html::id k_feed{"msg-feed"};
     const auto n = htmx::optimistic_append(k_feed, html::div{"Hello"});
-    CHECK(n.str.find("revet.opt.removePending") != std::string::npos);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.removePending"));
+    CHECK(n.str.contains("htmx:send-error"));
 }
 
 TEST_CASE("htmx::optimistic_prepend — calls revet.opt.prependPending", "[htmx][container]") {
     static constexpr html::id k_feed{"msg-feed"};
     const auto n = htmx::optimistic_prepend(k_feed, html::div{"Hello"});
-    CHECK(n.str.find("revet.opt.prependPending") != std::string::npos);
-    CHECK(n.str.find("msg-feed") != std::string::npos);
-    CHECK(n.str.find("htmx:send-error") != std::string::npos);
+    CHECK(n.str.contains("revet.opt.prependPending"));
+    CHECK(n.str.contains("msg-feed"));
+    CHECK(n.str.contains("htmx:send-error"));
 }

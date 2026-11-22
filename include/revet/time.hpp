@@ -2,7 +2,10 @@
 // Dates and times as apps show them: local calendar days, ISO dates, "3 h ago".
 // Times are Unix epoch milliseconds (int64) unless a type says otherwise.
 
+#include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <format>
@@ -13,20 +16,20 @@
 namespace revet::time {
 
 inline auto now_ms() -> int64_t {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 // Local broken-down time (honours TZ).
 inline auto local_tm(int64_t ms) -> std::tm {
-    const std::time_t t = static_cast<std::time_t>(ms / 1000);
+    const auto t = static_cast<std::time_t>(ms / 1000);
     std::tm out{};
     localtime_r(&t, &out);
     return out;
 }
 
 inline auto utc_tm(int64_t ms) -> std::tm {
-    const std::time_t t = static_cast<std::time_t>(ms / 1000);
+    const auto t = static_cast<std::time_t>(ms / 1000);
     std::tm out{};
     gmtime_r(&t, &out);
     return out;
@@ -35,9 +38,9 @@ inline auto utc_tm(int64_t ms) -> std::tm {
 // strftime over local time: format_local(ms, "%H:%M") -> "07:05".
 inline auto format_local(int64_t ms, const char* fmt) -> std::string {
     const std::tm tm = local_tm(ms);
-    char buf[128];
-    const size_t n = std::strftime(buf, sizeof(buf), fmt, &tm);
-    return {buf, n};
+    std::array<char, 128> buf{};
+    const size_t n = std::strftime(buf.data(), buf.size(), fmt, &tm);
+    return {buf.data(), n};
 }
 
 // Seconds east of UTC in effect at that instant (DST-aware).
@@ -69,18 +72,15 @@ inline auto today_iso() -> std::string {
 
 // Parses "YYYY-MM-DD" (anything after the date, like "T12:00:00Z", is ignored). Rejects 2026-02-30.
 inline auto parse_date(std::string_view s) -> std::optional<std::chrono::year_month_day> {
-    if (s.size() < 10 || s[4] != '-' || s[7] != '-') {
+    if (s.size() < 10 || s.at(4) != '-' || s.at(7) != '-') {
         return std::nullopt;
     }
-    auto digits = [&](size_t pos, size_t n) -> std::optional<int> {
-        int v = 0;
-        for (size_t i = pos; i < pos + n; ++i) {
-            if (s[i] < '0' || s[i] > '9') {
-                return std::nullopt;
-            }
-            v = v * 10 + (s[i] - '0');
+    const auto digits = [&](size_t pos, size_t n) -> std::optional<int> {
+        const auto field = s.substr(pos, n);
+        if (!std::ranges::all_of(field, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
+            return std::nullopt;
         }
-        return v;
+        return std::ranges::fold_left(field, 0, [](int v, char c) -> int { return (v * 10) + (c - '0'); });
     };
     const auto y = digits(0, 4);
     const auto m = digits(5, 2);
@@ -108,10 +108,10 @@ inline auto ago(int64_t ms, int64_t now = now_ms()) -> std::string {
     if (s < 90) {
         return "just now";
     }
-    if (s < 90 * 60) {
+    if (s < static_cast<int64_t>(90 * 60)) {
         return std::format("{} min ago", s / 60);
     }
-    if (s < 48 * 3600) {
+    if (s < static_cast<int64_t>(48 * 3600)) {
         return std::format("{} h ago", s / 3600);
     }
     const int64_t days = s / 86400;

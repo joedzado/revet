@@ -2,18 +2,20 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 #include <revet/web.hpp>
+#include <span>
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
 
-static std::string capture_response(const web::Response& resp) {
+namespace {
+auto capture_response(const web::Response& resp) -> std::string {
     std::array<int, 2> fds{};
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
-    web::send_response(fds[0], resp);
-    close(fds[0]);
+    web::send_response(fds.at(0), resp);
+    close(fds.at(0));
     std::string buf(4096, '\0');
-    auto n = recv(fds[1], buf.data(), buf.size() - 1, 0);
-    close(fds[1]);
+    const auto n = recv(fds.at(1), buf.data(), buf.size() - 1, 0);
+    close(fds.at(1));
     if (n > 0) {
         buf.resize(static_cast<size_t>(n));
     } else {
@@ -21,6 +23,7 @@ static std::string capture_response(const web::Response& resp) {
     }
     return buf;
 }
+} // namespace
 
 TEST_CASE("Cookie Parsing", "[web]") {
     // Mock a socket pair to feed data into parse_request
@@ -44,30 +47,30 @@ TEST_CASE("Cookie Parsing", "[web]") {
 }
 
 TEST_CASE("send_response strips CRLF from Location header", "[web]") {
-    auto resp = web::redirect("/legit\r\nX-Injected: evil");
-    std::string raw = capture_response(resp);
+    const auto resp = web::redirect("/legit\r\nX-Injected: evil");
+    const std::string raw = capture_response(resp);
     // CRLF stripped: no injected header line should appear
-    REQUIRE(raw.find("\r\nX-Injected:") == std::string::npos);
+    REQUIRE(!raw.contains("\r\nX-Injected:"));
     // The Location header itself is present (value has CRLF removed)
-    REQUIRE(raw.find("Location:") != std::string::npos);
+    REQUIRE(raw.contains("Location:"));
 }
 
 TEST_CASE("Set-Cookie includes HttpOnly and SameSite but not Secure", "[web]") {
     web::Response resp = web::to_response("ok");
     resp.cookies.data["session"] = "abc123";
-    std::string raw = capture_response(resp);
-    REQUIRE(raw.find("Set-Cookie:") != std::string::npos);
-    REQUIRE(raw.find("HttpOnly") != std::string::npos);
-    REQUIRE(raw.find("SameSite=Lax") != std::string::npos);
-    REQUIRE(raw.find("Secure") == std::string::npos);
+    const std::string raw = capture_response(resp);
+    REQUIRE(raw.contains("Set-Cookie:"));
+    REQUIRE(raw.contains("HttpOnly"));
+    REQUIRE(raw.contains("SameSite=Lax"));
+    REQUIRE(!raw.contains("Secure"));
 }
 
 TEST_CASE("Clearing a cookie uses Max-Age=0", "[web]") {
     web::Response resp = web::to_response("ok");
     resp.cookies.data["_cw_Flash"] = "";
-    std::string raw = capture_response(resp);
-    REQUIRE(raw.find("_cw_Flash=;") != std::string::npos);
-    REQUIRE(raw.find("Max-Age=0") != std::string::npos);
+    const std::string raw = capture_response(resp);
+    REQUIRE(raw.contains("_cw_Flash=;"));
+    REQUIRE(raw.contains("Max-Age=0"));
 }
 
 TEST_CASE("web::back() does not follow external Referer", "[web]") {
@@ -85,7 +88,7 @@ TEST_CASE("web::back() follows same-origin Referer", "[web]") {
 }
 
 TEST_CASE("web::back() defaults to / when Referer absent", "[web]") {
-    web::Request req;
+    const web::Request req;
     auto resp = web::back(req);
     REQUIRE(resp.location == "/");
 }
@@ -98,23 +101,23 @@ TEST_CASE("send_response delivers complete large body", "[web]") {
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
 
     // Send in a thread to avoid deadlock when body exceeds socket buffer
-    std::jthread sender([&]() {
-        web::send_response(fds[0], resp);
-        close(fds[0]);
+    const std::jthread sender([&] -> void {
+        web::send_response(fds.at(0), resp);
+        close(fds.at(0));
     });
 
     std::string received;
     received.resize(512UL * 1024UL);
     ssize_t total = 0;
     ssize_t n = 0;
-    while ((n = recv(fds[1], received.data() + static_cast<size_t>(total), received.size() - static_cast<size_t>(total),
-                     0)) > 0) {
+    while ((n = recv(fds.at(1), std::span(received).subspan(static_cast<size_t>(total)).data(),
+                     received.size() - static_cast<size_t>(total), 0)) > 0) {
         total += n;
     }
-    close(fds[1]);
+    close(fds.at(1));
     received.resize(static_cast<size_t>(total));
 
-    auto sep = received.find("\r\n\r\n");
+    const auto sep = received.find("\r\n\r\n");
     REQUIRE(sep != std::string::npos);
     std::string body = received.substr(sep + 4);
     REQUIRE(body.size() == large_body.size());

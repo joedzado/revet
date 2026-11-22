@@ -1,12 +1,15 @@
 // Checks against vectors produced by real Rails (ActiveRecord::Encryption, from
 // Rails 8.1) with throwaway keys. Fixture: tests/fixtures/rails_encryption_vectors.json
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <revet/rails_encryption.hpp>
 #include <simdjson.h>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using rails::Encryption;
@@ -29,7 +32,7 @@ struct Fixture {
     std::vector<Vector> deterministic;
 };
 
-std::string read_fixture_text() {
+auto read_fixture_text() -> std::string {
     const auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "rails_encryption_vectors.json";
     const std::ifstream in(path);
     REQUIRE(in.good());
@@ -38,27 +41,29 @@ std::string read_fixture_text() {
     return ss.str();
 }
 
-std::string str(simdjson::dom::element e, const char* key) {
+auto str(simdjson::dom::element e, const char* key) -> std::string {
     return std::string(std::string_view(e[key]));
 }
 
-std::vector<Vector> vectors(simdjson::dom::element root, const char* key) {
+auto vectors(simdjson::dom::element root, const char* key) -> std::vector<Vector> {
     std::vector<Vector> out;
-    for (simdjson::dom::element v : simdjson::dom::array(root[key])) {
-        out.push_back({str(v, "name"), str(v, "plain"), str(v, "cipher")});
+    for (const simdjson::dom::element v : simdjson::dom::array(root[key])) {
+        out.push_back({.name = str(v, "name"), .plain = str(v, "plain"), .cipher = str(v, "cipher")});
     }
     return out;
 }
 
-const Fixture& fixture() {
-    static const Fixture f = [] {
+auto fixture() -> const Fixture& {
+    static const Fixture f = [] -> Fixture {
         const auto text = read_fixture_text();
         simdjson::dom::parser parser;
         const simdjson::padded_string padded(text);
         const simdjson::dom::element root = parser.parse(padded);
         const simdjson::dom::element keys = root["keys"];
         Fixture x;
-        x.config = {str(keys, "primary"), str(keys, "deterministic"), str(keys, "salt")};
+        x.config = {.primary_key = str(keys, "primary"),
+                    .deterministic_key = str(keys, "deterministic"),
+                    .key_derivation_salt = str(keys, "salt")};
         x.primary_derived_hex = str(keys, "primary_derived_hex");
         x.deterministic_derived_hex = str(keys, "deterministic_derived_hex");
         x.primary = vectors(root, "primary");
@@ -68,24 +73,21 @@ const Fixture& fixture() {
     return f;
 }
 
-std::string hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) {
-    static constexpr char digits[] = "0123456789abcdef";
-    std::string out;
-    for (const unsigned char c : key) {
-        out += digits[c >> 4];
-        out += digits[c & 15];
-    }
-    return out;
+auto hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) -> std::string {
+    return std::ranges::fold_left(key, std::string(), [](std::string acc, unsigned char c) -> std::string {
+        acc += std::format("{:02x}", c);
+        return acc;
+    });
 }
 
 // Flips one payload character, keeping the base64 valid.
-std::string tamper(std::string message) {
+auto tamper(std::string message) -> std::string {
     const auto start = message.find(R"("p":")") + 5;
-    message[start] = message[start] == 'A' ? 'B' : 'A';
+    message.at(start) = message.at(start) == 'A' ? 'B' : 'A';
     return message;
 }
 
-const Vector& by_name(const std::vector<Vector>& all, const std::string& name) {
+auto by_name(const std::vector<Vector>& all, const std::string& name) -> const Vector& {
     for (const auto& v : all) {
         if (v.name == name) {
             return v;
@@ -148,8 +150,8 @@ TEST_CASE("rails encryption: primary round-trips with a fresh IV each time", "[r
 TEST_CASE("rails encryption: compression follows the Rails threshold", "[rails]") {
     const auto& f = fixture();
     const Encryption enc(f.config);
-    CHECK(enc.encrypt(std::string(140, 'a'), Scheme::Primary).find(R"("c":true)") == std::string::npos);
-    CHECK(enc.encrypt(std::string(141, 'a'), Scheme::Primary).find(R"("c":true)") != std::string::npos);
+    CHECK(!enc.encrypt(std::string(140, 'a'), Scheme::Primary).contains(R"("c":true)"));
+    CHECK(enc.encrypt(std::string(141, 'a'), Scheme::Primary).contains(R"("c":true)"));
 }
 
 TEST_CASE("rails encryption: reads jsonb shapes", "[rails]") {
@@ -158,13 +160,14 @@ TEST_CASE("rails encryption: reads jsonb shapes", "[rails]") {
     const auto& v = by_name(f.primary, "json");
 
     // A jsonb string scalar: the message, JSON-escaped and quoted.
-    std::string quoted = "\"";
-    for (const char c : v.cipher) {
-        if (c == '"' || c == '\\') {
-            quoted += '\\';
-        }
-        quoted += c;
-    }
+    std::string quoted =
+        std::ranges::fold_left(v.cipher, std::string("\""), [](std::string acc, char c) -> std::string {
+            if (c == '"' || c == '\\') {
+                acc += '\\';
+            }
+            acc += c;
+            return acc;
+        });
     quoted += '"';
     CHECK(enc.decrypt(quoted, Scheme::Primary) == v.plain);
 
@@ -210,7 +213,7 @@ TEST_CASE("rails encryption: errors never contain the input", "[rails]") {
         (void)enc.decrypt(secret, Scheme::Primary);
         FAIL("expected a throw");
     } catch (const EncryptionError& e) {
-        CHECK(std::string(e.what()).find(secret) == std::string::npos);
+        CHECK(!std::string(e.what()).contains(secret));
     }
 }
 
