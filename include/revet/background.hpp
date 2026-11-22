@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <stop_token>
@@ -32,12 +34,22 @@ public:
     // Runs f(stop_token) on a new thread. f should return soon after the token is stopped.
     template<typename F>
     void spawn(F f) {
-        auto done = std::make_shared<std::atomic<bool>>(false);
+        const auto done = std::make_shared<std::atomic<bool>>(false);
         const std::scoped_lock lock(mu_);
         std::erase_if(threads_, [](const Entry& e) -> bool { return e.done->load(); });
+        // NOLINTNEXTLINE(bugprone-exception-escape): the thread body catches everything f throws
         threads_.push_back(
             {.thread = std::jthread([f = std::move(f), done](const std::stop_token& stop) mutable -> void {
-                 f(stop);
+                 // An escaping exception would end the process; report it and let the thread finish.
+                 try {
+                     f(stop);
+                 } catch (const std::exception& e) {
+                     (void)std::fputs("background thread failed: ", stderr);
+                     (void)std::fputs(e.what(), stderr);
+                     (void)std::fputc('\n', stderr);
+                 } catch (...) {
+                     (void)std::fputs("background thread failed\n", stderr);
+                 }
                  done->store(true);
              }),
              .done = done});

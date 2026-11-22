@@ -110,7 +110,7 @@ inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
         std::mutex mu;
         std::condition_variable_any cv;
         // Sleeps for d; false once the process is shutting down.
-        auto sleep = [&](std::chrono::milliseconds d) -> bool {
+        const auto sleep = [&](std::chrono::milliseconds d) -> bool {
             std::unique_lock lock(mu);
             (void)cv.wait_for(lock, stop, d, [] -> bool { return false; });
             return !stop.stop_requested();
