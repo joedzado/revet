@@ -20,7 +20,7 @@ html::Node alert_err(html::Node content) {
 }
 
 [[revet::export]]
-html::Node alert_ok(html::Node content) {
+auto alert_ok(html::Node content) -> html::Node {
     return html::div{styles::alert, styles::alert_ok, std::move(content)};
 }
 

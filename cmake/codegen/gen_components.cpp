@@ -96,6 +96,15 @@ auto gen_components(const Ctx& ctx) -> int {
             }
             std::string args_str = strip(content.substr(paren_open + 1, paren_close - paren_open - 1));
 
+            // auto name(...) -> Type: the return type follows the arrow.
+            if (ret_type == "auto") {
+                size_t body = content.find_first_of("{;", paren_close);
+                size_t arrow = content.find("->", paren_close);
+                if (arrow != std::string::npos && arrow < body) {
+                    ret_type = strip(content.substr(arrow + 2, body - arrow - 2));
+                }
+            }
+
             // State/Flash arguments get a default so callers may omit them.
             Lines header_args;
             std::vector<std::pair<std::string, std::string>> deps;

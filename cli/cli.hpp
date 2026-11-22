@@ -76,6 +76,7 @@ auto cpu_count() -> unsigned;
 // ── Files ───────────────────────────────────────────────────────────────────
 auto read_file(const fs::path& p) -> std::optional<std::string>;
 void write_file(const fs::path& p, std::string_view content);
+auto strip_pch(std::string db) -> std::string;
 auto split_lines_keepends(std::string_view s) -> std::vector<std::string>;
 auto strip(std::string_view s) -> std::string;
 auto starts_with(std::string_view s, std::string_view prefix) -> bool;

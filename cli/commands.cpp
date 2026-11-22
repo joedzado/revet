@@ -330,17 +330,43 @@ auto cmd_clean() -> int {
     return 0;
 }
 
+// Drops "-Xclang -include-pch -Xclang <file>.pch" from a compile database: a PCH built by
+// one clang can't be read by another clang-tidy, which then fails every file.
+auto strip_pch(std::string db) -> std::string {
+    constexpr std::string_view k_flag = "-Xclang -include-pch -Xclang ";
+    constexpr std::string_view k_ext = ".pch";
+    for (std::size_t at = db.find(k_flag); at != std::string::npos; at = db.find(k_flag, at)) {
+        std::size_t end = db.find(k_ext, at + k_flag.size());
+        if (end == std::string::npos) {
+            break;
+        }
+        end += k_ext.size();
+        if (end < db.size() && db[end] == ' ') {
+            ++end;
+        }
+        db.erase(at, end - at);
+    }
+    return db;
+}
+
 auto cmd_tidy() -> int {
     fs::path tidy = llvm_tool("clang-tidy", "clang-tools");
-    if (!fs::exists("build/compile_commands.json")) {
+    auto db = read_file(fs::path(k_build_dir) / "compile_commands.json");
+    if (!db) {
         fail("build/compile_commands.json not found — run `revet build` first");
     }
+    fs::path tidy_db = fs::path(k_build_dir) / "tidy";
+    fs::create_directories(tidy_db);
+    write_file(tidy_db / "compile_commands.json", strip_pch(*db));
+    // Route files include "json_models.hpp", which codegen strips when it inlines them; point it at models.hpp.
+    write_file(tidy_db / "json_models.hpp", "#pragma once\n#include \"models.hpp\"\n");
     auto files = project_sources({".cpp"});
     if (files.empty()) {
         fail("No source files found to tidy");
     }
     info("Running clang-tidy on " + std::to_string(files.size()) + " files...");
-    std::vector<std::string> cmd = {tidy.string(), "-p", "build", "--fix", "--fix-errors"};
+    std::vector<std::string> cmd = {tidy.string(), "-p", tidy_db.string(),
+                                    "--extra-arg=-I" + fs::absolute(tidy_db).string(), "--fix"};
     cmd.insert(cmd.end(), files.begin(), files.end());
     if (int rc = run_inherit(cmd); rc != 0) {
         err("clang-tidy failed (exit " + std::to_string(rc) + ")");

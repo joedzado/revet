@@ -256,3 +256,10 @@ TEST_CASE("framework_dir and version") {
     CHECK_FALSE(framework_version().empty());
     CHECK(framework_version() == strip(read_file(framework_dir() / "VERSION").value_or("")));
 }
+
+TEST_CASE("strip_pch drops precompiled-header flags only") {
+    std::string db =
+        R"("command": "c++ -Wall -Xclang -include-pch -Xclang /b/cmake_pch.hxx.pch -Xclang -include -Xclang /b/cmake_pch.hxx -c a.cpp")";
+    CHECK(strip_pch(db) == R"("command": "c++ -Wall -Xclang -include -Xclang /b/cmake_pch.hxx -c a.cpp")");
+    CHECK(strip_pch("c++ -c a.cpp") == "c++ -c a.cpp");
+}
