@@ -10,6 +10,7 @@
 #include <iterator>
 #include <map>
 #include <ranges>
+#include <revet/background.hpp>
 #include <thread>
 #include <utility>
 
@@ -64,16 +65,16 @@ auto tui() -> Ui& {
 // catch (...) and flags every task lambda.
 // NOLINTBEGIN(bugprone-exception-escape)
 
-// Runs `f` on a detached thread. An exception escaping it would call std::terminate.
+// Runs f(stop_token) on a background thread; quitting stops it (and any conan it is waiting on).
 template<class F>
 void in_background(F f) {
-    std::thread([f = std::move(f)] mutable noexcept -> auto {
+    revet::background::spawn([f = std::move(f)](const std::stop_token& stop) mutable noexcept -> void {
         try {
-            f();
+            f(stop);
         } catch (...) {
             tui().bg_failed = true;
         }
-    }).detach();
+    });
 }
 
 void post(std::function<void()> task) {
@@ -82,9 +83,9 @@ void post(std::function<void()> task) {
 }
 
 void bg_latest(std::vector<std::string> names) {
-    in_background([names = std::move(names)] -> void {
+    in_background([names = std::move(names)](const std::stop_token& stop) -> void {
         for (const auto& name : names) {
-            if (auto ref = conan_latest(name, 12)) {
+            if (auto ref = conan_latest(name, 12, stop)) {
                 post([name, ref = *ref] -> void { tui().st->latest[name] = ref; });
             }
         }
@@ -92,8 +93,8 @@ void bg_latest(std::vector<std::string> names) {
 }
 
 void bg_search(const std::string& q) {
-    in_background([q] -> void {
-        const Result r = run({"conan", "list", q + "*", "-r", "conancenter"}, {}, 15);
+    in_background([q](const std::stop_token& stop) -> void {
+        const Result r = run({"conan", "list", q + "*", "-r", "conancenter"}, {}, 15, stop);
         std::map<std::string, std::vector<std::string>> by_pkg;
         if (r.rc == 0) {
             for (const auto& ref : conan_refs(r.out)) {
@@ -121,8 +122,8 @@ void bg_search(const std::string& q) {
 }
 
 void bg_versions(const std::string& pkg) {
-    in_background([pkg] -> void {
-        const Result r = run({"conan", "list", pkg + "/*", "-r", "conancenter"}, {}, 15);
+    in_background([pkg](const std::stop_token& stop) -> void {
+        const Result r = run({"conan", "list", pkg + "/*", "-r", "conancenter"}, {}, 15, stop);
         std::vector<std::string> refs = r.rc == 0 ? conan_refs(r.out, pkg) : std::vector<std::string>{};
         sort_refs_newest_first(refs);
         post([pkg, refs] -> void {
@@ -307,7 +308,7 @@ auto render(const State& st) -> Element {
 void schedule_search(State& st) {
     const unsigned gen = ++st.query_gen;
     st.status.clear();
-    in_background([gen] -> void {
+    in_background([gen](const std::stop_token&) -> void {
         std::this_thread::sleep_for(std::chrono::milliseconds(450));
         post([gen] -> void {
             State& s = *tui().st;

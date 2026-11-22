@@ -30,6 +30,7 @@
 #include <typeindex>
 #include <vector>
 
+#include "background.hpp"
 #include "c_api.hpp"
 #include "crypto.hpp"
 #include "css_utils.hpp"
@@ -160,14 +161,20 @@ inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
 }
 } // namespace detail
 
-// Parses an integer CLI value in [lo, hi]; exits with a message on anything else.
+// The server cannot start: a bad command-line value, a missing key, a port it cannot bind.
+// main reports what() and exits with exit_code, so a supervisor sees the failure and retries.
+struct StartupError : std::runtime_error {
+    StartupError(const std::string& what, int code) : std::runtime_error(what), exit_code(code) {}
+    int exit_code;
+};
+
+// Parses an integer CLI value in [lo, hi]; throws StartupError (exit code 2) on anything else.
 inline auto parse_arg(std::string_view flag, std::string_view value, long long lo, long long hi) -> long long {
     long long out = 0;
     const char* end = std::to_address(value.end());
     const auto [ptr, ec] = std::from_chars(std::to_address(value.begin()), end, out);
     if (ec != std::errc{} || ptr != end || out < lo || out > hi) {
-        std::println(stderr, "{}: expected an integer in [{}, {}], got '{}'", flag, lo, hi, value);
-        std::exit(2);
+        throw StartupError(std::format("{}: expected an integer in [{}, {}], got '{}'", flag, lo, hi, value), 2);
     }
     return out;
 }
@@ -1463,8 +1470,11 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
             return;
         }
         try {
-            std::thread([client_fd, slot = std::move(*slot), leftover = std::move(leftover), ws_fn = it->ws,
-                         guards = it->guards, req] mutable -> void {
+            revet::background::spawn([client_fd, slot = std::move(*slot), leftover = std::move(leftover),
+                                      ws_fn = it->ws, guards = it->guards,
+                                      req](const std::stop_token& stop) mutable -> void {
+                // At shutdown, unblock reads and writes so the handler returns and the thread can be joined.
+                const std::stop_callback on_stop(stop, [client_fd] -> void { ::shutdown(client_fd, SHUT_RDWR); });
                 std::optional<Response> refused;
                 try {
                     refused = detail::sse_gate(req, guards);
@@ -1511,7 +1521,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                     std::println(stderr, "WebSocket handler error: {}", e.what());
                 }
                 conn->close();
-            }).detach();
+            });
         } catch (const std::system_error& e) {
             std::println(stderr, "WebSocket thread: {}", e.what());
             close(client_fd);
@@ -1519,36 +1529,39 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         return;
     }
 
-    // SSE — detached thread so pool isn't held for connection duration
+    // SSE — its own thread, so the pool isn't held for the connection's duration
     if (req.method == Method::GET && it->sse) {
-        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req] -> void {
-            std::optional<Response> refused;
-            try {
-                refused = detail::sse_gate(req, guards);
-            } catch (const std::exception& e) {
-                std::println(stderr, "SSE middleware error: {}", e.what());
-                refused = to_response(std::string("500 Internal Server Error"));
-                refused->status = status::internal_error;
-            }
-            if (refused) {
-                send_response(client_fd, *refused);
-            } else {
-                const std::string_view sse_head = "HTTP/1.1 200 OK\r\n"
-                                                  "Content-Type: text/event-stream\r\n"
-                                                  "Cache-Control: no-cache\r\n"
-                                                  "Connection: keep-alive\r\n"
-                                                  "X-Accel-Buffering: no\r\n"
-                                                  "\r\n";
-                ::send(client_fd, sse_head.data(), sse_head.size(), 0);
-                SSEWriter writer{.fd = client_fd};
+        revet::background::spawn(
+            [client_fd, sse_fn = it->sse, guards = it->guards, req](const std::stop_token& stop) -> void {
+                // At shutdown, unblock writes so the handler returns and the thread can be joined.
+                const std::stop_callback on_stop(stop, [client_fd] -> void { ::shutdown(client_fd, SHUT_RDWR); });
+                std::optional<Response> refused;
                 try {
-                    sse_fn(req, writer);
+                    refused = detail::sse_gate(req, guards);
                 } catch (const std::exception& e) {
-                    std::println(stderr, "SSE handler error: {}", e.what());
+                    std::println(stderr, "SSE middleware error: {}", e.what());
+                    refused = to_response(std::string("500 Internal Server Error"));
+                    refused->status = status::internal_error;
                 }
-            }
-            close(client_fd);
-        }).detach();
+                if (refused) {
+                    send_response(client_fd, *refused);
+                } else {
+                    const std::string_view sse_head = "HTTP/1.1 200 OK\r\n"
+                                                      "Content-Type: text/event-stream\r\n"
+                                                      "Cache-Control: no-cache\r\n"
+                                                      "Connection: keep-alive\r\n"
+                                                      "X-Accel-Buffering: no\r\n"
+                                                      "\r\n";
+                    ::send(client_fd, sse_head.data(), sse_head.size(), 0);
+                    SSEWriter writer{.fd = client_fd};
+                    try {
+                        sse_fn(req, writer);
+                    } catch (const std::exception& e) {
+                        std::println(stderr, "SSE handler error: {}", e.what());
+                    }
+                }
+                close(client_fd);
+            });
         return;
     }
 
@@ -1618,9 +1631,8 @@ inline void listen(const std::vector<Route>& all_routes) {
     const auto& cfg = detail::server_config();
     // Found now rather than on the first login.
     if (crypto::key_required() && std::getenv("REVET_COOKIE_KEY") == nullptr) {
-        std::println(stderr,
-                     "REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback");
-        std::exit(1);
+        throw StartupError("REVET_COOKIE_KEY is not set, and REVET_REQUIRE_COOKIE_KEY=1 forbids the hostname fallback",
+                           1);
     }
     const int rthreads =
         cfg.request_threads > 0 ? cfg.request_threads : static_cast<int>(std::thread::hardware_concurrency());
@@ -1630,12 +1642,10 @@ inline void listen(const std::vector<Route>& all_routes) {
     detail::request_pool() = std::make_unique<WorkerPool>(rthreads);
     detail::io_pool() = std::make_unique<WorkerPool>(ithreads);
 
-    // Exits rather than returns, so a supervisor sees a failure and tries again.
     auto listen_on = [&](const std::string& address) -> pollfd {
         const auto fd = detail::open_listener(address, cfg.port);
         if (!fd) {
-            std::println(stderr, "{}", fd.error());
-            std::exit(1);
+            throw StartupError(fd.error(), 1);
         }
         return {.fd = *fd, .events = POLLIN, .revents = 0};
     };

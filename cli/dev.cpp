@@ -14,6 +14,7 @@
 #include <mutex>
 #include <poll.h>
 #include <ranges>
+#include <revet/background.hpp>
 #include <set>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -123,12 +124,12 @@ public:
 
     // Polls every 250 ms; collects changed or new files until take() is called.
     void start() {
-        std::thread([this] -> void {
-            while (true) {
+        thread_ = std::jthread([this](const std::stop_token& stop) -> void {
+            while (!stop.stop_requested()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 scan(false);
             }
-        }).detach();
+        });
     }
 
     auto take() -> std::vector<std::string> {
@@ -179,6 +180,7 @@ private:
     std::map<std::string, fs::file_time_type> mtimes_; // touched only by the scanning thread
     std::mutex mu_;
     std::set<std::string> pending_;
+    std::jthread thread_; // last, so it stops and joins before the members it scans into go away
 };
 
 // ── Rebuild and run ─────────────────────────────────────────────────────────
@@ -206,7 +208,7 @@ void print_keys() {
 void tee_server_log(int fd, const fs::path& log_path) {
     // Only allocation failure can throw in here.
     // NOLINTNEXTLINE(bugprone-exception-escape)
-    std::thread([fd, log_path] -> void {
+    revet::background::spawn([fd, log_path](const std::stop_token&) -> void {
         std::ofstream log(log_path, std::ios::binary | std::ios::trunc);
         std::string pending;
         std::array<char, 4096> buf{};
@@ -228,7 +230,7 @@ void tee_server_log(int fd, const fs::path& log_path) {
             emit(pending);
         }
         close(fd);
-    }).detach();
+    });
 }
 
 auto chomp(std::string s) -> std::string {

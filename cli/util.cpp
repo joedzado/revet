@@ -218,7 +218,8 @@ auto wait_child(pid_t pid) -> int {
     return -1;
 }
 
-auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_s) -> Result {
+auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_s,
+         const std::stop_token& stop) -> Result {
     Result r;
     SpawnOptions opts;
     opts.cwd = cwd;
@@ -240,6 +241,7 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
     int open_fds = 2;
     bool timed_out = false;
     std::vector<char> buf(65536);
+    constexpr int k_stop_poll_ms = 100; // how often a stoppable run checks its token
     while (open_fds > 0) {
         int wait_ms = -1;
         if (timeout_s > 0) {
@@ -249,6 +251,13 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
                 break;
             }
             wait_ms = static_cast<int>(left * 1000);
+        }
+        if (stop.stop_requested()) {
+            timed_out = true;
+            break;
+        }
+        if (stop.stop_possible()) {
+            wait_ms = wait_ms < 0 ? k_stop_poll_ms : std::min(wait_ms, k_stop_poll_ms);
         }
         const int n = poll(fds.data(), fds.size(), wait_ms);
         if (n < 0) {

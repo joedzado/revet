@@ -10,14 +10,17 @@
 //     web::jobs::every(std::chrono::hours{24}, [] { backup(); });
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "background.hpp"
 #include "log.hpp"
 
 namespace web::jobs {
@@ -35,7 +38,7 @@ struct Status {
     int64_t finished_ms = 0; // 0 until a run finishes
 };
 
-// Must outlive its runs: make it static (start() runs on a detached thread that uses it).
+// Must outlive its runs: make it static (start() runs on a background thread that uses it).
 class SingleFlight {
 public:
     using Job = std::function<std::string()>;
@@ -45,7 +48,7 @@ public:
         if (!begin()) {
             return false;
         }
-        std::thread([this, job = std::move(job)] -> void { finish(invoke(job)); }).detach();
+        revet::background::spawn([this, job = std::move(job)](const std::stop_token&) -> void { finish(invoke(job)); });
         return true;
     }
 
@@ -103,9 +106,16 @@ private:
 // An exception is logged and the schedule continues. Runs until the process exits.
 inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
                   std::chrono::milliseconds first_delay = std::chrono::milliseconds{0}) {
-    std::thread([interval, first_delay, fn = std::move(fn)] -> void {
-        std::this_thread::sleep_for(first_delay);
-        for (;;) {
+    revet::background::spawn([interval, first_delay, fn = std::move(fn)](const std::stop_token& stop) -> void {
+        std::mutex mu;
+        std::condition_variable_any cv;
+        // Sleeps for d; false once the process is shutting down.
+        auto sleep = [&](std::chrono::milliseconds d) -> bool {
+            std::unique_lock lock(mu);
+            (void)cv.wait_for(lock, stop, d, [] -> bool { return false; });
+            return !stop.stop_requested();
+        };
+        for (bool running = sleep(first_delay); running; running = sleep(interval)) {
             try {
                 fn();
             } catch (const std::exception& e) {
@@ -113,9 +123,8 @@ inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
             } catch (...) {
                 log::error("jobs::every: unknown exception");
             }
-            std::this_thread::sleep_for(interval);
         }
-    }).detach();
+    });
 }
 
 } // namespace web::jobs

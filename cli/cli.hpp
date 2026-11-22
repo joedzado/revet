@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -67,7 +68,9 @@ struct Result {
 };
 
 // Runs to completion with stdout and stderr captured. timeout_s > 0 kills the child after that long.
-auto run(const std::vector<std::string>& argv, const fs::path& cwd = {}, int timeout_s = 0) -> Result;
+// A stop request on `stop` kills the child, like a timeout.
+auto run(const std::vector<std::string>& argv, const fs::path& cwd = {}, int timeout_s = 0,
+         const std::stop_token& stop = {}) -> Result;
 // Runs with the terminal attached; returns the exit status (-1 if it could not start).
 auto run_inherit(const std::vector<std::string>& argv, const fs::path& cwd = {}) -> int;
 
@@ -122,7 +125,7 @@ void conan_update_lockfile(const fs::path& conanfile);
 // "name/version" lines in `conan list` output; only `name`'s when name is not empty.
 auto conan_refs(std::string_view list_output, std::string_view name = {}) -> std::vector<std::string>;
 void sort_refs_newest_first(std::vector<std::string>& refs);
-auto conan_latest(std::string_view name, int timeout_s) -> std::optional<std::string>;
+auto conan_latest(std::string_view name, int timeout_s, const std::stop_token& stop = {}) -> std::optional<std::string>;
 auto ref_version(std::string_view ref) -> std::string; // "fmt/10.1.0" -> "10.1.0"
 auto install_deps_script() -> fs::path;
 auto conan_profile() -> std::optional<std::string>;

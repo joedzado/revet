@@ -325,8 +325,8 @@ void sort_refs_newest_first(std::vector<std::string>& refs) {
         refs, [](const std::string& a, const std::string& b) -> bool { return version_key(a) > version_key(b); });
 }
 
-auto conan_latest(std::string_view name, int timeout_s) -> std::optional<std::string> {
-    const Result r = run({"conan", "list", std::string(name) + "/*", "-r", "conancenter"}, {}, timeout_s);
+auto conan_latest(std::string_view name, int timeout_s, const std::stop_token& stop) -> std::optional<std::string> {
+    const Result r = run({"conan", "list", std::string(name) + "/*", "-r", "conancenter"}, {}, timeout_s, stop);
     if (r.rc != 0) {
         return std::nullopt;
     }
