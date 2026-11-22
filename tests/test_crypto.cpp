@@ -13,7 +13,7 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
 
     SECTION("empty string") {
         const std::string ct = web::crypto::encrypt("");
-        REQUIRE(web::crypto::decrypt(ct) == "");
+        REQUIRE(web::crypto::decrypt(ct).empty());
     }
 
     SECTION("different nonces produce different ciphertext") {
@@ -27,7 +27,7 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
     SECTION("tampered ciphertext returns empty") {
         std::string ct = web::crypto::encrypt("secret");
         ct.at(ct.size() / 2) = static_cast<char>(~static_cast<unsigned char>(ct.at(ct.size() / 2)));
-        REQUIRE(web::crypto::decrypt(ct) == "");
+        REQUIRE(web::crypto::decrypt(ct).empty());
     }
 
     unsetenv("REVET_COOKIE_KEY");

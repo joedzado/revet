@@ -1,6 +1,7 @@
 #pragma once
 
 #include <coroutine>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <optional>
@@ -16,9 +17,24 @@ namespace web {
 // initial_suspend = always → caller controls when execution starts via start().
 // Supports both fire-and-forget (start + callback) and co_await chaining.
 
+// Runs a completion callback inside final_suspend, which must not throw: a failure is reported, not propagated.
+template<typename F>
+void run_callback(F&& f) noexcept {
+    try {
+        std::forward<F>(f)();
+    } catch (const std::exception& e) {
+        (void)std::fputs("task completion callback failed: ", stderr);
+        (void)std::fputs(e.what(), stderr);
+        (void)std::fputc('\n', stderr);
+    } catch (...) {
+        (void)std::fputs("task completion callback failed\n", stderr);
+    }
+}
+
 template<typename T>
 class Task {
 public:
+    auto operator=(Task&&) -> Task& = delete;
     struct promise_type {
         std::optional<T> result;
         std::exception_ptr exception;
@@ -44,7 +60,7 @@ public:
                 }
                 // top-level: fire callback, self-destruct
                 if (p.on_done && p.result) {
-                    p.on_done(std::move(*p.result));
+                    run_callback([&] -> void { p.on_done(std::move(p.result).value()); });
                 }
                 h.destroy();
                 return std::noop_coroutine();
@@ -93,7 +109,7 @@ public:
         if (h_.promise().exception) {
             std::rethrow_exception(h_.promise().exception);
         }
-        return std::move(*h_.promise().result);
+        return std::move(h_.promise().result).value();
     }
 
 private:
@@ -104,6 +120,7 @@ private:
 template<>
 class Task<void> {
 public:
+    auto operator=(Task&&) -> Task& = delete;
     struct promise_type {
         std::exception_ptr exception;
         std::function<void()> on_done;
@@ -127,7 +144,7 @@ public:
                     return p.continuation;
                 }
                 if (p.on_done) {
-                    p.on_done();
+                    run_callback([&] -> void { p.on_done(); });
                 }
                 h.destroy();
                 return std::noop_coroutine();
@@ -193,7 +210,7 @@ public:
     }
 
     void await_suspend(std::coroutine_handle<> h) {
-        detail::io_submit([this, h]() mutable -> auto {
+        detail::io_submit([this, h] mutable -> auto {
             try {
                 if constexpr (std::is_void_v<R>) {
                     fn_();
@@ -212,7 +229,7 @@ public:
             std::rethrow_exception(exception_);
         }
         if constexpr (!std::is_void_v<R>) {
-            return std::move(*result_);
+            return std::move(result_).value();
         }
     }
 

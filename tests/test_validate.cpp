@@ -1,11 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/validate.hpp>
 
-static auto make_map(std::initializer_list<std::pair<std::string, std::string>> pairs) -> web::ParamMap {
+namespace {
+auto make_map(std::initializer_list<std::pair<std::string, std::string>> pairs) -> web::ParamMap {
     web::ParamMap m;
     m.data.insert(pairs.begin(), pairs.end());
     return m;
 }
+} // namespace
 
 // ── required ─────────────────────────────────────────────────────────────────
 

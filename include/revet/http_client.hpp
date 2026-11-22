@@ -42,6 +42,8 @@ public:
 // Abstract HTTP client interface
 class Client {
 public:
+    Client(Client&&) = delete;
+    auto operator=(Client&&) -> Client& = delete;
     Client() = default;
     virtual ~Client() = default;
 

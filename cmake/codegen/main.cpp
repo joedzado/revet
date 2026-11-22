@@ -48,9 +48,10 @@ auto main(int argc, char* const* argv) -> int {
         std::cerr << "usage: revet-codegen <generator> <project-root> <framework-root>\n";
         return 2;
     }
-    const auto args = std::span(argv, static_cast<size_t>(argc)) | std::ranges::to<std::vector<std::string_view>>();
-    const std::string generator(args.at(1));
+    std::string generator;
     try {
+        const auto args = std::span(argv, static_cast<size_t>(argc)) | std::ranges::to<std::vector<std::string_view>>();
+        generator = args.at(1);
         const auto& table = generators();
         const auto it = table.find(generator);
         if (it == table.end()) {

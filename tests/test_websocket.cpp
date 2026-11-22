@@ -101,6 +101,10 @@ auto ws_upgrade(std::string_view extra = {}) -> std::string {
 }
 
 struct ResetMw {
+    ResetMw(const ResetMw&) = delete;
+    auto operator=(const ResetMw&) -> ResetMw& = delete;
+    ResetMw(ResetMw&&) = delete;
+    auto operator=(ResetMw&&) -> ResetMw& = delete;
     ResetMw() {
         web::clear_middlewares();
     }
@@ -111,10 +115,12 @@ struct ResetMw {
 
 // server is the accepted socket (on_client owns it). fd is the peer.
 struct Client {
+    Client(Client&&) = delete;
+    auto operator=(Client&&) -> Client& = delete;
     int server = -1;
     int fd = -1;
     Client() {
-        std::signal(SIGPIPE, SIG_IGN);
+        (void)std::signal(SIGPIPE, SIG_IGN);
         std::array<int, 2> fds{};
         REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
         server = fds.at(0);
@@ -169,8 +175,8 @@ TEST_CASE("Conn::recv decodes a masked client text frame") {
     const auto conn = web::ws::Conn::make(server_fd);
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE_FALSE(msg->binary);
-    REQUIRE(msg->data == "Hello");
+    REQUIRE_FALSE(msg.value().binary);
+    REQUIRE(msg.value().data == "Hello");
 
     ::close(client_fd);
 }
@@ -182,8 +188,8 @@ TEST_CASE("Conn::recv reassembles fragmented messages") {
     const auto conn = web::ws::Conn::make(server_fd);
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->binary);
-    REQUIRE(msg->data == "foobarbaz");
+    REQUIRE(msg.value().binary);
+    REQUIRE(msg.value().data == "foobarbaz");
 
     ::close(client_fd);
 }
@@ -195,7 +201,7 @@ TEST_CASE("Conn::recv answers ping with pong and keeps reading") {
     const auto conn = web::ws::Conn::make(server_fd);
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->data == "after");
+    REQUIRE(msg.value().data == "after");
     REQUIRE(read_all(client_fd) == std::string("\x8A\x01p", 3));
 
     ::close(client_fd);
@@ -256,8 +262,8 @@ TEST_CASE("Conn::recv decodes a minimal 16-bit client frame") {
     const auto conn = web::ws::Conn::make(server_fd);
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->binary);
-    REQUIRE(msg->data == payload);
+    REQUIRE(msg.value().binary);
+    REQUIRE(msg.value().data == payload);
 
     ::close(client_fd);
 }
@@ -279,8 +285,8 @@ TEST_CASE("Conn::recv decodes a minimal 64-bit client frame") {
     auto msg = conn->recv();
     sender.join();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->binary);
-    REQUIRE(msg->data == payload);
+    REQUIRE(msg.value().binary);
+    REQUIRE(msg.value().data == payload);
 
     ::close(client_fd);
 }
@@ -371,10 +377,10 @@ TEST_CASE("Conn::recv accepts valid multi-byte UTF-8 in text and binary messages
     const auto conn = web::ws::Conn::make(server_fd);
     auto text = conn->recv();
     REQUIRE(text.has_value());
-    REQUIRE(text->data == "caf\xC3\xA9");
+    REQUIRE(text.value().data == "caf\xC3\xA9");
     auto bin = conn->recv();
     REQUIRE(bin.has_value());
-    REQUIRE(bin->binary);
+    REQUIRE(bin.value().binary);
 
     ::close(client_fd);
 }
@@ -416,7 +422,7 @@ TEST_CASE("Unsolicited pong is consumed without ending recv") {
     send_raw(client_fd, client_frame(0x8A, "") + client_frame(0x81, "late"));
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->data == "late");
+    REQUIRE(msg.value().data == "late");
 
     ::close(client_fd);
 }
@@ -488,7 +494,7 @@ TEST_CASE("Conn::recv reads bytes that arrived with the upgrade request first") 
     conn->prime(client_frame(0x81, "early"));
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->data == "early");
+    REQUIRE(msg.value().data == "early");
 
     ::close(client_fd);
 }
@@ -515,7 +521,7 @@ TEST_CASE("Conn::recv validates a codepoint split across text fragments") {
     const auto conn = web::ws::Conn::make(server_fd);
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE(msg->data == "caf\xC3\xA9");
+    REQUIRE(msg.value().data == "caf\xC3\xA9");
 
     ::close(client_fd);
 }
@@ -925,8 +931,8 @@ TEST_CASE("Conn::recv inflates a permessage-deflate text message and send_text d
 
     auto msg = conn->recv();
     REQUIRE(msg.has_value());
-    REQUIRE_FALSE(msg->binary);
-    REQUIRE(msg->data == "Hello");
+    REQUIRE_FALSE(msg.value().binary);
+    REQUIRE(msg.value().data == "Hello");
 
     REQUIRE(conn->send_text("Hello"));
     const std::string reply = read_all(client_fd);
@@ -1017,6 +1023,10 @@ TEST_CASE("Conn::recv closes 1013 when a message would exceed the process-wide b
     // Holds the budget full so that any new reservation is refused.
     auto& total = web::ws::detail::buffered_total();
     struct Fill {
+        Fill(const Fill&) = delete;
+        auto operator=(const Fill&) -> Fill& = delete;
+        Fill(Fill&&) = delete;
+        auto operator=(Fill&&) -> Fill& = delete;
         std::atomic<size_t>& total;
         size_t n{web::ws::k_max_buffered - 100};
         explicit Fill(std::atomic<size_t>& t) : total(t) {

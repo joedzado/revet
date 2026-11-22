@@ -26,7 +26,7 @@ public:
 
 // Primary: random IV, for normal `encrypts :x` columns.
 // Deterministic: IV derived from the text, for `encrypts :x, deterministic: true`.
-enum class Scheme { Primary, Deterministic };
+enum class Scheme : std::uint8_t { Primary, Deterministic };
 
 struct EncryptionConfig {
     std::string primary_key;         // ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY
@@ -36,6 +36,8 @@ struct EncryptionConfig {
 
 class Encryption {
 public:
+    Encryption(Encryption&&) = delete;
+    auto operator=(Encryption&&) -> Encryption& = delete;
     static constexpr std::size_t kKeyBytes = 32;
 
     explicit Encryption(const EncryptionConfig& config);

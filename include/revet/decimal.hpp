@@ -76,11 +76,10 @@ public:
 
     [[nodiscard]] auto to_string() const -> std::string {
         std::string digits;
-        wide v = value_ < 0 ? -value_ : value_;
-        do {
+        // Digits of |value_|, most significant first; zero is "0".
+        for (wide v = value_ < 0 ? -value_ : value_; v != 0 || digits.empty(); v /= 10) {
             digits.insert(digits.begin(), static_cast<char>('0' + static_cast<int>(v % 10)));
-            v /= 10;
-        } while (v != 0);
+        }
         if (scale_ > 0) {
             const auto s = static_cast<std::size_t>(scale_);
             if (digits.size() <= s) {

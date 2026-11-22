@@ -7,7 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static auto capture_response(const web::Response& resp) -> std::string {
+namespace {
+auto capture_response(const web::Response& resp) -> std::string {
     std::array<int, 2> fds{};
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
     web::send_response(fds.at(0), resp);
@@ -22,6 +23,7 @@ static auto capture_response(const web::Response& resp) -> std::string {
     }
     return buf;
 }
+} // namespace
 
 TEST_CASE("Cookie Parsing", "[web]") {
     // Mock a socket pair to feed data into parse_request
@@ -99,7 +101,7 @@ TEST_CASE("send_response delivers complete large body", "[web]") {
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
 
     // Send in a thread to avoid deadlock when body exceeds socket buffer
-    const std::jthread sender([&]() -> void {
+    const std::jthread sender([&] -> void {
         web::send_response(fds.at(0), resp);
         close(fds.at(0));
     });

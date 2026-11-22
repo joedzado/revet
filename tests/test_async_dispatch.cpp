@@ -12,9 +12,15 @@
 #include <stdexcept>
 #include <string>
 
+// Handlers take the request by reference (web::AsyncHandler); run_async_handler keeps it alive across
+// suspensions, and each test waits for its coroutines before captured locals go out of scope.
+// NOLINTBEGIN(cppcoreguidelines-avoid-reference-coroutine-parameters,cppcoreguidelines-avoid-capturing-lambda-coroutines)
+
 namespace {
 
 struct IoPool {
+    IoPool(IoPool&&) = delete;
+    auto operator=(IoPool&&) -> IoPool& = delete;
     IoPool() {
         web::detail::io_pool() = std::make_unique<WorkerPool>(2);
         web::clear_middlewares();
@@ -54,10 +60,10 @@ auto run(web::Request request, const web::AsyncHandler& handler,
     cv.wait_for(lk, std::chrono::seconds(5), [&] -> bool { return result.has_value(); });
     REQUIRE(result.has_value());
     CHECK(calls.load() == 1);
-    return *result;
+    return result.value();
 }
 
-auto ok_after_suspend(const web::Request&) -> web::Task<web::Response> {
+auto ok_after_suspend(const web::Request& /*unused*/) -> web::Task<web::Response> {
     co_await web::run_on_io([] -> void {});
     co_return web::Response{.body = "secret"};
 }
@@ -169,3 +175,4 @@ TEST_CASE("async dispatch: a throwing middleware gives a 500 without running the
     CHECK(run(make_request(), handler).status == web::status::internal_error);
     CHECK_FALSE(ran.load());
 }
+// NOLINTEND(cppcoreguidelines-avoid-reference-coroutine-parameters,cppcoreguidelines-avoid-capturing-lambda-coroutines)

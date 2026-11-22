@@ -46,7 +46,7 @@ using Key = std::array<unsigned char, crypto_secretbox_KEYBYTES>;
 // Fills key from REVET_COOKIE_KEY env var, or derives from hostname as a fallback.
 inline void get_key(Key& key) {
     const char* key_env = std::getenv("REVET_COOKIE_KEY");
-    if (key_env) {
+    if (key_env != nullptr) {
         if (std::strlen(key_env) != 64) {
             throw std::runtime_error("REVET_COOKIE_KEY must be 64 hex characters");
         }
@@ -63,7 +63,7 @@ inline void get_key(Key& key) {
         // Cache the derived key — crypto_pwhash is intentionally slow
         static std::once_flag derived_once;
         static Key derived{};
-        std::call_once(derived_once, []() -> void {
+        std::call_once(derived_once, [] -> void {
             log::warn("REVET_COOKIE_KEY is not set — deriving key from hostname. "
                       "Set REVET_COOKIE_KEY to a 64-char hex string for production use.");
             std::array<char, 256> hostname{};
@@ -106,7 +106,7 @@ inline auto encrypt(std::string_view plaintext) -> std::string {
     std::string combined(nonce.begin(), nonce.end());
     combined.append(ciphertext);
 
-    std::vector<char> b64(combined.size() * 2 + 1);
+    std::vector<char> b64((combined.size() * 2) + 1);
     sodium_bin2base64(b64.data(), b64.size(), c_api::uchars(combined), combined.size(), sodium_base64_VARIANT_ORIGINAL);
 
     return {b64.data()};
@@ -125,7 +125,7 @@ inline auto decrypt(std::string_view encrypted) -> std::string {
 
     // Base64 decode
     std::string combined(encrypted.size(), '\0');
-    size_t combined_len;
+    size_t combined_len = 0;
     int ret = sodium_base642bin(c_api::uchars(combined), combined.size(), encrypted.data(), encrypted.size(), nullptr,
                                 &combined_len, nullptr, sodium_base64_VARIANT_ORIGINAL);
     if (ret != 0 || combined_len < crypto_secretbox_NONCEBYTES) {

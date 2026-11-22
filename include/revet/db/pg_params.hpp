@@ -27,6 +27,7 @@ inline auto to_pg_param(T&& arg) -> std::string {
     } else if constexpr (requires { arg.to_string(); } && !std::is_convertible_v<U, std::string_view>) {
         return arg.to_string(); // revet::Decimal and similar
     } else {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
         return std::string(std::forward<T>(arg));
     }
 }

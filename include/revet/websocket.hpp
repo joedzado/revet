@@ -171,20 +171,17 @@ inline auto utf8_tail_ok(std::string_view tail) -> bool {
     const auto lead = static_cast<uint8_t>(tail.at(0));
     uint8_t lo2 = 0x80;
     uint8_t hi2 = 0xBF;
-    if (lead >= 0xC2 && lead <= 0xDF) {
-    } else if (lead == 0xE0) {
+    if (lead < 0xC2 || lead > 0xF4) {
+        return false;
+    }
+    if (lead == 0xE0) {
         lo2 = 0xA0;
-    } else if (lead >= 0xE1 && lead <= 0xEC) {
     } else if (lead == 0xED) {
         hi2 = 0x9F;
-    } else if (lead >= 0xEE && lead <= 0xEF) {
     } else if (lead == 0xF0) {
         lo2 = 0x90;
-    } else if (lead >= 0xF1 && lead <= 0xF3) {
     } else if (lead == 0xF4) {
         hi2 = 0x8F;
-    } else {
-        return false;
     }
     // The second byte has the lead's range; later ones are plain continuation bytes.
     return std::ranges::all_of(std::views::zip(std::views::iota(1UZ), tail.substr(1)),
@@ -327,10 +324,9 @@ inline auto accept_deflate_offer(std::string_view offer) -> std::optional<Deflat
                 const auto bits = window_bits(value);
                 if (!bits || *bits == 8) {
                     return std::nullopt;
-                } else {
-                    d.server_bits = *bits;
-                    response += std::format("; server_max_window_bits={}", *bits);
                 }
+                d.server_bits = *bits;
+                response += std::format("; server_max_window_bits={}", *bits);
             }
         } else if (key == "client_max_window_bits" && !seen_cb) {
             seen_cb = true;
@@ -483,7 +479,8 @@ public:
             zin_.next_in = c_api::zlib_input(input);
             zin_.avail_in = static_cast<uInt>(input.size());
             std::array<unsigned char, 16384> out{};
-            do {
+            // Until inflate leaves room in the buffer, there may be more output.
+            for (bool more = true; more; more = zin_.avail_out == 0) {
                 zin_.next_out = out.data();
                 zin_.avail_out = static_cast<uInt>(out.size());
                 const int rc = inflate(&zin_, flush);
@@ -491,7 +488,7 @@ public:
                     fail(CloseCode::InvalidData, "invalid permessage-deflate data");
                 }
                 absorb(c_api::chars(std::span<const unsigned char>(out)).substr(0, out.size() - zin_.avail_out));
-            } while (zin_.avail_out == 0);
+            }
         };
 
         while (open_.load()) {
@@ -608,7 +605,7 @@ public:
 private:
     Conn(int fd, Slot slot) : fd_(fd), slot_(std::move(slot)) {}
 
-    enum class IoStatus { Ok, Closed, Timeout };
+    enum class IoStatus : std::uint8_t { Ok, Closed, Timeout };
 
     struct Header {
         bool fin = false;
@@ -761,7 +758,7 @@ private:
 
     // Reads and unmasks a payload in pieces; on_bytes sees each piece before the rest of the frame arrives.
     template<typename OnBytes>
-    auto read_payload(const Header& h, IoStatus& st, OnBytes&& on_bytes) -> bool {
+    auto read_payload(const Header& h, IoStatus& st, OnBytes on_bytes) -> bool {
         std::array<char, 16384> buf{};
         uint64_t done = 0;
         while (done < h.len) {
@@ -821,12 +818,12 @@ private:
         zout_.avail_in = static_cast<uInt>(in.size());
         std::string out;
         std::array<unsigned char, 16384> buf{};
-        do {
+        for (bool more = true; more; more = zout_.avail_out == 0) {
             zout_.next_out = buf.data();
             zout_.avail_out = static_cast<uInt>(buf.size());
             deflate(&zout_, Z_SYNC_FLUSH);
             out.append(c_api::chars(std::span<const unsigned char>(buf)).substr(0, buf.size() - zout_.avail_out));
-        } while (zout_.avail_out == 0);
+        }
         constexpr std::string_view kTail("\0\0\xff\xff", 4);
         if (out.size() >= kTail.size() && out.ends_with(kTail)) {
             out.resize(out.size() - kTail.size());
@@ -860,7 +857,7 @@ private:
     z_stream zin_{};
     z_stream zout_{};
     std::string inbuf_; // bytes read with the upgrade request, served before the socket
-    std::chrono::steady_clock::time_point frame_deadline_{};
+    std::chrono::steady_clock::time_point frame_deadline_;
     std::atomic<bool> open_{true};
     std::mutex write_mu_;
 };

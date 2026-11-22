@@ -23,7 +23,7 @@ struct fixed_string {
     // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the html DSL builds nodes and attributes from plain
     // values
     consteval fixed_string(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
-        std::copy_n(s, N, value.begin());
+        std::ranges::copy(s, value.begin());
     }
 };
 template<size_t N>
@@ -52,7 +52,7 @@ struct Node {
     constexpr Node(const char* s)
         : str(std::string_view(s).starts_with(" #") || std::string_view(s).starts_with(" .") ? sanitize::html_escape(s)
                                                                                              : escape_text(s)) {}
-    constexpr Node(raw_tag, std::string s) : str(std::move(s)) {}
+    constexpr Node(raw_tag /*unused*/, std::string s) : str(std::move(s)) {}
 
     template<std::integral T>
         requires(!std::is_same_v<T, bool>) && (!std::is_same_v<T, char>) && (!std::is_same_v<T, signed char>) &&
@@ -70,7 +70,7 @@ struct Node {
     }
 };
 
-constexpr auto operator+(Node lhs, Node rhs) -> Node {
+constexpr auto operator+(Node lhs, const Node& rhs) -> Node {
     lhs.str += rhs.str;
     return lhs;
 }
@@ -384,7 +384,10 @@ struct typed_id<bool> {
 // ── tag generation ────────────────────────────────────────────────────────────
 namespace detail {
 constexpr auto split(std::initializer_list<Node> children) -> std::pair<std::string, std::string> {
-    std::string attrs, classes, content, id;
+    std::string attrs;
+    std::string classes;
+    std::string content;
+    std::string id;
     for (const auto& c : children) {
         if (c.str.size() > 1 && c.str.at(0) == ' ' && c.str.at(1) == '.') {
             classes += (classes.empty() ? "" : " ") + c.str.substr(2);
@@ -560,10 +563,10 @@ private:
 
 // ── list ──────────────────────────────────────────────────────────────────────
 template<std::ranges::range Range, typename Fn>
-auto list(Range&& range, Fn&& fn) -> Node {
+auto list(Range&& range, Fn fn) -> Node {
     std::string result;
     for (auto&& item : std::forward<Range>(range)) {
-        result += static_cast<std::string>(std::invoke(std::forward<Fn>(fn), item));
+        result += static_cast<std::string>(std::invoke(fn, item)); // called once per item, so never forwarded
     }
     return raw(std::move(result));
 }
@@ -581,11 +584,12 @@ auto classes(Args&&... args) -> Node {
     const auto add = [&result](std::string_view s) -> auto {
         if (!s.empty()) {
             if (!result.empty()) {
-                result += " ";
+                result += ' ';
             }
             result += s;
         }
     };
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     (add(std::forward<Args>(args)), ...);
     return raw(std::format(" .{}", result));
 }

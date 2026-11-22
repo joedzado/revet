@@ -1,7 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/json.hpp>
 
-using namespace revet::json;
+using revet::json::Document;
+using revet::json::ParseError;
 
 TEST_CASE("JSON wrapper: basic field access") {
     const std::string json = R"({"name": "alice", "id": 123})";

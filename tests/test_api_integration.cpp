@@ -177,7 +177,7 @@ TEST_CASE("API query integration: array responses") {
     auto result = mock->execute("GET", "https://api.github.com/users/alice/repos", {}, "");
 
     REQUIRE(result);
-    REQUIRE(result.body.contains("["));
+    REQUIRE(result.body.contains('['));
     REQUIRE(result.body.contains("repo1"));
 
     // Eventually: auto repos = response.repos (as std::vector<std::string>)

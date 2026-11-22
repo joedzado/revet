@@ -61,11 +61,7 @@ inline auto validate_dir(const std::filesystem::path& dir, const std::filesystem
         root_s += '/';
     }
     const auto canon_s = canon.string();
-    if (canon_s != root_s.substr(0, root_s.size() - 1) && !canon_s.starts_with(root_s)) {
-        return false;
-    }
-
-    return true;
+    return canon_s == root_s.substr(0, root_s.size() - 1) || canon_s.starts_with(root_s);
 }
 
 } // namespace detail

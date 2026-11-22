@@ -12,8 +12,8 @@ TEST_CASE("html::list renders vector of strings as elements", "[list]") {
 
 TEST_CASE("html::list with empty range returns empty Node", "[list]") {
     const std::vector<std::string> empty;
-    auto result = std::string(html::list(empty, [](const auto& s) -> auto { return html::li{s}; }));
-    CHECK(result == "");
+    const auto result = std::string(html::list(empty, [](const auto& s) -> auto { return html::li{s}; }));
+    CHECK(result.empty());
 }
 
 TEST_CASE("html::list is composable as child of ul", "[list]") {
@@ -86,8 +86,8 @@ TEST_CASE("html::list<Element> escapes content", "[list]") {
 
 TEST_CASE("html::list<Element> with empty range", "[list]") {
     const std::vector<std::string> empty;
-    auto result = std::string(html::list<html::li>(empty));
-    CHECK(result == "");
+    const auto result = std::string(html::list<html::li>(empty));
+    CHECK(result.empty());
 }
 
 TEST_CASE("html::classes single class", "[classes]") {

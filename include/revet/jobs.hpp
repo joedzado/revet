@@ -23,8 +23,8 @@
 namespace web::jobs {
 
 inline auto now_ms() -> int64_t {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 struct Status {

@@ -14,7 +14,7 @@ namespace {
 
 auto os_name() -> std::string {
     utsname u{};
-    return uname(&u) == 0 ? std::string(u.sysname) : std::string();
+    return uname(&u) == 0 ? std::string(std::data(u.sysname)) : std::string();
 }
 
 void remove_quietly(const fs::path& p) {

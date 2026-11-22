@@ -4,12 +4,15 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <print>
 #include <queue>
 #include <thread>
 #include <vector>
 
 class WorkerPool {
 public:
+    WorkerPool(WorkerPool&&) = delete;
+    auto operator=(WorkerPool&&) -> WorkerPool& = delete;
     explicit WorkerPool(int n) {
         workers_.reserve(static_cast<size_t>(n));
         for (int i = 0; i < n; ++i) {
@@ -58,7 +61,10 @@ private:
             }
             try {
                 task();
+            } catch (const std::exception& e) {
+                std::println(stderr, "worker task failed: {}", e.what());
             } catch (...) {
+                std::println(stderr, "worker task failed: unknown exception");
             }
         }
     }

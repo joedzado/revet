@@ -163,7 +163,7 @@ inline auto base64_encode(std::string_view in) -> std::string {
 }
 
 inline auto base64_decode(std::string_view in) -> std::string {
-    static const std::array<int, 256> T = []() -> std::array<int, 256> {
+    static const std::array<int, 256> T = [] -> std::array<int, 256> {
         std::array<int, 256> t{};
         t.fill(-1);
         const std::string_view l = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -173,7 +173,7 @@ inline auto base64_decode(std::string_view in) -> std::string {
         return t;
     }();
     std::string out;
-    out.reserve(in.size() * 3 / 4 + 1);
+    out.reserve((in.size() * 3 / 4) + 1);
     uint32_t val = 0;
     int valb = -8;
     for (const unsigned char c : in) {

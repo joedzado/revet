@@ -19,13 +19,27 @@ inline void append_quoted(std::string& out, std::string_view s) {
     out += '"';
     for (const char c : s) {
         switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            case '\b': out += "\\b"; break;
-            case '\f': out += "\\f"; break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            case '\b':
+                out += "\\b";
+                break;
+            case '\f':
+                out += "\\f";
+                break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     out += std::format("\\u{:04x}", static_cast<unsigned char>(c));
@@ -109,7 +123,7 @@ public:
     auto value(T v) -> Writer& {
         return raw(number(static_cast<double>(v)));
     }
-    auto value(std::nullopt_t) -> Writer& {
+    auto value(std::nullopt_t /*unused*/) -> Writer& {
         return raw("null");
     }
     template<typename T>
@@ -125,6 +139,7 @@ public:
     // key(k).value(v) in one call.
     template<typename T>
     auto field(std::string_view k, const T& v) -> Writer& {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
         return key(k).value(v);
     }
 

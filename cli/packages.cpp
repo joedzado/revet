@@ -50,10 +50,15 @@ struct State {
 
 // Background work posts results back to the UI thread. The screen and state are never
 // freed: threads still waiting on `conan list` may post after the loop has ended.
-App* g_screen = nullptr;
-State* g_st = nullptr;
-
-std::atomic<bool> g_bg_failed{false};
+struct Ui {
+    App* screen = nullptr;
+    State* st = nullptr;
+    std::atomic<bool> bg_failed{false};
+};
+auto tui() -> Ui& {
+    static Ui state;
+    return state;
+}
 
 // Background tasks. in_background catches everything, but clang-tidy does not see through its
 // catch (...) and flags every task lambda.
@@ -66,21 +71,21 @@ void in_background(F f) {
         try {
             f();
         } catch (...) {
-            g_bg_failed = true;
+            tui().bg_failed = true;
         }
     }).detach();
 }
 
 void post(std::function<void()> task) {
-    g_screen->Post(std::move(task));
-    g_screen->PostEvent(Event::Custom);
+    tui().screen->Post(std::move(task));
+    tui().screen->PostEvent(Event::Custom);
 }
 
 void bg_latest(std::vector<std::string> names) {
     in_background([names = std::move(names)] -> void {
         for (const auto& name : names) {
             if (auto ref = conan_latest(name, 12)) {
-                post([name, ref = *ref] -> void { g_st->latest[name] = ref; });
+                post([name, ref = *ref] -> void { tui().st->latest[name] = ref; });
             }
         }
     });
@@ -102,7 +107,7 @@ void bg_search(const std::string& q) {
                            }) |
                            std::ranges::to<std::vector<std::pair<std::string, std::string>>>();
         post([q, found] -> void {
-            State& st = *g_st;
+            State& st = *tui().st;
             if (q != st.query) {
                 return;
             }
@@ -121,7 +126,7 @@ void bg_versions(const std::string& pkg) {
         std::vector<std::string> refs = r.rc == 0 ? conan_refs(r.out, pkg) : std::vector<std::string>{};
         sort_refs_newest_first(refs);
         post([pkg, refs] -> void {
-            State& st = *g_st;
+            State& st = *tui().st;
             if (pkg != st.ver_pkg) {
                 return;
             }
@@ -278,7 +283,7 @@ auto render(const State& st) -> Element {
     Element status = text("");
     if (!st.status.empty()) {
         status = text("  " + st.status) | color(starts_with(st.status, "✔") ? Color::Green : Color::Yellow);
-    } else if (g_bg_failed) {
+    } else if (tui().bg_failed) {
         status = text("  a conan lookup failed; results may be incomplete") | color(Color::Yellow);
     }
     Element page = vbox({
@@ -305,7 +310,7 @@ void schedule_search(State& st) {
     in_background([gen] -> void {
         std::this_thread::sleep_for(std::chrono::milliseconds(450));
         post([gen] -> void {
-            State& s = *g_st;
+            State& s = *tui().st;
             if (gen != s.query_gen || s.view != View::Search) {
                 return;
             }
@@ -321,7 +326,7 @@ void schedule_search(State& st) {
 auto on_installed(State& st, const Event& e) -> bool {
     const auto n = static_cast<int>(st.installed.size());
     if (e == Event::Character('q') || e == Event::Escape) {
-        g_screen->Exit();
+        tui().screen->Exit();
     } else if (e == Event::Tab) {
         st.view = View::Search;
         st.status.clear();
@@ -419,16 +424,16 @@ auto on_versions(State& st, const Event& e) -> bool {
 
 auto cmd_packages() -> int {
     // Never freed: background threads may still post to them after the screen closes.
-    g_screen = new App(App::Fullscreen()); // NOLINT(cppcoreguidelines-owning-memory)
-    g_st = new State();                    // NOLINT(cppcoreguidelines-owning-memory)
-    State& st = *g_st;
+    tui().screen = new App(App::Fullscreen()); // NOLINT(cppcoreguidelines-owning-memory)
+    tui().st = new State();                    // NOLINT(cppcoreguidelines-owning-memory)
+    State& st = *tui().st;
     st.installed = deps_from_toml(read_toml());
     if (!st.installed.empty()) {
         bg_latest(st.installed | std::views::keys | std::ranges::to<std::vector<std::string>>());
     }
 
-    const auto ui = Renderer([] -> Element { return render(*g_st); }) | CatchEvent([](const Event& e) -> bool {
-                        State& s = *g_st;
+    const auto ui = Renderer([] -> Element { return render(*tui().st); }) | CatchEvent([](const Event& e) -> bool {
+                        State& s = *tui().st;
                         if (e == Event::Custom) {
                             return true;
                         }
@@ -442,7 +447,7 @@ auto cmd_packages() -> int {
                         }
                         return false;
                     });
-    g_screen->Loop(ui);
+    tui().screen->Loop(ui);
     return 0;
 }
 

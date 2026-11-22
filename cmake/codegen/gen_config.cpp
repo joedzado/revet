@@ -73,8 +73,8 @@ auto gen_resources(const Ctx& ctx) -> int {
         std::string name;
         std::string type;
         std::string path;
-        long long pool;
-        bool is_default;
+        long long pool = 0;
+        bool is_default = false;
     };
     auto resource_of = [&](const Pair& item) -> Resource {
         const auto& [name, rnode] = item;

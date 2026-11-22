@@ -29,21 +29,21 @@ inline auto cls(std::string_view name) -> html::Node {
 // ── CSS helpers ───────────────────────────────────────────────────────────────
 
 inline auto smooth_scroll() -> html::Node {
-    html::detail::ui_css_registry.emplace("smooth_scroll", "html{scroll-behavior:smooth}");
+    html::detail::ui_css_registry().emplace("smooth_scroll", "html{scroll-behavior:smooth}");
     return {};
 }
 
 inline auto reduced_motion() -> html::Node {
-    html::detail::ui_css_registry.emplace("reduced_motion",
-                                          "@media(prefers-reduced-motion:reduce)"
-                                          "{*,*::before,*::after{animation-duration:.01ms!important;"
-                                          "transition-duration:.01ms!important;scroll-behavior:auto!important}}");
+    html::detail::ui_css_registry().emplace("reduced_motion",
+                                            "@media(prefers-reduced-motion:reduce)"
+                                            "{*,*::before,*::after{animation-duration:.01ms!important;"
+                                            "transition-duration:.01ms!important;scroll-behavior:auto!important}}");
     return {};
 }
 
 inline auto auto_dark() -> html::Node {
-    html::detail::ui_css_registry.emplace("auto_dark", "@media(prefers-color-scheme:dark)"
-                                                       "{.ui-modal,.ui-dropdown-menu{color-scheme:dark}}");
+    html::detail::ui_css_registry().emplace("auto_dark", "@media(prefers-color-scheme:dark)"
+                                                         "{.ui-modal,.ui-dropdown-menu{color-scheme:dark}}");
     return {};
 }
 
@@ -53,6 +53,8 @@ inline auto scroll_animations() -> html::Node {
 }
 
 // Apply to any element: CSS lives in the project stylesheet (.ui-scroll-anim).
+// Only bad_alloc can throw here, and that is fatal at startup anyway.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp)
 inline const html::Node scroll_anim{html::raw_tag{}, " .ui-scroll-anim"};
 
 // ── toggle ────────────────────────────────────────────────────────────────────
@@ -157,12 +159,13 @@ struct tab_item {
 
 inline auto tabs(std::string_view base_id, std::initializer_list<tab_item> items) -> html::Node {
     std::string inst_css;
-    html::Node nav_nodes, panel_nodes;
+    html::Node nav_nodes;
+    html::Node panel_nodes;
     bool first = true;
     for (const auto& item : items) {
         const auto fid = std::format("{}-{}", base_id, item.id);
         const auto panel_id = std::format("uitabp-{}", fid);
-        inst_css += "body:has(#" + fid + ":checked) #" + panel_id + "{display:block}";
+        inst_css += std::format("body:has(#{}:checked) #{}{{display:block}}", fid, panel_id);
         nav_nodes = std::move(nav_nodes) +
                     html::input{
                         html::attr.type("radio"),    html::attr.name(std::string(base_id)),         html::attr.id(fid),
@@ -321,7 +324,7 @@ namespace js {
 
 // Textarea grows to fit content as user types.
 inline auto auto_resize() -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "auto_resize", "document.addEventListener('input',e=>{if(e.target.matches('[data-autoresize]')){"
                        "e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px'}});");
     return html::Node{html::raw_tag{}, " data-autoresize=\"\""};
@@ -331,7 +334,7 @@ inline auto auto_resize() -> html::Node {
 // html::textarea{ui::js::char_counter("my-count"), html::attr.maxlength("500")},
 // html::span{html::attr.id("my-count"), "0"}
 inline auto char_counter(std::string_view counter_id) -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "char_counter", "document.addEventListener('input',e=>{const t=e.target;if(!t.dataset.charCounter)return;"
                         "const el=document.getElementById(t.dataset.charCounter);if(el)"
                         "el.textContent=t.value.length+(t.maxLength>0?'/'+t.maxLength:'')});");
@@ -341,17 +344,17 @@ inline auto char_counter(std::string_view counter_id) -> html::Node {
 // Hides element when user clicks anywhere outside it.
 // Best for pure toggle (hidden attr), not HTMX-managed open state.
 inline auto click_outside() -> html::Node {
-    html::detail::ui_js_registry.emplace("click_outside",
-                                         "document.addEventListener('click',e=>{"
-                                         "document.querySelectorAll('[data-click-outside]:not([hidden])').forEach(el=>{"
-                                         "if(!el.contains(e.target))el.hidden=true})});");
+    html::detail::ui_js_registry().emplace(
+        "click_outside", "document.addEventListener('click',e=>{"
+                         "document.querySelectorAll('[data-click-outside]:not([hidden])').forEach(el=>{"
+                         "if(!el.contains(e.target))el.hidden=true})});");
     return html::Node{html::raw_tag{}, " data-click-outside=\"\""};
 }
 
 // Traps Tab focus within element (a11y for modals/dialogs).
 // Add focus_trap_escape as a sibling attribute to close on Escape.
 inline auto focus_trap() -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "focus_trap", "document.addEventListener('keydown',e=>{"
                       "const trap=document.querySelector('[data-focus-trap]:not([hidden])');"
                       "if(!trap)return;"
@@ -369,12 +372,14 @@ inline auto focus_trap() -> html::Node {
 }
 
 // Pair with focus_trap() to allow Escape key to close.
+// Only bad_alloc can throw here, and that is fatal at startup anyway.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp)
 inline const html::Node focus_trap_escape{html::raw_tag{}, " data-focus-trap-escape=\"\""};
 
 // Fires a 'debounced' event after user stops typing for `ms` milliseconds.
 // Use with hx-trigger="debounced" for HTMX live search without spamming requests.
 inline auto debounce(int ms = 300) -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "debounce", "const _cw_db=new Map();"
                     "document.addEventListener('input',e=>{"
                     "const t=e.target;if(!('debounceMs'in t.dataset))return;"
@@ -387,22 +392,22 @@ inline auto debounce(int ms = 300) -> html::Node {
 // Element is clicked when key combo fires (skipped when focus is in an input).
 // Combo format: "cmd+k", "ctrl+shift+p", "escape", etc.
 inline auto kbd(std::string_view combo) -> html::Node {
-    html::detail::ui_js_registry.emplace("kbd", "document.addEventListener('keydown',e=>{"
-                                                "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
-                                                "const k=(e.metaKey?'cmd+':e.ctrlKey?'ctrl+':e.altKey?'alt+':'')"
-                                                "+(e.shiftKey?'shift+':'')+e.key.toLowerCase();"
-                                                "document.querySelectorAll('[data-kbd]').forEach(el=>{"
-                                                "if(el.dataset.kbd===k){e.preventDefault();el.click()}})});");
+    html::detail::ui_js_registry().emplace("kbd", "document.addEventListener('keydown',e=>{"
+                                                  "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
+                                                  "const k=(e.metaKey?'cmd+':e.ctrlKey?'ctrl+':e.altKey?'alt+':'')"
+                                                  "+(e.shiftKey?'shift+':'')+e.key.toLowerCase();"
+                                                  "document.querySelectorAll('[data-kbd]').forEach(el=>{"
+                                                  "if(el.dataset.kbd===k){e.preventDefault();el.click()}})});");
     return html::attr.data("kbd", combo);
 }
 
 // Triggers the browser Web Share API (mobile-first; no-op on unsupported browsers).
 // Optional title/url override; defaults to document.title and current URL.
 inline auto share(std::string_view title = "", std::string_view url = "") -> html::Node {
-    html::detail::ui_js_registry.emplace("share", "document.addEventListener('click',e=>{"
-                                                  "const t=e.target.closest('[data-share]');if(!t)return;"
-                                                  "navigator.share?.({title:t.dataset.shareTitle||document.title,"
-                                                  "url:t.dataset.shareUrl||location.href}).catch(()=>{})});");
+    html::detail::ui_js_registry().emplace("share", "document.addEventListener('click',e=>{"
+                                                    "const t=e.target.closest('[data-share]');if(!t)return;"
+                                                    "navigator.share?.({title:t.dataset.shareTitle||document.title,"
+                                                    "url:t.dataset.shareUrl||location.href}).catch(()=>{})});");
     return html::fragment(html::Node{html::raw_tag{}, " data-share=\"\""},
                           title.empty() ? html::Node{} : html::attr.data("share-title", title),
                           url.empty() ? html::Node{} : html::attr.data("share-url", url));
@@ -411,7 +416,7 @@ inline auto share(std::string_view title = "", std::string_view url = "") -> htm
 // Hidden when at top of page; shown when scrolled; scrolls to top on click.
 // html::button{ui::js::scroll_to_top(), "↑ Top"}
 inline auto scroll_to_top() -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "scroll_to_top", "{const s=new IntersectionObserver(([e])=>"
                          "document.querySelectorAll('[data-scroll-top]').forEach(el=>"
                          "el.toggleAttribute('hidden',e.isIntersecting)));"
@@ -425,12 +430,12 @@ inline auto scroll_to_top() -> html::Node {
 // html::button{ui::js::geolocate("#coords"), "Use my location"}
 // html::input{html::attr.id("coords"), ...}
 inline auto geolocate(std::string_view target_selector) -> html::Node {
-    html::detail::ui_js_registry.emplace("geolocate", "document.addEventListener('click',e=>{"
-                                                      "const t=e.target.closest('[data-geolocate]');if(!t)return;"
-                                                      "navigator.geolocation.getCurrentPosition(p=>{"
-                                                      "const el=document.querySelector(t.dataset.geoTarget);"
-                                                      "if(el)el.value=p.coords.latitude+','+p.coords.longitude},"
-                                                      "{enableHighAccuracy:true})});");
+    html::detail::ui_js_registry().emplace("geolocate", "document.addEventListener('click',e=>{"
+                                                        "const t=e.target.closest('[data-geolocate]');if(!t)return;"
+                                                        "navigator.geolocation.getCurrentPosition(p=>{"
+                                                        "const el=document.querySelector(t.dataset.geoTarget);"
+                                                        "if(el)el.value=p.coords.latitude+','+p.coords.longitude},"
+                                                        "{enableHighAccuracy:true})});");
     return html::fragment(html::Node{html::raw_tag{}, " data-geolocate=\"\""},
                           html::attr.data("geo-target", target_selector));
 }
@@ -439,7 +444,7 @@ inline auto geolocate(std::string_view target_selector) -> html::Node {
 // html::button{ui::js::fullscreen(), "⛶"}
 // html::button{ui::js::fullscreen("#video"), "⛶"}
 inline auto fullscreen(std::string_view target = "") -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "fullscreen", "document.addEventListener('click',e=>{"
                       "const t=e.target.closest('[data-fullscreen]');if(!t)return;"
                       "const el=t.dataset.fullscreenTarget"
@@ -453,7 +458,7 @@ inline auto fullscreen(std::string_view target = "") -> html::Node {
 // html::form{ui::js::paste_zone(),
 //   html::input{html::attr.type("file"), html::attr("data-paste-input","")}}
 inline auto paste_zone() -> html::Node {
-    html::detail::ui_js_registry.emplace(
+    html::detail::ui_js_registry().emplace(
         "image_paste", "document.addEventListener('paste',e=>{"
                        "const z=document.querySelector('[data-paste-zone]');if(!z)return;"
                        "const f=[...e.clipboardData.files].find(f=>f.type.startsWith('image/'));"
@@ -480,28 +485,28 @@ inline auto paste_zone() -> html::Node {
 namespace clipboard {
 
 inline auto text(std::string_view value) -> html::Node {
-    html::detail::ui_js_registry.emplace("clipboard",
-                                         "function _cwCopy(el){"
-                                         "const txt=el.dataset.copyText;"
-                                         "const ok=()=>{"
-                                         "const prev=el.innerHTML;"
-                                         "el.textContent='Copied!';"
-                                         "clearTimeout(el._cwt);"
-                                         "el._cwt=setTimeout(()=>el.innerHTML=prev,1400)"
-                                         "};"
-                                         "if(navigator.clipboard?.writeText){"
-                                         "navigator.clipboard.writeText(txt).then(ok).catch(()=>_cwFb(txt,ok))"
-                                         "}else{"
-                                         "_cwFb(txt,ok)"
-                                         "}"
-                                         "}"
-                                         "function _cwFb(txt,ok){"
-                                         "const t=Object.assign(document.createElement('textarea'),"
-                                         "{value:txt,style:'position:fixed;opacity:0'});"
-                                         "document.body.appendChild(t);t.select();"
-                                         "try{document.execCommand('copy');ok()}catch(e){}"
-                                         "document.body.removeChild(t)"
-                                         "}");
+    html::detail::ui_js_registry().emplace("clipboard",
+                                           "function _cwCopy(el){"
+                                           "const txt=el.dataset.copyText;"
+                                           "const ok=()=>{"
+                                           "const prev=el.innerHTML;"
+                                           "el.textContent='Copied!';"
+                                           "clearTimeout(el._cwt);"
+                                           "el._cwt=setTimeout(()=>el.innerHTML=prev,1400)"
+                                           "};"
+                                           "if(navigator.clipboard?.writeText){"
+                                           "navigator.clipboard.writeText(txt).then(ok).catch(()=>_cwFb(txt,ok))"
+                                           "}else{"
+                                           "_cwFb(txt,ok)"
+                                           "}"
+                                           "}"
+                                           "function _cwFb(txt,ok){"
+                                           "const t=Object.assign(document.createElement('textarea'),"
+                                           "{value:txt,style:'position:fixed;opacity:0'});"
+                                           "document.body.appendChild(t);t.select();"
+                                           "try{document.execCommand('copy');ok()}catch(e){}"
+                                           "document.body.removeChild(t)"
+                                           "}");
     return html::fragment(html::attr.data("copy-text", value), html::attr.onclick("_cwCopy(this)"));
 }
 

@@ -13,7 +13,8 @@
 // Mirror of the production formatting branch in write_response(). If the
 // production code drifts, this helper must drift with it — otherwise the
 // tests would be lying. Keep the strings in lockstep.
-static auto format_cookie(const std::string& name, const std::string& value) -> std::string {
+namespace {
+auto format_cookie(const std::string& name, const std::string& value) -> std::string {
     const bool secure = web::config::secure_cookies();
     const std::string_view suffix = secure ? "; Secure" : "";
     if (value.empty()) {
@@ -21,6 +22,7 @@ static auto format_cookie(const std::string& name, const std::string& value) -> 
     }
     return std::format("Set-Cookie: {}={}; Path=/; HttpOnly; SameSite=Lax{}", name, value, suffix);
 }
+} // namespace
 
 TEST_CASE("cookies: Secure flag off by default (dev)", "[cookies]") {
     // Snapshot + restore so this test doesn't pollute global state.

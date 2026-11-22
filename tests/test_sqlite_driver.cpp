@@ -24,7 +24,7 @@ TEST_CASE("sqlite: NULL is distinct from empty", "[sqlite]") {
     REQUIRE(rows.size() == 1);
     CHECK_FALSE(rows.at(0).at(0).has_value());
     REQUIRE(rows.at(0).at(1).has_value());
-    CHECK(rows.at(0).at(1)->empty());
+    CHECK(rows.at(0).at(1).value().empty());
 }
 
 TEST_CASE("sqlite: optional and bool bind", "[sqlite]") {

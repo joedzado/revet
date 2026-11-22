@@ -8,7 +8,8 @@
 #include <unistd.h>
 
 // Send raw HTTP text into a socketpair and parse it
-static auto parse(const char* raw) -> web::Request {
+namespace {
+auto parse(const char* raw) -> web::Request {
     std::array<int, 2> fds{};
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) != 0) {
         return {};
@@ -19,6 +20,7 @@ static auto parse(const char* raw) -> web::Request {
     close(fds[0] /* NOLINT */);
     return req;
 }
+} // namespace
 
 // ── method parsing ────────────────────────────────────────────────────────────
 
@@ -216,7 +218,7 @@ TEST_CASE("parse_request handles Cookie header > 8192 bytes", "[request]") {
     REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
 
     // Send in a thread — avoids deadlock when request exceeds socket send buffer
-    const std::jthread sender([&raw, &fds]() -> void {
+    const std::jthread sender([&raw, &fds] -> void {
         std::string_view remaining = raw;
         while (!remaining.empty()) {
             const ssize_t sent = ::send(fds.at(1), remaining.data(), remaining.size(), 0);

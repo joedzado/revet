@@ -18,7 +18,7 @@ struct msg_str {
     // A string literal binds only to a C array reference.
     // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, messages are template arguments and text
     constexpr msg_str(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
-        std::copy_n(s, N, data.begin());
+        std::ranges::copy(s, data.begin());
     }
     constexpr operator std::string_view() const {
         // NOLINTEND(*-explicit-constructor)

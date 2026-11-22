@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <revet/c_api.hpp>
 #include <revet/rails_encryption.hpp>
@@ -25,7 +26,7 @@ auto base64_encode(std::string_view in) -> std::string {
 }
 
 auto base64_decode(std::string_view in) -> std::string {
-    std::string out(in.size() / 4 * 3 + 3, '\0');
+    std::string out((in.size() / 4 * 3) + 3, '\0');
     std::size_t len = 0;
     const char* end = nullptr;
     if (sodium_base642bin(web::c_api::uchars(out), out.size(), in.data(), in.size(), nullptr, &len, &end,
@@ -56,7 +57,7 @@ auto inflate_text(std::string_view in) -> std::string {
     zs.avail_in = static_cast<uInt>(in.size());
 
     std::string out;
-    std::array<char, 64 * 1024> buf{};
+    std::array<char, static_cast<size_t>(64 * 1024)> buf{};
     int rc = Z_OK;
     while (rc != Z_STREAM_END) {
         zs.next_out = web::c_api::uchars(buf);

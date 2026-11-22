@@ -6,9 +6,11 @@
 // Helper: produce a sealed cookie value for a known raw token, same way the
 // middleware does, so tests can simulate a client returning a server-issued
 // cookie.
-static auto seal(const std::string& raw) -> std::string {
+namespace {
+auto seal(const std::string& raw) -> std::string {
     return web::crypto::encrypt(raw);
 }
+} // namespace
 
 TEST_CASE("CSRF Token Generation", "[csrf]") {
     auto t1 = web::csrf::generate_token();

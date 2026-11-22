@@ -24,9 +24,14 @@ void init_curl_global() {
 }
 
 struct CurlHandle {
+    CurlHandle() = default;
+    CurlHandle(const CurlHandle&) = delete;
+    auto operator=(const CurlHandle&) -> CurlHandle& = delete;
+    CurlHandle(CurlHandle&&) = delete;
+    auto operator=(CurlHandle&&) -> CurlHandle& = delete;
     CURL* h = curl_easy_init();
     ~CurlHandle() {
-        if (h) {
+        if (h != nullptr) {
             curl_easy_cleanup(h);
         }
     }
@@ -36,12 +41,17 @@ struct CurlHandle {
 };
 
 struct CurlHeaders {
+    CurlHeaders() = default;
+    CurlHeaders(const CurlHeaders&) = delete;
+    auto operator=(const CurlHeaders&) -> CurlHeaders& = delete;
+    CurlHeaders(CurlHeaders&&) = delete;
+    auto operator=(CurlHeaders&&) -> CurlHeaders& = delete;
     curl_slist* list = nullptr;
     void append(const std::string& header) {
         list = curl_slist_append(list, header.c_str());
     }
     ~CurlHeaders() {
-        if (list) {
+        if (list != nullptr) {
             curl_slist_free_all(list);
         }
     }
@@ -114,18 +124,21 @@ auto MockClient::execute(const std::string& method, const std::string& url,
 
 namespace global {
 namespace { // NOLINT(google-readability-anonymous-namespace-comments)
-std::shared_ptr<Client> g_client;
+auto client_slot() -> std::shared_ptr<Client>& {
+    static std::shared_ptr<Client> client;
+    return client;
+}
 } // namespace
 
 auto default_client() -> Client& {
-    if (!g_client) {
-        g_client = std::make_shared<CurlClient>();
+    if (!client_slot()) {
+        client_slot() = std::make_shared<CurlClient>();
     }
-    return *g_client;
+    return *client_slot();
 }
 
 void set_client(std::shared_ptr<Client> client) {
-    g_client = std::move(client);
+    client_slot() = std::move(client);
 }
 } // namespace global
 

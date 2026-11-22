@@ -30,7 +30,7 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
         workers.reserve(static_cast<size_t>(num_threads));
 
         for (int i = 0; i < num_threads; ++i) {
-            workers.emplace_back([&]() -> void {
+            workers.emplace_back([&] -> void {
                 std::array<int, 2> fds{};
                 if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) < 0) {
                     return;

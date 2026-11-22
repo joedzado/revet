@@ -107,8 +107,8 @@ TEST_CASE("json::Writer rejects misuse", "[json]") {
 }
 
 TEST_CASE("json::quote escapes control characters; number() has no NaN", "[json]") {
-    CHECK(revet::json::quote(std::string("a\x01"
-                                         "b\t")) == R"("a\u0001b\t")");
+    CHECK(revet::json::quote("a\x01"
+                             "b\t") == R"("a\u0001b\t")");
     CHECK(revet::json::number(std::numeric_limits<double>::infinity()) == "null");
     CHECK(revet::json::number(1.5) == "1.5");
 }
@@ -171,22 +171,22 @@ TEST_CASE("time::ago", "[time]") {
     const int64_t now = 1'800'000'000'000;
     CHECK(ago(now - 10'000, now) == "just now");
     CHECK(ago(now + 50'000, now) == "just now");
-    CHECK(ago(now - 12 * 60'000, now) == "12 min ago");
-    CHECK(ago(now - 5 * 3'600'000, now) == "5 h ago");
-    CHECK(ago(now - 3 * 86'400'000LL, now) == "3 days ago");
-    CHECK(ago(now - 120 * 86'400'000LL, now) == "4 months ago");
-    CHECK(ago(now - 800 * 86'400'000LL, now) == "2 years ago");
+    CHECK(ago(now - (12LL * 60'000), now) == "12 min ago");
+    CHECK(ago(now - (5LL * 3'600'000), now) == "5 h ago");
+    CHECK(ago(now - (3 * 86'400'000LL), now) == "3 days ago");
+    CHECK(ago(now - (120 * 86'400'000LL), now) == "4 months ago");
+    CHECK(ago(now - (800 * 86'400'000LL), now) == "2 years ago");
 }
 
 TEST_CASE("time::parse_date and iso_date", "[time]") {
-    using namespace std::chrono;
+    using std::chrono::year;
     const auto d = revet::time::parse_date("2026-11-08T10:00:00Z");
     REQUIRE(d);
-    CHECK(revet::time::iso_date(*d) == "2026-11-08");
+    CHECK(revet::time::iso_date(d.value()) == "2026-11-08");
     CHECK_FALSE(revet::time::parse_date("2026-02-30"));
     CHECK_FALSE(revet::time::parse_date("2026-1-08"));
     CHECK_FALSE(revet::time::parse_date(""));
-    CHECK(revet::time::days_between(*d, year{2026} / 12 / 8) == 30);
+    CHECK(revet::time::days_between(d.value(), year{2026} / 12 / 8) == 30);
     CHECK(revet::time::ago(year{2026} / 11 / 7, year{2026} / 11 / 8) == "yesterday");
     CHECK(revet::time::ago(year{2026} / 11 / 8, year{2026} / 11 / 8) == "today");
     CHECK(revet::time::today_iso().size() == 10);

@@ -28,35 +28,49 @@ namespace {
 
 // ── Terminal ────────────────────────────────────────────────────────────────
 
-termios g_saved_tty{};
-bool g_have_tty = false;
+// The terminal settings to restore on exit and from signal handlers.
+struct Tty {
+    termios saved{};
+    bool have = false;
+};
+auto tty() -> Tty& {
+    static Tty state;
+    return state;
+}
 
 void restore_tty() {
-    if (g_have_tty) {
-        tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    if (tty().have) {
+        tcsetattr(STDIN_FILENO, TCSADRAIN, &tty().saved);
     }
 }
 
 void raw_tty() {
-    if (!g_have_tty) {
+    if (!tty().have) {
         return;
     }
-    termios raw = g_saved_tty;
+    termios raw = tty().saved;
     cfmakeraw(&raw);
     tcsetattr(STDIN_FILENO, TCSADRAIN, &raw);
 }
 
 // ── Server process ──────────────────────────────────────────────────────────
 
-std::atomic<pid_t> g_server{-1};
-std::atomic<bool> g_server_own_group{false}; // false for lldb, which shares our terminal and group
+// The running app server; signal handlers stop it, so the first call happens before they are installed.
+struct Server {
+    std::atomic<pid_t> pid{-1};
+    std::atomic<bool> own_group{false}; // false for lldb, which shares our terminal and group
+};
+auto server() -> Server& {
+    static Server state;
+    return state;
+}
 
 void stop_server(bool wait) {
-    const pid_t pid = g_server.exchange(-1);
+    const pid_t pid = server().pid.exchange(-1);
     if (pid <= 0) {
         return;
     }
-    if (g_server_own_group) {
+    if (server().own_group) {
         killpg(pid, SIGTERM);
     } else {
         kill(pid, SIGTERM);
@@ -67,7 +81,7 @@ void stop_server(bool wait) {
 }
 
 auto server_running() -> bool {
-    pid_t pid = g_server;
+    pid_t pid = server().pid;
     if (pid <= 0) {
         return false;
     }
@@ -75,22 +89,22 @@ auto server_running() -> bool {
         return true;
     }
     // Exited and reaped (or not ours): forget the pid so nothing signals it after the OS reuses it.
-    g_server.compare_exchange_strong(pid, -1);
+    server().pid.compare_exchange_strong(pid, -1);
     return false;
 }
 
 // Ctrl-C while the terminal is cooked (during a build) or a kill: take the server down too.
 extern "C" void on_signal(int sig) {
-    const pid_t pid = g_server;
+    const pid_t pid = server().pid;
     if (pid > 0) {
-        if (g_server_own_group) {
+        if (server().own_group) {
             killpg(pid, SIGTERM);
         } else {
             kill(pid, SIGTERM);
         }
     }
-    if (g_have_tty) {
-        tcsetattr(STDIN_FILENO, TCSADRAIN, &g_saved_tty);
+    if (tty().have) {
+        tcsetattr(STDIN_FILENO, TCSADRAIN, &tty().saved);
     }
     _exit(128 + sig);
 }
@@ -248,8 +262,8 @@ void rebuild(const DevOptions& o, const std::string& reason) {
     const std::string bin = binary_path().string();
     if (o.lldb) {
         const Child c = spawn({"lldb", "--", bin, "--port", port});
-        g_server_own_group = false;
-        g_server = c.pid;
+        server().own_group = false;
+        server().pid = c.pid;
         ok("● lldb attached  " + url);
     } else if (o.profile) {
         std::error_code ec;
@@ -268,8 +282,8 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         so.env.push_back("PATH=" + dir + ":" + ((path != nullptr) ? path : ""));
         const std::string samply = which("samply").value_or("samply").string();
         const Child c = spawn({samply, "record", "-o", out, bin, "--port", port}, so);
-        g_server_own_group = true;
-        g_server = c.pid;
+        server().own_group = true;
+        server().pid = c.pid;
         if (c.pid > 0) {
             write_pid(c.pid);
         }
@@ -281,8 +295,8 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         const bool logging = std::getenv("LOG_LEVEL") != nullptr;
         so.err = logging ? Io::Pipe : Io::Null;
         const Child c = spawn({bin, "--port", port}, so);
-        g_server_own_group = true;
-        g_server = c.pid;
+        server().own_group = true;
+        server().pid = c.pid;
         if (c.pid <= 0) {
             err("cannot start " + bin);
             return;
@@ -326,10 +340,13 @@ auto cmd_dev(const DevOptions& o) -> int {
         }
     }
 
-    if (isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &g_saved_tty) == 0) {
-        g_have_tty = true;
+    if (isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &tty().saved) == 0) {
+        tty().have = true;
     }
     (void)std::atexit(restore_tty);
+    // Construct the state the handler touches before it can run.
+    (void)tty();
+    (void)server();
     struct sigaction sa {};
     sa.sa_handler = on_signal;
     sigemptyset(&sa.sa_mask);
@@ -367,7 +384,7 @@ auto cmd_dev(const DevOptions& o) -> int {
         if (key == 'r') {
             rebuild(o, "");
         } else if (key == 'd') {
-            const pid_t pid = g_server;
+            const pid_t pid = server().pid;
             if (server_running()) {
                 run_inherit({"lldb", "-p", std::to_string(pid)});
                 clear_screen();
@@ -392,7 +409,7 @@ auto cmd_dev(const DevOptions& o) -> int {
             }
             print_keys();
         } else if (key == 'q' || key == '\x03') {
-            if (o.profile && g_server > 0) {
+            if (o.profile && server().pid > 0) {
                 ok("● writing profile…");
             }
             stop_server(o.profile);

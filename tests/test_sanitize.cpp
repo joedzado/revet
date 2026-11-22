@@ -13,7 +13,7 @@ TEST_CASE("safe_url — passes safe schemes", "[sanitize]") {
     CHECK(sanitize::safe_url("#anchor") == "#anchor");
     CHECK(sanitize::safe_url("mailto:a@b.com") == "mailto:a@b.com");
     CHECK(sanitize::safe_url("tel:+123456789") == "tel:+123456789");
-    CHECK(sanitize::safe_url("") == "");
+    CHECK(sanitize::safe_url("").empty());
 }
 
 TEST_CASE("safe_url — blocks javascript: URI", "[sanitize]") {
@@ -40,7 +40,7 @@ TEST_CASE("url_decode — valid percent-encoding", "[sanitize]") {
     CHECK(sanitize::url_decode("a%2Bb") == "a+b");
     CHECK(sanitize::url_decode("%41%42%43") == "ABC");
     CHECK(sanitize::url_decode("+") == " ");
-    CHECK(sanitize::url_decode("") == "");
+    CHECK(sanitize::url_decode("").empty());
 }
 
 TEST_CASE("url_decode — invalid %XX passes through literally, no null byte", "[sanitize]") {

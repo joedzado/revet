@@ -32,9 +32,18 @@ enum class Level : unsigned char {
 // ── Internal Implementation ───────────────────────────────────────────────────
 
 namespace detail {
-inline std::mutex log_mutex;
-inline thread_local std::string_view current_tag = tags::FRAMEWORK;
-inline Level current_level = Level::INFO;
+inline auto log_mutex() -> std::mutex& {
+    static std::mutex mu;
+    return mu;
+}
+inline auto current_tag() -> std::string_view& {
+    thread_local std::string_view tag = tags::FRAMEWORK;
+    return tag;
+}
+inline auto current_level() -> Level& {
+    static Level level = Level::INFO;
+    return level;
+}
 
 inline auto level_name(Level lvl) -> std::string_view {
     switch (lvl) {
@@ -56,12 +65,12 @@ inline auto timestamp() -> std::string {
 }
 
 inline void write_impl(Level lvl, std::string_view tag, std::string_view msg) {
-    if (lvl < current_level) {
+    if (lvl < current_level()) {
         return;
     }
 
     std::string output = std::format("[{}] {} [{}] {}", timestamp(), level_name(lvl), tag, msg);
-    const std::scoped_lock lock(log_mutex);
+    const std::scoped_lock lock(log_mutex());
     std::println(stderr, "{}", output);
 }
 } // namespace detail
@@ -69,16 +78,16 @@ inline void write_impl(Level lvl, std::string_view tag, std::string_view msg) {
 // ── Public Control API ─────────────────────────────────────────────────────────
 
 inline void set_level(Level lvl) {
-    detail::current_level = lvl;
+    detail::current_level() = lvl;
 }
 
 inline auto get_level() -> Level {
-    return detail::current_level;
+    return detail::current_level();
 }
 
 inline void init_from_env() {
     const char* env_level = std::getenv("LOG_LEVEL");
-    if (!env_level) {
+    if (env_level == nullptr) {
         return;
     }
 
@@ -97,39 +106,39 @@ inline void init_from_env() {
 
 template<typename... Args>
 inline void debug(std::format_string<Args...> fmt, Args&&... args) {
-    detail::write_impl(Level::DEBUG, detail::current_tag, std::format(fmt, std::forward<Args>(args)...));
+    detail::write_impl(Level::DEBUG, detail::current_tag(), std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<typename... Args>
 inline void info(std::format_string<Args...> fmt, Args&&... args) {
-    detail::write_impl(Level::INFO, detail::current_tag, std::format(fmt, std::forward<Args>(args)...));
+    detail::write_impl(Level::INFO, detail::current_tag(), std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<typename... Args>
 inline void warn(std::format_string<Args...> fmt, Args&&... args) {
-    detail::write_impl(Level::WARN, detail::current_tag, std::format(fmt, std::forward<Args>(args)...));
+    detail::write_impl(Level::WARN, detail::current_tag(), std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<typename... Args>
 inline void error(std::format_string<Args...> fmt, Args&&... args) {
-    detail::write_impl(Level::ERROR, detail::current_tag, std::format(fmt, std::forward<Args>(args)...));
+    detail::write_impl(Level::ERROR, detail::current_tag(), std::format(fmt, std::forward<Args>(args)...));
 }
 
 // Simple message versions
 inline void debug(std::string_view msg) {
-    detail::write_impl(Level::DEBUG, detail::current_tag, msg);
+    detail::write_impl(Level::DEBUG, detail::current_tag(), msg);
 }
 
 inline void info(std::string_view msg) {
-    detail::write_impl(Level::INFO, detail::current_tag, msg);
+    detail::write_impl(Level::INFO, detail::current_tag(), msg);
 }
 
 inline void warn(std::string_view msg) {
-    detail::write_impl(Level::WARN, detail::current_tag, msg);
+    detail::write_impl(Level::WARN, detail::current_tag(), msg);
 }
 
 inline void error(std::string_view msg) {
-    detail::write_impl(Level::ERROR, detail::current_tag, msg);
+    detail::write_impl(Level::ERROR, detail::current_tag(), msg);
 }
 
 // ── Logging API: Explicit Tag with simple message ────────────────────────────────
@@ -159,24 +168,28 @@ inline void error(std::string_view msg) {
 template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0) // Require at least one arg to avoid ambiguity with simple string_view version
 inline void debug(std::format_string<Args...> fmt, Args&&... args) {
+    // NOLINTNEXTLINE(readability-redundant-parentheses): false positive on the reference template argument
     detail::write_impl(Level::DEBUG, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void info(std::format_string<Args...> fmt, Args&&... args) {
+    // NOLINTNEXTLINE(readability-redundant-parentheses): false positive on the reference template argument
     detail::write_impl(Level::INFO, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void warn(std::format_string<Args...> fmt, Args&&... args) {
+    // NOLINTNEXTLINE(readability-redundant-parentheses): false positive on the reference template argument
     detail::write_impl(Level::WARN, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
 template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void error(std::format_string<Args...> fmt, Args&&... args) {
+    // NOLINTNEXTLINE(readability-redundant-parentheses): false positive on the reference template argument
     detail::write_impl(Level::ERROR, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
@@ -185,7 +198,7 @@ inline void error(std::format_string<Args...> fmt, Args&&... args) {
 //   static const log::TuTag LOG(log::tags::ROUTES);
 struct TuTag {
     explicit TuTag(std::string_view tag) noexcept {
-        detail::current_tag = tag;
+        detail::current_tag() = tag;
     }
 };
 

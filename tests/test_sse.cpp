@@ -6,13 +6,14 @@
 #include <thread>
 #include <unistd.h>
 
-static auto make_socketpair() -> std::pair<int, int> {
+namespace {
+auto make_socketpair() -> std::pair<int, int> {
     std::array<int, 2> fds{};
     REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
     return {fds.at(0), fds.at(1)};
 }
 
-static auto read_all(int fd, int timeout_ms = 200) -> std::string {
+auto read_all(int fd, int timeout_ms = 200) -> std::string {
     std::string out;
     std::array<char, 4096> buf{};
     struct timeval tv {
@@ -28,6 +29,7 @@ static auto read_all(int fd, int timeout_ms = 200) -> std::string {
     }
     return out;
 }
+} // namespace
 
 TEST_CASE("SSEWriter::send emits correct event format") {
     auto [writer_fd, reader_fd] = make_socketpair();

@@ -54,7 +54,7 @@ TEST_CASE("to_pg_param: bool") {
 TEST_CASE("to_pg_param: std::string passthrough") {
     const std::string s = "hello world";
     CHECK(to_pg_param(s) == "hello world");
-    CHECK(to_pg_param(std::string{}) == "");
+    CHECK(to_pg_param(std::string{}).empty());
 }
 
 TEST_CASE("to_pg_param: string_view passthrough") {
@@ -79,7 +79,7 @@ TEST_CASE("to_nullable_pg_param: NULL sources") {
 TEST_CASE("positional_sql: placeholders") {
     CHECK(positional_sql("select ?, ?") == "select $1, $2");
     CHECK(positional_sql("no params") == "no params");
-    CHECK(positional_sql("") == "");
+    CHECK(positional_sql("").empty());
 }
 
 TEST_CASE("positional_sql: ? is left alone inside quoted text and comments") {

@@ -57,7 +57,7 @@ namespace config {
 // localhost dev over plain HTTP works. Production deployments behind HTTPS
 // should turn this on at startup (or set env REVET_FORCE_SECURE_COOKIES=1).
 inline auto secure_cookies_flag() -> bool& {
-    static bool flag = []() -> bool {
+    static bool flag = [] -> bool {
         const char* env = std::getenv("REVET_FORCE_SECURE_COOKIES");
         return env != nullptr && std::string_view(env) == "1";
     }();
@@ -639,11 +639,11 @@ inline auto sanitize_filename(std::string_view name) -> std::string {
                           return u >= 0x20 && u != 0x7F;
                       }) |
                       std::ranges::to<std::string>();
-    if (const auto start = out.find_first_not_of('.'); start == std::string::npos) {
+    const auto start = out.find_first_not_of('.');
+    if (start == std::string::npos) {
         return "upload";
-    } else if (start > 0) {
-        out = out.substr(start);
     }
+    out.erase(0, start);
     return out.empty() ? "upload" : out;
 }
 
@@ -681,7 +681,9 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
         }
         pos += 2;
 
-        std::string field_name, filename, content_type;
+        std::string field_name;
+        std::string filename;
+        std::string content_type;
 
         while (true) {
             const size_t eol = body.find("\r\n", pos);
@@ -816,6 +818,7 @@ inline auto to_response(T&& val) -> Response {
     if constexpr (std::is_same_v<std::decay_t<T>, Response>) {
         return std::forward<T>(val);
     } else {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
         return to_response(std::string(std::forward<T>(val)));
     }
 }
@@ -978,12 +981,10 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
                 const char* const end = std::to_address(val.end());
                 const auto [ptr, ec] = std::from_chars(begin, end, n);
                 // Trailing junk ("5abc", "5 0") is a length two parsers can disagree on.
-                if (ec == std::errc::result_out_of_range && ptr == end) {
-                    req.body_too_large = true;
-                    content_length = 0;
-                } else if (ec != std::errc{} || ptr != end) {
+                const bool too_big = ec == std::errc::result_out_of_range;
+                if (ptr != end || (ec != std::errc{} && !too_big)) {
                     content_length_bad = true;
-                } else if (n > config::max_body_bytes()) {
+                } else if (too_big || n > config::max_body_bytes()) {
                     req.body_too_large = true;
                     content_length = 0;
                 } else {
@@ -1062,7 +1063,7 @@ inline void send_all(int fd, std::string_view data) {
 
 inline void send_response(int fd, const Response& resp) {
     std::string head;
-    head.reserve(200 + resp.headers.data.size() * 64 + resp.cookies.data.size() * 100);
+    head.reserve(200 + (resp.headers.data.size() * 64) + (resp.cookies.data.size() * 100));
     head += std::format("HTTP/1.1 {} {}\r\n"
                         "Content-Type: {}\r\n"
                         "Content-Length: {}\r\n"
@@ -1132,7 +1133,7 @@ struct SSEWriter {
     }
 
     [[nodiscard]] auto alive() const -> bool {
-        char buf;
+        char buf = 0;
         const ssize_t r = ::recv(fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
         return r > 0 || (r < 0 && errno == EAGAIN);
     }
@@ -1231,7 +1232,7 @@ inline auto dispatch(const Request& req, const Handler& handler,
     std::ranges::transform(global, std::back_inserter(pipeline), [](const auto& mw) -> auto { return &mw; });
 
     size_t idx = 0;
-    Next next = [&idx, &pipeline, &handler, &req, &next]() -> Response {
+    Next next = [&idx, &pipeline, &handler, &req, &next] -> Response {
         if (idx < pipeline.size()) {
             return (*pipeline.at(idx++))(req, next);
         }
@@ -1252,7 +1253,7 @@ inline auto internal_error_response(const Request& req) -> Response {
 }
 
 // Parameters are held in the coroutine frame, so req outlives every suspension.
-inline auto run_async_handler(std::shared_ptr<const Request> req, const AsyncHandler& handler,
+inline auto run_async_handler(std::shared_ptr<const Request> req, AsyncHandler handler,
                               Response from_pipeline) -> Task<Response> {
     Response resp;
     try {
@@ -1296,7 +1297,7 @@ inline void dispatch_async(std::shared_ptr<const Request> req, const AsyncHandle
         return;
     }
     detail::run_async_handler(std::move(req), handler, std::move(from_pipeline))
-        .start([done = std::move(done)](Response resp) -> void { done(resp); });
+        .start([done = std::move(done)](const Response& resp) -> void { done(resp); });
 }
 
 struct Route {
@@ -1463,7 +1464,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         }
         try {
             std::thread([client_fd, slot = std::move(*slot), leftover = std::move(leftover), ws_fn = it->ws,
-                         guards = it->guards, req]() mutable -> void {
+                         guards = it->guards, req] mutable -> void {
                 std::optional<Response> refused;
                 try {
                     refused = detail::sse_gate(req, guards);
@@ -1520,7 +1521,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
 
     // SSE — detached thread so pool isn't held for connection duration
     if (req.method == Method::GET && it->sse) {
-        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req]() -> void {
+        std::thread([client_fd, sse_fn = it->sse, guards = it->guards, req] -> void {
             std::optional<Response> refused;
             try {
                 refused = detail::sse_gate(req, guards);
@@ -1565,7 +1566,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         async_h = &it->async_patch;
     }
 
-    if (async_h) {
+    if (async_h != nullptr) {
         dispatch_async(std::make_shared<const Request>(std::move(req)), *async_h, it->guards,
                        [client_fd](const Response& resp) -> void {
                            send_response(client_fd, resp);
@@ -1612,7 +1613,7 @@ inline void listen(const std::vector<Route>& all_routes) {
     // A client that disconnects mid-response (closing a tab on an SSE stream,
     // say) would otherwise kill the server with SIGPIPE on its next write;
     // with it ignored, send() just returns EPIPE.
-    std::signal(SIGPIPE, SIG_IGN);
+    (void)std::signal(SIGPIPE, SIG_IGN);
 
     const auto& cfg = detail::server_config();
     // Found now rather than on the first login.
@@ -1659,7 +1660,7 @@ inline void listen(const std::vector<Route>& all_routes) {
                 continue;
             }
 
-            detail::request_pool()->submit([client_fd, &all_routes]() -> void { on_client(client_fd, all_routes); });
+            detail::request_pool()->submit([client_fd, &all_routes] -> void { on_client(client_fd, all_routes); });
         }
     }
 }

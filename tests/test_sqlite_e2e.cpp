@@ -30,7 +30,7 @@ struct UserDb {
                " email TEXT NOT NULL UNIQUE)");
     }
     ~UserDb() {
-        std::remove(path.c_str());
+        (void)std::remove(path.c_str());
     }
     UserDb(const UserDb&) = delete;
     auto operator=(const UserDb&) -> UserDb& = delete;

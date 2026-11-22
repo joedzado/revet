@@ -37,6 +37,7 @@ struct Ctx {
 template<class... T>
 auto cat(const T&... parts) -> std::string {
     std::string out;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     (out.append(std::string_view(parts)), ...);
     return out;
 }

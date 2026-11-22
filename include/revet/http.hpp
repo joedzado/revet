@@ -20,7 +20,7 @@ public:
     }
 
     void await_suspend(std::coroutine_handle<> h) {
-        web::detail::io_submit([this, h]() mutable -> auto {
+        web::detail::io_submit([this, h] mutable -> auto {
             response_ = client_->execute(method_, url_, {}, "");
             h.resume();
         });

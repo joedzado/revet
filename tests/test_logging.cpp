@@ -15,7 +15,7 @@ TEST_CASE("Logging system level control", "[logging]") {
 TEST_CASE("Default tag (TU-level)", "[logging]") {
     web::log::set_level(web::log::Level::DEBUG);
 
-    // With LOG_TAG macro, current_tag is set
+    // With LOG_TAG macro, current_tag() is set
     // These should not throw and use the current tag
     web::log::debug("debug message");
     web::log::info("info message");

@@ -73,7 +73,7 @@ auto convert(const std::optional<std::string>& cell, size_t col) -> T {
 }
 
 template<typename... Cols, typename RowT, size_t... I>
-auto typed_row(const RowT& row, std::index_sequence<I...>) -> std::tuple<Cols...> {
+auto typed_row(const RowT& row, std::index_sequence<I...> /*unused*/) -> std::tuple<Cols...> {
     if (row.size() < sizeof...(Cols)) {
         throw std::runtime_error(
             std::format("db: query returned {} columns, expected {}", row.size(), sizeof...(Cols)));

@@ -39,6 +39,7 @@ template<typename T>
 inline auto target(const html::typed_id<T>& id) -> html::Node {
     return html::attr("hx-target", id.selector());
 }
+// NOLINTNEXTLINE(bugprone-exception-escape): named for hx-swap, not a swap function
 inline auto swap(std::string_view strategy) -> html::Node {
     return html::attr("hx-swap", strategy);
 }
@@ -428,6 +429,7 @@ namespace sse {
 inline auto connect(std::string_view url) -> html::Node {
     return html::attr("sse-connect", url);
 }
+// NOLINTNEXTLINE(bugprone-exception-escape): named for sse-swap, not a swap function
 inline auto swap(std::string_view target) -> html::Node {
     return html::attr("sse-swap", target);
 }

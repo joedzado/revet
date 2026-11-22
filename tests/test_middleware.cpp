@@ -6,21 +6,28 @@
 #include <string>
 #include <vector>
 
-static auto make_req(web::Method m, std::string path) -> web::Request {
+namespace {
+auto make_req(web::Method m, std::string path) -> web::Request {
     return {.method = m, .path = web::Url(std::move(path))};
 }
 
-static auto make_req_with_cookie(std::string path, std::string key, std::string val) -> web::Request {
+auto make_req_with_cookie(std::string path, std::string key, std::string val) -> web::Request {
     web::Request req;
     req.method = web::Method::GET;
     req.path = web::Url(std::move(path));
     req.cookies.data[std::move(key)] = std::move(val);
     return req;
 }
+} // namespace
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 struct ScopedMiddlewares {
+    ScopedMiddlewares() = default;
+    ScopedMiddlewares(const ScopedMiddlewares&) = delete;
+    auto operator=(const ScopedMiddlewares&) -> ScopedMiddlewares& = delete;
+    ScopedMiddlewares(ScopedMiddlewares&&) = delete;
+    auto operator=(ScopedMiddlewares&&) -> ScopedMiddlewares& = delete;
     ~ScopedMiddlewares() {
         web::clear_middlewares();
     }
@@ -42,7 +49,7 @@ TEST_CASE("dispatch — middleware runs before handler", "[middleware]") {
     const ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request& req, web::Next next) -> web::Response {
+    web::use([&](const web::Request& /*req*/, const web::Next& next) -> web::Response {
         order.emplace_back("mw");
         return next();
     });
@@ -60,15 +67,15 @@ TEST_CASE("dispatch — multiple middleware run in registration order", "[middle
     const ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("a");
         return next();
     });
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("b");
         return next();
     });
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("c");
         return next();
     });
@@ -88,7 +95,7 @@ TEST_CASE("dispatch — middleware can short-circuit without calling handler", "
     const ScopedMiddlewares _;
     bool handler_called = false;
 
-    web::use([](const web::Request&, web::Next) -> web::Response {
+    web::use([](const web::Request&, const web::Next&) -> web::Response {
         return {.body = "blocked", .status = web::status::unauthorized};
     });
 
@@ -108,7 +115,7 @@ TEST_CASE("dispatch — middleware can short-circuit without calling handler", "
 TEST_CASE("auth middleware — allows request with valid session cookie", "[middleware]") {
     const ScopedMiddlewares _;
 
-    web::use([](const web::Request& req, web::Next next) -> web::Response {
+    web::use([](const web::Request& req, const web::Next& next) -> web::Response {
         if (req.cookies.get("session").empty()) {
             return {.body = "unauthorized", .status = web::status::unauthorized};
         }
@@ -126,7 +133,7 @@ TEST_CASE("auth middleware — allows request with valid session cookie", "[midd
 TEST_CASE("auth middleware — blocks request without session cookie", "[middleware]") {
     const ScopedMiddlewares _;
 
-    web::use([](const web::Request& req, web::Next next) -> web::Response {
+    web::use([](const web::Request& req, const web::Next& next) -> web::Response {
         if (req.cookies.get("session").empty()) {
             return {.body = "unauthorized", .status = web::status::unauthorized};
         }
@@ -145,7 +152,7 @@ TEST_CASE("auth middleware — blocks request without session cookie", "[middlew
 TEST_CASE("dispatch — middleware can mutate response after handler", "[middleware]") {
     const ScopedMiddlewares _;
 
-    web::use([](const web::Request&, web::Next next) -> web::Response {
+    web::use([](const web::Request&, const web::Next& next) -> web::Response {
         auto resp = next();
         resp.headers.data["X-Powered-By"] = "revet";
         return resp;
@@ -165,7 +172,7 @@ TEST_CASE("logging middleware — sees both request path and response status", "
     std::string logged_path;
     int logged_status = 0;
 
-    web::use([&](const web::Request& req, web::Next next) -> web::Response {
+    web::use([&](const web::Request& req, const web::Next& next) -> web::Response {
         auto resp = next();
         logged_path = req.path.path;
         logged_status = resp.status;
@@ -187,14 +194,14 @@ TEST_CASE("dispatch — middleware wraps handler symmetrically", "[middleware]")
     const ScopedMiddlewares _;
     std::vector<std::string> order;
 
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("before-a");
         auto r = next();
         order.emplace_back("after-a");
         return r;
     });
 
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("before-b");
         auto r = next();
         order.emplace_back("after-b");
@@ -222,7 +229,7 @@ TEST_CASE("SSE routes run global middleware, even with no guards", "[middleware]
     });
     const auto gate = web::detail::sse_gate(make_req(web::Method::GET, "/events"), {});
     REQUIRE(gate.has_value());
-    CHECK(gate->status == web::status::forbidden);
+    CHECK(gate.value().status == web::status::forbidden);
 }
 
 TEST_CASE("SSE routes stream when nothing refuses", "[middleware][sse]") {

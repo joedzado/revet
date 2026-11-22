@@ -26,7 +26,7 @@
 #include <mach-o/dyld.h>
 #endif
 
-extern char** environ;
+extern char** environ; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables): defined by POSIX
 
 namespace revet::cli {
 
@@ -130,7 +130,7 @@ auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Ch
         return child;
     }
 
-    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_t actions{};
     posix_spawn_file_actions_init(&actions);
     const auto route = [&](Io io, int fd, const std::array<int, 2>& pipe_fds) -> void {
         if (io == Io::Null) {
@@ -152,7 +152,7 @@ auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Ch
     }
 #pragma clang diagnostic pop
 
-    posix_spawnattr_t attr;
+    posix_spawnattr_t attr{};
     posix_spawnattr_init(&attr);
     // POSIX declares the spawn flags as int constants and the attribute as short.
     // NOLINTBEGIN(bugprone-signed-bitwise,hicpp-signed-bitwise)
@@ -162,8 +162,8 @@ auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Ch
     }
     // NOLINTEND(bugprone-signed-bitwise,hicpp-signed-bitwise)
     posix_spawnattr_setflags(&attr, flags);
-    sigset_t none;
-    sigset_t defaults;
+    sigset_t none{};
+    sigset_t defaults{};
     sigemptyset(&none);
     posix_spawnattr_setsigmask(&attr, &none);
     sigemptyset(&defaults);
@@ -438,7 +438,7 @@ auto find_up(const fs::path& start, const std::function<bool(const fs::path&)>& 
 // ── Hashes ──────────────────────────────────────────────────────────────────
 
 // Fixed-size digest blocks: every index is bounded by its loop.
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 namespace {
 
@@ -512,8 +512,8 @@ auto md5_hex(std::string_view data) -> std::string {
         std::uint32_t c = c0;
         std::uint32_t d = d0;
         for (unsigned i = 0; i < 64; ++i) {
-            std::uint32_t f;
-            unsigned g;
+            std::uint32_t f = 0;
+            unsigned g = 0;
             if (i < 16) {
                 f = (b & c) | (~b & d), g = i;
             } else if (i < 32) {
@@ -560,8 +560,8 @@ auto sha1_hex(std::string_view data) -> std::string {
         std::uint32_t d = h[3];
         std::uint32_t e = h[4];
         for (int i = 0; i < 80; ++i) {
-            std::uint32_t f;
-            std::uint32_t k;
+            std::uint32_t f = 0;
+            std::uint32_t k = 0;
             if (i < 20) {
                 f = (b & c) | (~b & d), k = 0x5A827999;
             } else if (i < 40) {
@@ -589,7 +589,7 @@ auto sha1_hex(std::string_view data) -> std::string {
     return to_hex(out, 20);
 }
 
-// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 // ── Framework ───────────────────────────────────────────────────────────────
 

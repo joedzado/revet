@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <format>
@@ -15,8 +16,8 @@
 namespace revet::time {
 
 inline auto now_ms() -> int64_t {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 // Local broken-down time (honours TZ).
@@ -79,7 +80,7 @@ inline auto parse_date(std::string_view s) -> std::optional<std::chrono::year_mo
         if (!std::ranges::all_of(field, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
             return std::nullopt;
         }
-        return std::ranges::fold_left(field, 0, [](int v, char c) -> int { return v * 10 + (c - '0'); });
+        return std::ranges::fold_left(field, 0, [](int v, char c) -> int { return (v * 10) + (c - '0'); });
     };
     const auto y = digits(0, 4);
     const auto m = digits(5, 2);
@@ -107,10 +108,10 @@ inline auto ago(int64_t ms, int64_t now = now_ms()) -> std::string {
     if (s < 90) {
         return "just now";
     }
-    if (s < 90 * 60) {
+    if (s < static_cast<int64_t>(90 * 60)) {
         return std::format("{} min ago", s / 60);
     }
-    if (s < 48 * 3600) {
+    if (s < static_cast<int64_t>(48 * 3600)) {
         return std::format("{} h ago", s / 3600);
     }
     const int64_t days = s / 86400;

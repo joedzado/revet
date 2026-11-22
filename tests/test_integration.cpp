@@ -1,6 +1,9 @@
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstring>
+#include <ranges>
 #include <revet/web.hpp>
 #include <span>
 #include <string>
@@ -9,31 +12,33 @@
 
 // Drives a single request through the full parse → dispatch → send pipeline
 // using a socketpair, matching what the real server loop does.
-static auto http_roundtrip(const std::vector<web::Route>& routes, const std::string& raw_request,
-                           const std::vector<web::Middleware>& middlewares = {}) -> std::string {
+namespace {
+auto http_roundtrip(const std::vector<web::Route>& routes, const std::string& raw_request,
+                    const std::vector<web::Middleware>& middlewares = {}) -> std::string {
     std::array<int, 2> fds{};
     socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
 
-    const std::jthread server([&]() -> void {
+    const std::jthread server([&] -> void {
         const auto req = web::parse_request(fds.at(0));
-        web::Response resp;
-        for (const auto& r : routes) {
+        // The handler for the request's path and method, if any.
+        auto handler_of = [&](const web::Route& r) -> web::Handler {
             if (r.path != std::string_view(req.path)) {
-                continue;
+                return {};
             }
-            web::Handler h;
             if (req.method == web::Method::GET && r.get) {
-                h = r.get;
-            } else if (req.method == web::Method::POST && r.post) {
-                h = r.post;
+                return r.get;
             }
-            if (h) {
-                resp = web::dispatch(req, h, middlewares);
-                goto done;
+            if (req.method == web::Method::POST && r.post) {
+                return r.post;
             }
-        }
-        resp = {.body = "404 Not Found", .status = web::status::not_found};
-    done:
+            return {};
+        };
+        auto handlers = routes | std::views::transform(handler_of);
+        const auto h =
+            std::ranges::find_if(handlers, [](const web::Handler& f) -> bool { return static_cast<bool>(f); });
+        const web::Response resp = h != handlers.end()
+                                       ? web::dispatch(req, *h, middlewares)
+                                       : web::Response{.body = "404 Not Found", .status = web::status::not_found};
         web::send_response(fds.at(0), resp);
         close(fds.at(0));
     });
@@ -41,8 +46,9 @@ static auto http_roundtrip(const std::vector<web::Route>& routes, const std::str
     send(fds.at(1), raw_request.data(), raw_request.size(), 0);
     shutdown(fds.at(1), SHUT_WR);
 
-    std::string buf(32 * 1024, '\0');
-    ssize_t total = 0, n = 0;
+    std::string buf(32UZ * 1024UZ, '\0');
+    ssize_t total = 0;
+    ssize_t n = 0;
     while ((n = recv(fds.at(1), std::span(buf).subspan(static_cast<size_t>(total)).data(),
                      buf.size() - static_cast<size_t>(total), 0)) > 0) {
         total += n;
@@ -51,6 +57,7 @@ static auto http_roundtrip(const std::vector<web::Route>& routes, const std::str
     buf.resize(static_cast<size_t>(total));
     return buf;
 }
+} // namespace
 
 // ── basic routing ─────────────────────────────────────────────────────────────
 
@@ -91,7 +98,7 @@ TEST_CASE("integration: POST reads form data", "[integration]") {
 
 TEST_CASE("integration: middleware runs before handler", "[integration]") {
     std::vector<std::string> order;
-    const web::Middleware mw = [&](const web::Request& req, web::Next next) -> web::Response {
+    const web::Middleware mw = [&](const web::Request& /*req*/, const web::Next& next) -> web::Response {
         order.emplace_back("mw");
         return next();
     };
@@ -104,7 +111,7 @@ TEST_CASE("integration: middleware runs before handler", "[integration]") {
 }
 
 TEST_CASE("integration: middleware can short-circuit handler", "[integration]") {
-    const web::Middleware blocker = [](const web::Request&, web::Next) -> web::Response {
+    const web::Middleware blocker = [](const web::Request&, const web::Next&) -> web::Response {
         web::Response r = web::to_response("blocked");
         r.status = web::status::forbidden;
         return r;

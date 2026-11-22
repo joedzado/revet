@@ -163,7 +163,7 @@ TEST_CASE("text starting with a space cannot become an attribute", "[html][secur
 }
 
 TEST_CASE("attr values accept i18n strings", "[html]") {
-    const i18n::Str<2> hint{{"Say hi", "Di hola"}};
+    const i18n::Str<2> hint{.data = {"Say hi", "Di hola"}};
     const html::Node n{html::attr.placeholder(hint)};
     CHECK(n.str == R"( placeholder="Say hi")");
 }

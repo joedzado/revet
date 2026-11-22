@@ -7,25 +7,26 @@
 //   }
 
 #include "css.hpp"
-#include "htmx.hpp"
 
 #include <initializer_list>
 #include <string>
 #include <string_view>
 
+#include "htmx.hpp"
+
 namespace html {
 
 struct HeadOptions {
     std::string_view title;
-    std::string_view description = {};  // <meta name="description">
-    std::string_view theme_color = {};  // <meta name="theme-color">
+    std::string_view description; // <meta name="description">
+    std::string_view theme_color; // <meta name="theme-color">
     std::string_view viewport = "width=device-width,initial-scale=1";
-    std::string_view icon = {};         // <link rel="icon" href=...>
+    std::string_view icon; // <link rel="icon" href=...>
     // Applies a saved data-theme before first paint, so a dark-mode page doesn't flash light.
     bool theme_restore = true;
     bool htmx = true;
-    bool optimistic = false;            // needed for htmx::optimistic_* and htmx::js::*
-    std::string_view htmx_config = {};  // JSON for <meta name="htmx-config">
+    bool optimistic = false;      // needed for htmx::optimistic_* and htmx::js::*
+    std::string_view htmx_config; // JSON for <meta name="htmx-config">
 };
 
 inline auto standard_head(const HeadOptions& o, std::initializer_list<Node> extra = {}) -> Node {

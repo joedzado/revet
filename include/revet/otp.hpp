@@ -93,7 +93,7 @@ inline auto code(std::string_view secret, std::uint64_t counter) -> std::string 
 inline auto matching_step(std::string_view secret, std::string_view submitted,
                           std::uint64_t now = now_step()) -> std::uint64_t {
     const auto steps = std::to_array<std::uint64_t>({now - 1, now, now + 1});
-    const auto match = std::ranges::find_if(
+    const auto* const match = std::ranges::find_if(
         steps, [&](std::uint64_t step) -> bool { return crypto::secure_eq(code(secret, step), submitted); });
     return match == steps.end() ? 0 : *match;
 }
@@ -147,7 +147,7 @@ public:
 private:
     struct Entry {
         int failures = 0;
-        std::chrono::steady_clock::time_point until{};
+        std::chrono::steady_clock::time_point until;
     };
     std::mutex mu_;
     int max_;

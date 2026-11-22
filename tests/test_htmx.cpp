@@ -127,7 +127,7 @@ TEST_CASE("htmx::get_target — reads HX-Target header", "[htmx]") {
 
 TEST_CASE("htmx::get_target — returns empty string if missing", "[htmx]") {
     const web::Request req;
-    CHECK(htmx::get_target(req) == "");
+    CHECK(htmx::get_target(req).empty());
 }
 
 TEST_CASE("htmx::get_trigger — reads HX-Trigger header", "[htmx]") {

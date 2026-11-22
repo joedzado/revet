@@ -194,7 +194,7 @@ struct Field {
             }
         }
 
-        auto check_rule = [this]<typename R>() -> bool {
+        auto check_rule = [this]<typename R> -> bool {
             if (!R::check(value)) {
                 error = R::msg();
                 return false;
@@ -208,10 +208,10 @@ struct Field {
     operator html::Node() const {
         // NOLINTEND(*-explicit-constructor)
         std::string class_attr;
-        if (_style) {
-            html::detail::style_registry[_style->name] = _style->rules;
+        if (_style != nullptr) {
+            html::detail::style_registry()[_style->name] = _style->rules;
             for (const auto& [sel, r] : _style->pseudo) {
-                html::detail::style_registry[_style->name + sel] = r;
+                html::detail::style_registry()[_style->name + sel] = r;
             }
             class_attr = std::format(" class=\"{}\"", _style->name);
         }

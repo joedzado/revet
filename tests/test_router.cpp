@@ -5,7 +5,8 @@
 #include <sys/socket.h>
 #include <vector>
 
-static auto dispatch_and_read(const std::vector<web::Route>& all_routes, web::Request req) -> std::string {
+namespace {
+auto dispatch_and_read(const std::vector<web::Route>& all_routes, web::Request req) -> std::string {
     const auto route = std::ranges::find_if(
         all_routes, [&](const web::Route& r) -> bool { return web::match_route(r.path, req.path.path, req.params); });
     if (route == all_routes.end()) {
@@ -27,12 +28,13 @@ static auto dispatch_and_read(const std::vector<web::Route>& all_routes, web::Re
     return resp.body;
 }
 
-static auto make_req(web::Method m, std::string path) -> web::Request {
+auto make_req(web::Method m, std::string path) -> web::Request {
     return {
         .method = m,
         .path = web::Url(std::move(path)),
     };
 }
+} // namespace
 
 TEST_CASE("Route Dispatching", "[router]") {
     std::vector<web::Route> all_routes;

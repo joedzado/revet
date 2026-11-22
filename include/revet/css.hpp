@@ -137,16 +137,28 @@ struct css_props {
 namespace detail {
 // Accumulates per-request dynamic classes. Thread-local so concurrent requests
 // don't mix class registrations. Flushed into <style> by html_doc::render().
-inline thread_local std::unordered_map<std::string, std::string> style_registry;
+inline auto style_registry() -> std::unordered_map<std::string, std::string>& {
+    thread_local std::unordered_map<std::string, std::string> registry;
+    return registry;
+}
 
 // ui:: component CSS/JS — keyed by component name, value is static string_view.
 // Thread-local but idempotent: same key always has the same value.
-inline thread_local std::unordered_map<std::string_view, std::string_view> ui_css_registry;
-inline thread_local std::unordered_map<std::string_view, std::string_view> ui_js_registry;
+inline auto ui_css_registry() -> std::unordered_map<std::string_view, std::string_view>& {
+    thread_local std::unordered_map<std::string_view, std::string_view> registry;
+    return registry;
+}
+inline auto ui_js_registry() -> std::unordered_map<std::string_view, std::string_view>& {
+    thread_local std::unordered_map<std::string_view, std::string_view> registry;
+    return registry;
+}
 
 // Pre-built CSS injected before dynamic classes (populated by the generated styles.hpp).
 // Not thread-local — written once at startup and read-only thereafter.
-inline std::string all_css_block;
+inline auto all_css_block() -> std::string& {
+    static std::string block;
+    return block;
+}
 
 constexpr auto fnv1a(std::string_view s) -> uint32_t {
     return std::ranges::fold_left(
@@ -187,9 +199,9 @@ struct css_class {
 
     // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, classes are passed directly as html nodes
     operator Node() const {
-        detail::style_registry[name] = rules;
+        detail::style_registry()[name] = rules;
         for (const auto& [sel, r] : pseudo) {
-            detail::style_registry[name + sel] = r;
+            detail::style_registry()[name + sel] = r;
         }
         return Node{raw_tag{}, std::format(" .{}", name)};
     }
@@ -209,7 +221,7 @@ struct named_class {
 
     [[nodiscard]] auto extra(std::string_view rules) const -> Node {
         std::string dyn_name = detail::make_class_name(rules);
-        detail::style_registry[dyn_name] = std::string(rules);
+        detail::style_registry()[dyn_name] = std::string(rules);
         // " .sec-label cw-abc123" → split() strips " ." prefix → "sec-label cw-abc123" → class="sec-label cw-abc123"
         return Node{raw_tag{}, std::format(" .{} {}", css_name, dyn_name)};
     }
@@ -252,14 +264,14 @@ struct html_doc : Node {
 
     [[nodiscard]] auto render() const -> std::string {
         std::string css;
-        css.reserve(50 + detail::all_css_block.size() + detail::ui_css_registry.size() * 100 +
-                    detail::style_registry.size() * 150);
+        css.reserve(50 + detail::all_css_block().size() + (detail::ui_css_registry().size() * 100) +
+                    (detail::style_registry().size() * 150));
         css += "<style>";
-        css += detail::all_css_block;
-        for (const auto& [k, rules] : detail::ui_css_registry) {
+        css += detail::all_css_block();
+        for (const auto& [k, rules] : detail::ui_css_registry()) {
             css += rules;
         }
-        for (const auto& [name, rules] : detail::style_registry) {
+        for (const auto& [name, rules] : detail::style_registry()) {
             css += '.';
             css += name;
             css += '{';
@@ -282,7 +294,7 @@ struct html_doc : Node {
         }
 
         std::string js;
-        for (const auto& [k, snippet] : detail::ui_js_registry) {
+        for (const auto& [k, snippet] : detail::ui_js_registry()) {
             js += snippet;
         }
         if (!js.empty()) {
@@ -294,9 +306,9 @@ struct html_doc : Node {
                 out += script;
             }
         }
-        detail::style_registry.clear();
-        detail::ui_css_registry.clear();
-        detail::ui_js_registry.clear();
+        detail::style_registry().clear();
+        detail::ui_css_registry().clear();
+        detail::ui_js_registry().clear();
         return out;
     }
 };

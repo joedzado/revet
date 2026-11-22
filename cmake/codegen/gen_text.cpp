@@ -187,7 +187,7 @@ auto gen_styles(const Ctx& ctx) -> int {
     out.emplace_back("namespace html::detail {");
     out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(join(all_css, "\n")), "\";"));
     // Emitted verbatim.
-    out.emplace_back("inline const bool _all_css_init = ([]{{ all_css_block = _all_css_str; return true; }})();");
+    out.emplace_back("inline const bool _all_css_init = ([]{{ all_css_block() = _all_css_str; return true; }})();");
     out.emplace_back("} // namespace html::detail");
     out.emplace_back("");
 
@@ -236,7 +236,7 @@ auto gen_i18n(const Ctx& ctx) -> int {
                            }) |
                            std::ranges::to<std::string>();
         return cat(R"(html::button{html::attr.type("submit"), html::attr.name("lang"), html::attr.value(")", l,
-                   "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
+                   "\"), styles::btn, detail::locale_idx() == ", std::to_string(i),
                    " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
     };
     std::string picker =

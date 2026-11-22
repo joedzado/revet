@@ -60,6 +60,7 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
         const std::string s = arg.to_string(); // revet::Decimal and similar
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     } else {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
         const std::string s{std::forward<T>(arg)};
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     }
@@ -78,6 +79,8 @@ inline void on_open(std::function<void(sqlite3*)> hook) {
 
 class Pool {
 public:
+    Pool(Pool&&) = delete;
+    auto operator=(Pool&&) -> Pool& = delete;
     Pool(std::string_view path, int size) {
         conns_.reserve(size);
         std::string path_str(path); // Convert to null-terminated string
@@ -120,7 +123,7 @@ public:
     auto acquire() -> sqlite3* {
         std::unique_lock lock(mu_);
         cv_.wait(lock, [&] -> bool { return !conns_.empty(); });
-        const auto c = conns_.back();
+        auto* const c = conns_.back();
         conns_.pop_back();
         return c;
     }
@@ -147,11 +150,14 @@ private:
 template<typename Intent = Read>
 class Handle {
 public:
+    Handle(Handle&&) = delete;
+    auto operator=(Handle&&) -> Handle& = delete;
     explicit Handle(Pool& pool) : pool_(pool), conn_(pool.acquire()) {
         if constexpr (std::is_same_v<Intent, Write>) {
             write_lock_.emplace(pool.write_mutex());
         }
     }
+    // NOLINTNEXTLINE(bugprone-exception-escape): release() only push_backs into capacity reserved for every connection
     ~Handle() {
         pool_.release(conn_);
     }
@@ -178,7 +184,7 @@ public:
                 return 0;
             },
             &result, &err);
-        if (err) {
+        if (err != nullptr) {
             const std::string msg(err);
             sqlite3_free(err);
             throw std::runtime_error(msg);
@@ -226,11 +232,19 @@ public:
         query(sql, std::forward<Args>(args)...);
     }
 
+    // Runs a statement without parameters and reports failure instead of throwing; for cleanup paths.
+    auto try_exec(const char* sql) noexcept -> bool
+        requires std::is_same_v<Intent, Write>
+    {
+        return sqlite3_exec(conn_, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+    }
+
     // Async variants — run on the I/O pool, free the calling coroutine
+    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward): args are forwarded into the captured tuple
     template<typename... Args>
     auto async_query(std::string_view sql, Args&&... args) const {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() -> auto {
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
                 return std::apply([&](const auto&... a) -> auto { return query(s, a...); }, t);
             });
     }
@@ -238,7 +252,7 @@ public:
     template<typename... Args>
     auto async_query_nullable(std::string_view sql, Args&&... args) const {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() -> auto {
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
                 return std::apply([&](const auto&... a) -> auto { return query_nullable(s, a...); }, t);
             });
     }
@@ -248,10 +262,11 @@ public:
         requires std::is_same_v<Intent, Write>
     {
         return web::run_on_io(
-            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)]() -> auto {
+            [this, s = std::string(sql), t = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] -> auto {
                 std::apply([&](const auto&... a) -> auto { exec(s, a...); }, t);
             });
     }
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
 
     // For a loadable extension or a custom function on this connection.
     [[nodiscard]] auto native() const -> sqlite3* {
@@ -308,16 +323,15 @@ private:
 // IMMEDIATE takes the write lock now, so a read inside can't fail upgrading later.
 class Transaction {
 public:
+    Transaction(Transaction&&) = delete;
+    auto operator=(Transaction&&) -> Transaction& = delete;
     explicit Transaction(Handle<Write>& handle) : handle_(handle) {
         handle_.exec("BEGIN IMMEDIATE");
     }
     ~Transaction() {
         if (open_) {
-            try {
-                handle_.exec("ROLLBACK");
-            } catch (...) {
-                // SQLite may have rolled back already, on a full disk for example.
-            }
+            // A failed ROLLBACK means SQLite rolled back already (a full disk, say); nothing is left to undo.
+            (void)handle_.try_exec("ROLLBACK");
         }
     }
     Transaction(const Transaction&) = delete;

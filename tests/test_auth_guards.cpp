@@ -3,11 +3,12 @@
 #include <string>
 #include <vector>
 
-static auto make_req(web::Method m, std::string path) -> web::Request {
+namespace {
+auto make_req(web::Method m, std::string path) -> web::Request {
     return {.method = m, .path = web::Url(std::move(path))};
 }
 
-static auto make_authed_req(std::string path) -> web::Request {
+auto make_authed_req(std::string path) -> web::Request {
     web::Request req;
     req.method = web::Method::GET;
     req.path = web::Url(std::move(path));
@@ -15,7 +16,7 @@ static auto make_authed_req(std::string path) -> web::Request {
     return req;
 }
 
-static auto run(const web::Route& route, const web::Request& req) -> web::Response {
+auto run(const web::Route& route, const web::Request& req) -> web::Response {
     const web::Handler* h = nullptr;
     if (req.method == web::Method::GET && route.get) {
         h = &route.get;
@@ -23,20 +24,23 @@ static auto run(const web::Route& route, const web::Request& req) -> web::Respon
     if (req.method == web::Method::POST && route.post) {
         h = &route.post;
     }
-    if (!h) {
+    if (h == nullptr) {
         return {.status = web::status::method_not_allowed};
     }
     return web::dispatch(req, *h, route.guards);
 }
+} // namespace
 
 // ── shared guard ──────────────────────────────────────────────────────────────
 
-static auto require_session(const web::Request& req, web::Next next) -> web::Response {
+namespace {
+auto require_session(const web::Request& req, const web::Next& next) -> web::Response {
     if (req.cookies.get("session").empty()) {
         return {.body = "unauthorized", .status = web::status::unauthorized};
     }
     return next();
 }
+} // namespace
 
 // ── guard runs before handler ─────────────────────────────────────────────────
 
@@ -97,11 +101,11 @@ TEST_CASE("auth guard — scoped to route, does not bleed to other routes", "[gu
 TEST_CASE("multiple guards — run in registration order", "[guards]") {
     std::vector<std::string> order;
 
-    web::Middleware g1 = [&](const web::Request&, web::Next next) -> web::Response {
+    web::Middleware g1 = [&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("g1");
         return next();
     };
-    web::Middleware g2 = [&](const web::Request&, web::Next next) -> web::Response {
+    web::Middleware g2 = [&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("g2");
         return next();
     };
@@ -123,10 +127,10 @@ TEST_CASE("guard short-circuit — stops chain, skips handler", "[guards]") {
     bool second_guard_called = false;
     bool handler_called = false;
 
-    web::Middleware block = [](const web::Request&, web::Next) -> web::Response {
+    web::Middleware block = [](const web::Request&, const web::Next&) -> web::Response {
         return {.status = web::status::forbidden};
     };
-    web::Middleware spy = [&](const web::Request&, web::Next next) -> web::Response {
+    web::Middleware spy = [&](const web::Request&, const web::Next& next) -> web::Response {
         second_guard_called = true;
         return next();
     };
@@ -150,7 +154,7 @@ TEST_CASE("guards run before global middleware in dispatch order", "[guards]") {
     web::clear_middlewares();
     std::vector<std::string> order;
 
-    web::use([&](const web::Request&, web::Next next) -> web::Response {
+    web::use([&](const web::Request&, const web::Next& next) -> web::Response {
         order.emplace_back("global");
         return next();
     });
@@ -160,7 +164,7 @@ TEST_CASE("guards run before global middleware in dispatch order", "[guards]") {
                                order.emplace_back("h");
                                return web::to_response("ok");
                            },
-                           .guards = {[&](const web::Request&, web::Next next) -> web::Response {
+                           .guards = {[&](const web::Request&, const web::Next& next) -> web::Response {
                                order.emplace_back("guard");
                                return next();
                            }}};
