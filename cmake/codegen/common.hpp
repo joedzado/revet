@@ -9,6 +9,7 @@
 #include <ctre.hpp>
 #include <filesystem>
 #include <initializer_list>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -74,6 +75,8 @@ auto splitlines(std::string_view s) -> Lines;
 auto split_args(std::string_view s) -> Lines;
 // Escapes backslash, quote and newline for a C++ string literal.
 auto escape_str(std::string_view s) -> std::string;
+// Escapes only backslash and double quote.
+auto escape_quotes(std::string_view s) -> std::string;
 // Collapses runs of whitespace to one space.
 auto collapse_ws(std::string_view s) -> std::string;
 // Counts newlines before `end`.
@@ -100,6 +103,33 @@ auto replace_all(std::string_view s, std::string_view with) -> std::string {
     }
     out.append(s.substr(pos));
     return out;
+}
+
+// Appends `more` to `out`.
+inline void append(Lines& out, const Lines& more) {
+    out.insert(out.end(), more.begin(), more.end());
+}
+
+// `s` split at every match of P (Python's re.split without groups).
+template<ctll::fixed_string P>
+auto split_at(std::string_view s) -> Lines {
+    Lines pieces;
+    std::size_t prev = 0;
+    for (auto m : ctre::search_all<P>(s)) {
+        std::size_t at = offset_in(s, m.to_view());
+        pieces.emplace_back(s.substr(prev, at - prev));
+        prev = at + m.size();
+    }
+    pieces.emplace_back(s.substr(prev));
+    return pieces;
+}
+
+// Capture group N of every match of P in `s`.
+template<ctll::fixed_string P, int N = 1>
+auto captures(std::string_view s) -> Lines {
+    return ctre::search_all<P>(s) |
+           std::views::transform([](const auto& m) -> std::string { return m.template get<N>().to_string(); }) |
+           std::ranges::to<Lines>();
 }
 
 // First place where `name` is directly followed by Tail — a search for name + Tail when

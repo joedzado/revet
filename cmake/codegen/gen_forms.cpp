@@ -1,4 +1,8 @@
 // [[revet::form]] structs -> forms.hpp (populate / validate helpers).
+#include <algorithm>
+#include <iterator>
+#include <ranges>
+
 #include "common.hpp"
 
 namespace revet::codegen {
@@ -34,20 +38,9 @@ auto find_form_structs(const std::string& src) -> std::vector<FormStruct> {
     return out;
 }
 
-auto is_ws(char c) -> bool {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
 auto parse_members(const std::string& body) -> std::vector<Member> {
     std::vector<Member> members;
-    size_t i = 0;
-    while (i < body.size()) {
-        while (i < body.size() && is_ws(body[i])) {
-            ++i;
-        }
-        if (i >= body.size()) {
-            break;
-        }
+    for (size_t i = body.find_first_not_of(" \t\n\r"); i < body.size(); i = body.find_first_not_of(" \t\n\r", i)) {
         int depth = 0;
         size_t j = i;
         while (j < body.size()) {
@@ -95,13 +88,10 @@ auto gen_forms(const Ctx& ctx) -> int {
     const std::string validate_opt_t = tmpl(ctx, "forms_validate_optional.tmpl");
     const std::string validate_req_t = tmpl(ctx, "forms_validate_required.tmpl");
 
-    std::string includes;
-    for (size_t i = 0; i < form_files.size(); ++i) {
-        if (i != 0U) {
-            includes += '\n';
-        }
-        includes += rel_include(form_files[i], ctx.proj);
-    }
+    std::string includes = join(form_files | std::views::transform([&](const fs::path& f) -> std::string {
+                                    return rel_include(f, ctx.proj);
+                                }) | std::ranges::to<Lines>(),
+                                "\n");
 
     Lines functions;
     for (const auto& hpp : form_files) {
@@ -112,16 +102,17 @@ auto gen_forms(const Ctx& ctx) -> int {
                 continue;
             }
 
-            Lines pop_lines;
-            Lines val_lines;
-            for (const auto& m : members) {
-                pop_lines.push_back(subst(m.optional ? populate_opt_t : populate_req_t, {{"mname", m.name}}));
-                val_lines.push_back(subst(m.optional ? validate_opt_t : validate_req_t, {{"mname", m.name}}));
-            }
-            functions.push_back(
-                subst(populate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(pop_lines, "\n")}}));
-            functions.push_back(
-                subst(validate_fn_t, {{"struct_name", fs_struct.name}, {"body", join(val_lines, "\n")}}));
+            // One line per member, from the optional or required template.
+            auto body = [&](const std::string& opt_t, const std::string& req_t) -> std::string {
+                return join(members | std::views::transform([&](const Member& m) -> std::string {
+                                return subst(m.optional ? opt_t : req_t, {{"mname", m.name}});
+                            }) | std::ranges::to<Lines>(),
+                            "\n");
+            };
+            functions.push_back(subst(
+                populate_fn_t, {{"struct_name", fs_struct.name}, {"body", body(populate_opt_t, populate_req_t)}}));
+            functions.push_back(subst(
+                validate_fn_t, {{"struct_name", fs_struct.name}, {"body", body(validate_opt_t, validate_req_t)}}));
         }
     }
 

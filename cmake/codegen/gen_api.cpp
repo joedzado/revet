@@ -1,6 +1,9 @@
 // [[revet::external("METHOD URL")]] declarations -> apis.hpp (inline HTTP coroutines).
 #include <algorithm>
+#include <functional>
+#include <iterator>
 #include <map>
+#include <ranges>
 #include <set>
 
 #include "common.hpp"
@@ -29,15 +32,14 @@ auto split_top_commas(const std::string& s) -> Lines {
 }
 
 auto parse_params(const std::string& s) -> std::vector<Param> {
-    std::vector<Param> params;
-    for (const auto& raw : split_top_commas(s)) {
-        auto m = ctre::match<R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*([^\n]+?))?\s*)RE">(raw);
-        if (!m) {
-            continue;
-        }
-        params.push_back({.type = collapse_ws(strip(m.get<1>().to_view())), .name = m.get<2>().to_string()});
-    }
-    return params;
+    constexpr auto param = ctre::match<R"RE(\s*(?:const\s+)?([\w:<>,\s]+?)\s+(\w+)\s*(?:=\s*([^\n]+?))?\s*)RE">;
+    return split_top_commas(s) |
+           std::views::filter([&](const std::string& raw) -> bool { return static_cast<bool>(param(raw)); }) |
+           std::views::transform([&](const std::string& raw) -> Param {
+               auto m = param(raw);
+               return {.type = collapse_ws(strip(m.get<1>().to_view())), .name = m.get<2>().to_string()};
+           }) |
+           std::ranges::to<std::vector<Param>>();
 }
 
 auto task_inner(const std::string& ret) -> std::string {
@@ -61,19 +63,22 @@ auto scan_file(const fs::path& path) -> std::vector<External> {
     std::vector<Ev> events;
     const std::string_view view = text;
     auto offset = [&](std::string_view part) -> size_t { return static_cast<size_t>(part.data() - view.data()); };
-    for (auto m : ctre::search_all<R"RE(\bnamespace\s+(\w+)\s*\{)RE">(view)) {
-        size_t pos = offset(m.get<0>().to_view());
-        events.push_back({.pos = pos, .kind = 0, .payload = m.get<1>().to_string(), .end = pos + m.get<0>().size()});
-    }
-    for (size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '}') {
-            events.push_back({.pos = i, .kind = 1, .payload = "", .end = i + 1});
-        }
-    }
-    for (auto m : ctre::search_all<R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE">(view)) {
-        size_t pos = offset(m.get<0>().to_view());
-        events.push_back({.pos = pos, .kind = 2, .payload = m.get<1>().to_string(), .end = pos + m.get<0>().size()});
-    }
+    auto event_of = [&](int kind) -> auto {
+        return [&, kind](const auto& m) -> Ev {
+            size_t pos = offset(m.template get<0>().to_view());
+            return {.pos = pos,
+                    .kind = kind,
+                    .payload = m.template get<1>().to_string(),
+                    .end = pos + m.template get<0>().size()};
+        };
+    };
+    std::ranges::transform(ctre::search_all<R"RE(\bnamespace\s+(\w+)\s*\{)RE">(view), std::back_inserter(events),
+                           event_of(0));
+    std::ranges::transform(
+        std::views::iota(0UZ, text.size()) | std::views::filter([&](size_t i) -> bool { return text[i] == '}'; }),
+        std::back_inserter(events), [](size_t i) -> Ev { return {.pos = i, .kind = 1, .payload = "", .end = i + 1}; });
+    std::ranges::transform(ctre::search_all<R"RE(\[\[\s*revet::external\s*\(\s*"([^"]+)"\s*\)\s*\]\])RE">(view),
+                           std::back_inserter(events), event_of(2));
     std::ranges::stable_sort(events, [](const Ev& a, const Ev& b) -> bool { return a.pos < b.pos; });
 
     std::vector<External> out;
@@ -131,13 +136,7 @@ auto scan_file(const fs::path& path) -> std::vector<External> {
             std::string name = alt1 ? dm.get<1>().to_string() : dm.get<5>().to_string();
             std::string params_s = alt1 ? dm.get<2>().to_string() : dm.get<6>().to_string();
 
-            std::string ns;
-            for (const auto& n : ns_stack) {
-                if (!ns.empty()) {
-                    ns += "::";
-                }
-                ns += n;
-            }
+            std::string ns = join(ns_stack, "::");
             out.push_back({.method = method,
                            .url = url,
                            .ns = ns,
@@ -159,45 +158,32 @@ auto to_string_expr(const std::string& ptype, const std::string& name) -> std::s
 }
 
 auto json_str_literal(const std::string& s) -> std::string {
-    std::string out = "\"";
-    for (char c : s) {
-        if (c == '\\' || c == '"') {
-            out += '\\';
-        }
-        out += c;
-    }
-    return out + "\"";
+    return "\"" + escape_quotes(s) + "\"";
 }
 
 // Builds the URL expression: path params substituted, remaining params appended as a query string.
 auto url_expr(const std::string& url, const std::vector<Param>& params) -> std::string {
-    std::set<std::string> path_names;
-    for (auto m : ctre::search_all<R"RE(\{(\w+)\})RE">(url)) {
-        path_names.insert(m.get<1>().to_string());
-    }
+    Lines path_list = captures<R"RE(\{(\w+)\})RE">(url);
+    std::set<std::string> path_names(path_list.begin(), path_list.end());
+    auto in_path = [&](const Param& p) -> bool { return path_names.contains(p.name); };
 
-    std::string expr = cat("std::string(", json_str_literal(url), ")");
-    for (const auto& p : params) {
-        if (!path_names.contains(p.name)) {
-            continue;
-        }
-        std::string val = to_string_expr(p.type, p.name);
-        std::string key = "{" + p.name + "}";
-        expr = cat("[](std::string s, const std::string& v) { auto p = s.find(\"", key,
-                   "\"); if (p != std::string::npos) s.replace(p, ", std::to_string(p.name.size() + 2),
-                   ", v); return s; }(", expr, ", ", val, ")");
-    }
-    bool first_q = !url.contains('?');
-    for (const auto& p : params) {
-        if (path_names.contains(p.name)) {
-            continue;
-        }
-        std::string val = to_string_expr(p.type, p.name);
-        std::string sep = first_q ? "?" : "&";
-        first_q = false;
-        expr = cat(expr, " + \"", sep, p.name, "=\" + ", val);
-    }
-    return expr;
+    // Each path param wraps the expression in a call that replaces its {name}.
+    std::string expr = std::ranges::fold_left(
+        params | std::views::filter(in_path), cat("std::string(", json_str_literal(url), ")"),
+        [](const std::string& acc, const Param& p) -> std::string {
+            return cat("[](std::string s, const std::string& v) { auto p = s.find(\"{", p.name,
+                       "}\"); if (p != std::string::npos) s.replace(p, ", std::to_string(p.name.size() + 2),
+                       ", v); return s; }(", acc, ", ", to_string_expr(p.type, p.name), ")");
+        });
+    // The rest become the query string.
+    auto query = params | std::views::filter(std::not_fn(in_path)) | std::ranges::to<std::vector<Param>>();
+    bool has_query = url.contains('?');
+    return std::ranges::fold_left(std::views::zip(std::views::iota(0UZ), query), expr,
+                                  [&](const std::string& acc, const auto& indexed) -> std::string {
+                                      const auto& [i, p] = indexed;
+                                      std::string_view sep = i == 0 && !has_query ? "?" : "&";
+                                      return cat(acc, " + \"", sep, p.name, "=\" + ", to_string_expr(p.type, p.name));
+                                  });
 }
 
 auto http_helper(const std::string& method) -> std::string {
@@ -206,13 +192,10 @@ auto http_helper(const std::string& method) -> std::string {
 }
 
 auto emit_definition(const External& e) -> Lines {
-    std::string sig;
-    for (size_t i = 0; i < e.params.size(); ++i) {
-        if (i != 0U) {
-            sig += ", ";
-        }
-        sig += e.params[i].type + " " + e.params[i].name;
-    }
+    std::string sig = join(e.params | std::views::transform([](const Param& p) -> std::string {
+                               return p.type + " " + p.name;
+                           }) | std::ranges::to<Lines>(),
+                           ", ");
     Lines lines;
     lines.push_back(cat("inline auto ", e.func_name, "(", sig, ") -> ", e.return_type, " {"));
     lines.push_back(cat("    auto url  = ", url_expr(e.url, e.params), ";"));
@@ -230,18 +213,13 @@ auto gen_api(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "apis.hpp");
     fs::path apis_dir = ctx.proj / "app" / "apis";
 
-    std::vector<External> externs;
-    for (const auto& f : glob(apis_dir, ".hpp")) {
-        for (auto& e : scan_file(f)) {
-            externs.push_back(std::move(e));
-        }
-    }
+    auto externs = glob(apis_dir, ".hpp") | std::views::transform(scan_file) | std::views::join |
+                   std::ranges::to<std::vector<External>>();
 
     Lines lines = file_header({"#include <coroutine>", "#include <revet/task.hpp>", "#include <revet/http.hpp>",
                                "#include <revet/json.hpp>", "#include \"models.hpp\"", "#include <string>"});
-    for (const auto& hpp : glob(apis_dir, ".hpp")) {
-        lines.push_back(rel_include(hpp, ctx.proj));
-    }
+    std::ranges::transform(glob(apis_dir, ".hpp"), std::back_inserter(lines),
+                           [&](const fs::path& hpp) -> std::string { return rel_include(hpp, ctx.proj); });
     lines.emplace_back("");
 
     // Group by namespace, emitted in sorted namespace order.
@@ -250,28 +228,17 @@ auto gen_api(const Ctx& ctx) -> int {
         by_ns[e.ns].push_back(std::move(e));
     }
     for (const auto& [ns, group] : by_ns) {
-        size_t depth = 0;
+        auto opens = ns | std::views::split(std::string_view("::")) |
+                     std::views::transform([](auto part) -> std::string {
+                         return "namespace " + std::string(std::string_view(part)) + " {";
+                     }) |
+                     std::ranges::to<Lines>();
+        size_t depth = opens.size();
         if (!ns.empty()) {
-            std::string opened;
-            size_t start = 0;
-            while (start <= ns.size()) {
-                size_t end = ns.find("::", start);
-                if (end == std::string::npos) {
-                    end = ns.size();
-                }
-                if (depth != 0U) {
-                    opened += ' ';
-                }
-                opened += "namespace " + ns.substr(start, end - start) + " {";
-                ++depth;
-                start = end + 2;
-            }
-            lines.push_back(opened);
+            lines.push_back(join(opens, " "));
         }
         for (const auto& e : group) {
-            for (const auto& l : emit_definition(e)) {
-                lines.push_back(l);
-            }
+            append(lines, emit_definition(e));
             lines.emplace_back("");
         }
         if (!ns.empty()) {

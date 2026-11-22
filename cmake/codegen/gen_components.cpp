@@ -1,5 +1,8 @@
 // [[revet::export]] functions -> components.hpp declarations.
+#include <algorithm>
 #include <cctype>
+#include <iterator>
+#include <ranges>
 
 #include "common.hpp"
 
@@ -8,22 +11,7 @@ namespace {
 
 // str.split() with no arguments.
 auto split_ws(const std::string& s) -> Lines {
-    Lines out;
-    std::string cur;
-    for (char c : s) {
-        if (std::isspace(static_cast<unsigned char>(c)) != 0) {
-            if (!cur.empty()) {
-                out.push_back(cur);
-            }
-            cur.clear();
-        } else {
-            cur += c;
-        }
-    }
-    if (!cur.empty()) {
-        out.push_back(cur);
-    }
-    return out;
+    return captures<R"RE((\S+))RE">(s);
 }
 
 constexpr std::string_view k_export_attr = "[[revet::export]]";
@@ -37,9 +25,7 @@ auto gen_components(const Ctx& ctx) -> int {
     fs::path models_dir = ctx.proj / "models";
 
     std::vector<fs::path> cpp_files = glob(components_dir, ".cpp");
-    for (auto& f : glob(layouts_dir, ".cpp")) {
-        cpp_files.push_back(f);
-    }
+    std::ranges::copy(glob(layouts_dir, ".cpp"), std::back_inserter(cpp_files));
 
     if (cpp_files.empty()) {
         write_file(out_path, "// no components/*.cpp or layouts/*.cpp files found\n#pragma once\n");
@@ -58,12 +44,9 @@ auto gen_components(const Ctx& ctx) -> int {
     if (has_models(models_dir)) {
         out.emplace_back("#include \"models.hpp\"");
     }
-    for (const auto& hpp : glob(components_dir, ".hpp")) {
-        out.push_back(rel_include(hpp, ctx.proj));
-    }
-    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) {
-        out.push_back(rel_include(hpp, ctx.proj));
-    }
+    auto include_of = [&](const fs::path& hpp) -> std::string { return rel_include(hpp, ctx.proj); };
+    std::ranges::transform(glob(components_dir, ".hpp"), std::back_inserter(out), include_of);
+    std::ranges::transform(glob(ctx.proj / "types", ".hpp"), std::back_inserter(out), include_of);
     out.emplace_back("");
 
     struct Deps {
@@ -106,23 +89,25 @@ auto gen_components(const Ctx& ctx) -> int {
             }
 
             // State/Flash arguments get a default so callers may omit them.
-            Lines header_args;
-            std::vector<std::pair<std::string, std::string>> deps;
-            for (const auto& raw : split_args(args_str)) {
-                std::string arg = strip(raw);
-                if (arg.empty()) {
-                    continue;
-                }
-                std::string arg_base = strip(arg.substr(0, arg.find('=')));
-                if (auto sm = ctre::search<R"RE(web::(State|Flash)<(\w+)>)RE">(arg_base)) {
-                    std::string mode = sm.get<1>().to_string();
-                    std::string tname = sm.get<2>().to_string();
-                    header_args.push_back(cat(arg_base, " = web::", mode, "<", tname, ">::current()"));
-                    deps.emplace_back(mode, tname);
-                } else {
-                    header_args.push_back(arg);
-                }
-            }
+            constexpr auto state_arg = ctre::search<R"RE(web::(State|Flash)<(\w+)>)RE">;
+            auto base_of = [](const std::string& arg) -> std::string { return strip(arg.substr(0, arg.find('='))); };
+            Lines args = split_args(args_str);
+            auto header_args =
+                args | std::views::transform([&](const std::string& arg) -> std::string {
+                    std::string base = base_of(arg);
+                    auto sm = state_arg(base);
+                    return sm ? cat(base, " = web::", sm.get<1>().to_view(), "<", sm.get<2>().to_view(), ">::current()")
+                              : arg;
+                }) |
+                std::ranges::to<Lines>();
+            auto deps = args | std::views::transform(base_of) |
+                        std::views::filter(
+                            [&](const std::string& base) -> bool { return static_cast<bool>(state_arg(base)); }) |
+                        std::views::transform([&](const std::string& base) -> std::pair<std::string, std::string> {
+                            auto sm = state_arg(base);
+                            return {sm.get<1>().to_string(), sm.get<2>().to_string()};
+                        }) |
+                        std::ranges::to<std::vector<std::pair<std::string, std::string>>>();
 
             size_t line_no = count_newlines(content, start) + 1;
             out.push_back(subst(export_t, {{"line_no", std::to_string(line_no)},
@@ -132,15 +117,9 @@ auto gen_components(const Ctx& ctx) -> int {
                                            {"args_str", join(header_args, ", ")}}));
 
             if (!deps.empty()) {
-                bool replaced = false;
-                for (auto& d : comp_deps) {
-                    if (d.name == name) {
-                        d.items = deps;
-                        replaced = true;
-                        break;
-                    }
-                }
-                if (!replaced) {
+                if (auto it = std::ranges::find(comp_deps, name, &Deps::name); it != comp_deps.end()) {
+                    it->items = deps;
+                } else {
                     comp_deps.push_back({.name = name, .items = deps});
                 }
             }
@@ -149,16 +128,13 @@ auto gen_components(const Ctx& ctx) -> int {
 
     out.emplace_back("");
     out.emplace_back("namespace web::components {");
-    for (const auto& d : comp_deps) {
-        std::string dep_list;
-        for (size_t i = 0; i < d.items.size(); ++i) {
-            if (i != 0U) {
-                dep_list += ", ";
-            }
-            dep_list += cat("\"", d.items[i].first, "\", \"", d.items[i].second, "\"");
-        }
-        out.push_back(subst(traits_t, {{"name", d.name}, {"dep_list", dep_list}}));
-    }
+    std::ranges::transform(comp_deps, std::back_inserter(out), [&](const Deps& d) -> std::string {
+        std::string dep_list = join(d.items | std::views::transform([](const auto& item) -> std::string {
+                                        return cat("\"", item.first, "\", \"", item.second, "\"");
+                                    }) | std::ranges::to<Lines>(),
+                                    ", ");
+        return subst(traits_t, {{"name", d.name}, {"dep_list", dep_list}});
+    });
     out.emplace_back("}");
     write_lines(out_path, out);
     return 0;

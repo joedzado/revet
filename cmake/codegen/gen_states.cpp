@@ -1,6 +1,10 @@
 // web::State / web::Flash / toggle types -> states.hpp (cookie codecs).
+#include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <map>
+#include <optional>
+#include <ranges>
 #include <set>
 
 #include "common.hpp"
@@ -63,36 +67,23 @@ auto drop_default(const std::string& line) -> std::string {
     if (eq == std::string::npos || line.find('\n', eq) != std::string::npos) {
         return line;
     }
-    size_t cut = eq;
-    while (cut > 0 && (std::isspace(static_cast<unsigned char>(line[cut - 1])) != 0)) {
-        --cut;
-    }
-    return line.substr(0, cut);
+    size_t last = eq == 0 ? std::string::npos : line.find_last_not_of(" \t\n\r\f\v", eq - 1);
+    return line.substr(0, last == std::string::npos ? 0 : last + 1);
 }
 
 auto struct_fields(const std::string& body) -> std::vector<Field> {
-    std::vector<Field> fields;
-    std::string piece;
-    auto handle = [&](const std::string& raw) -> void {
-        std::string line = strip(raw);
-        if (line.empty()) {
-            return;
-        }
-        line = drop_default(line);
+    // One declaration per ';'.
+    auto field_of = [](auto piece) -> std::optional<Field> {
+        std::string line = drop_default(strip(std::string_view(piece)));
         if (auto m = ctre::search<R"RE(([\w:<>]+)\s+(\w+)$)RE">(line)) {
-            fields.push_back({.type = m.get<1>().to_string(), .name = m.get<2>().to_string()});
+            return Field{.type = m.get<1>().to_string(), .name = m.get<2>().to_string()};
         }
+        return std::nullopt;
     };
-    for (char c : body) {
-        if (c == ';') {
-            handle(piece);
-            piece.clear();
-        } else {
-            piece += c;
-        }
-    }
-    handle(piece);
-    return fields;
+    return body | std::views::split(';') | std::views::transform(field_of) |
+           std::views::filter([](const std::optional<Field>& f) -> bool { return f.has_value(); }) |
+           std::views::transform([](const std::optional<Field>& f) -> Field { return *f; }) |
+           std::ranges::to<std::vector<Field>>();
 }
 
 } // namespace
@@ -105,24 +96,16 @@ auto gen_states(const Ctx& ctx) -> int {
     fs::path models_site = site / "models.hpp";
 
     std::vector<fs::path> files = glob(site, ".cpp", true);
-    for (auto& f : glob(layouts, ".cpp", true)) {
-        files.push_back(f);
-    }
+    std::ranges::copy(glob(layouts, ".cpp", true), std::back_inserter(files));
 
     std::set<std::string> types;
+    auto add_types = [&](const Lines& found) -> void { types.insert(found.begin(), found.end()); };
     for (const auto& f : files) {
         std::string content = read_text(f);
-        const std::string_view view = content;
         // web::State<T> / web::Flash<T> arguments, ctx.state(T{...}) / ctx.flash(T{...}) writes, has<T> / clear<T>.
-        for (auto m : find_state_types(view)) {
-            types.insert(m.get<2>().to_string());
-        }
-        for (auto m : ctre::search_all<R"RE(\.(?:state|flash)\((\w+)\s*\{)RE">(view)) {
-            types.insert(m.get<1>().to_string());
-        }
-        for (auto m : ctre::search_all<R"RE((?:has|clear)<(\w+)>)RE">(view)) {
-            types.insert(m.get<1>().to_string());
-        }
+        add_types(captures<R"RE(web::(State|Flash)<(\w+)>)RE", 2>(content));
+        add_types(captures<R"RE(\.(?:state|flash)\((\w+)\s*\{)RE">(content));
+        add_types(captures<R"RE((?:has|clear)<(\w+)>)RE">(content));
     }
 
     if (types.empty()) {
@@ -141,20 +124,15 @@ auto gen_states(const Ctx& ctx) -> int {
     if (file_exists(models_site)) {
         hpp.push_back(rel_include(models_site, ctx.proj));
     }
-    for (const auto& line :
-         Lines{"#include <string>", "#include <cstring>", "", "namespace web::states {", "",
-               "template<typename T> struct Traits;", "template<typename T> std::string pack(const T& val);",
-               "template<typename T> T unpack(std::string_view);",
-               "template<typename T> std::string pack_plain(const T& val);",
-               "template<typename T> T unpack_plain(std::string_view);", ""}) {
-        hpp.push_back(line);
-    }
+    append(hpp, {"#include <string>", "#include <cstring>", "", "namespace web::states {", "",
+                 "template<typename T> struct Traits;", "template<typename T> std::string pack(const T& val);",
+                 "template<typename T> T unpack(std::string_view);",
+                 "template<typename T> std::string pack_plain(const T& val);",
+                 "template<typename T> T unpack_plain(std::string_view);", ""});
 
     // First definition wins; files are searched in order, then model headers, then models_site.
     std::vector<fs::path> search = files;
-    for (auto& f : glob(models_dir, ".hpp")) {
-        search.push_back(f);
-    }
+    std::ranges::copy(glob(models_dir, ".hpp"), std::back_inserter(search));
     if (file_exists(models_site)) {
         search.push_back(models_site);
     }
@@ -193,27 +171,21 @@ auto gen_states(const Ctx& ctx) -> int {
         hpp.push_back(subst(traits_t, {{"t", t}}));
         hpp.emplace_back("");
 
-        Lines pack_lines;
-        for (const auto& fd : fields) {
-            std::string ln = pack_field(fd.type, fd.name);
-            if (!ln.empty()) {
-                pack_lines.push_back(ln);
-            }
-        }
-        hpp.push_back(subst(pack_plain_fn_t, {{"t", t}, {"body", join(pack_lines, "\n")}}));
+        // Fields of unsupported types are left out.
+        auto field_lines = [&](auto codec) -> std::string {
+            return join(fields | std::views::transform([&](const Field& fd) -> std::string {
+                            return codec(fd.type, fd.name);
+                        }) | std::views::filter([](const std::string& ln) -> bool { return !ln.empty(); }) |
+                            std::ranges::to<Lines>(),
+                        "\n");
+        };
+        hpp.push_back(subst(pack_plain_fn_t, {{"t", t}, {"body", field_lines(pack_field)}}));
         hpp.emplace_back("");
 
         hpp.push_back(subst(pack_enc_t, {{"t", t}}));
         hpp.emplace_back("");
 
-        Lines unpack_lines;
-        for (const auto& fd : fields) {
-            std::string ln = unpack_field(fd.type, fd.name);
-            if (!ln.empty()) {
-                unpack_lines.push_back(ln);
-            }
-        }
-        hpp.push_back(subst(unpack_plain_fn_t, {{"t", t}, {"body", join(unpack_lines, "\n")}}));
+        hpp.push_back(subst(unpack_plain_fn_t, {{"t", t}, {"body", field_lines(unpack_field)}}));
         hpp.emplace_back("");
 
         hpp.push_back(subst(unpack_enc_t, {{"t", t}}));
@@ -225,9 +197,8 @@ auto gen_states(const Ctx& ctx) -> int {
 
     hpp.emplace_back("");
     hpp.emplace_back("// Type-safe cookie helpers");
-    for (const auto& t : types) {
-        hpp.push_back(subst(cookie_helper_t, {{"t", t}}));
-    }
+    std::ranges::transform(types, std::back_inserter(hpp),
+                           [&](const std::string& t) -> std::string { return subst(cookie_helper_t, {{"t", t}}); });
 
     hpp.emplace_back("");
     hpp.emplace_back("// has<T>: check if a state cookie is present (for use in route_guards before state injection)");

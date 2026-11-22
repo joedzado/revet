@@ -40,6 +40,7 @@ The CLI and codegen are now C++; revet itself no longer needs Python (Conan stil
 - **`[[revet::export]]` accepts trailing return types** (`auto badge(html::Node) -> html::Node`), the form `revet tidy` rewrites to.
 - **State fields typed `std::int64_t`, `std::uint32_t` and the other `std::` numeric types are now packed into the cookie.** Before, they were silently dropped.
 - **CSS classes named after C++ keywords get a trailing underscore**: `.default` is `styles::default_`.
+- **The logger is `web::log`.** `log::` still works in `app/routes` and on macOS. On Linux, glibc's math function `::log` takes that name at global scope, so code outside `app/routes` writes `web::log::`.
 - **An invalid `port` in `revet.toml`** (not 1-65535) stops the CLI with an error naming it.
 
 ## Cookie key behavior across upgrades

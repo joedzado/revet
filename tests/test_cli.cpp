@@ -1,4 +1,5 @@
 // revet CLI helpers: revet.toml editing, Conan bookkeeping, route table, processes, files, hashes.
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdlib>
 #include <unistd.h>
@@ -180,9 +181,7 @@ TEST_CASE("sort_refs_newest_first compares versions numerically") {
 TEST_CASE("framework requirements feed the conanfile and the deps hash") {
     auto reqs = framework_requirements();
     REQUIRE_FALSE(reqs.empty());
-    for (const auto& r : reqs) {
-        CHECK(r.contains('/'));
-    }
+    CHECK(std::ranges::all_of(reqs, [](const std::string& r) -> bool { return r.contains('/'); }));
 
     TempCwd t;
     CHECK(project_conanfile({}) == framework_dir() / "conanfile.txt");

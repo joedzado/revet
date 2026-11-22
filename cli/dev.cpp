@@ -9,11 +9,14 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <poll.h>
+#include <ranges>
 #include <set>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <thread>
 #include <unistd.h>
@@ -122,37 +125,24 @@ public:
     }
 
 private:
-    static auto skipped_dir(const std::string& name) -> bool {
-        return name == "build" || name == "profiles" || name == "__pycache__" ||
-               name[0] == '.'; // includes .git, .cache; profiles/ is samply output
-    }
-    static auto skipped_file(const fs::path& p) -> bool {
-        std::string name = p.filename().string();
-        if (name.empty() || name[0] == '.') {
+    // Dot entries (.git, .cache), build output, samply profiles and SQLite files.
+    static auto skipped(const fs::directory_entry& e) -> bool {
+        std::error_code ec;
+        std::string name = e.path().filename().string();
+        if (is_hidden(e)) {
             return true;
         }
-        std::string ext = p.extension().string();
+        if (e.is_directory(ec)) {
+            return name == "build" || name == "profiles" || name == "__pycache__";
+        }
+        std::string ext = e.path().extension().string();
         return ext == ".db" || ext == ".db-shm" || ext == ".db-wal";
     }
 
     void scan(bool initial) {
         std::error_code ec;
         std::vector<std::string> changed;
-        for (auto it = fs::recursive_directory_iterator(".", fs::directory_options::skip_permission_denied, ec);
-             it != fs::recursive_directory_iterator(); it.increment(ec)) {
-            if (ec) {
-                break;
-            }
-            const fs::path& p = it->path();
-            if (it->is_directory(ec)) {
-                if (skipped_dir(p.filename().string())) {
-                    it.disable_recursion_pending();
-                }
-                continue;
-            }
-            if (!it->is_regular_file(ec) || skipped_file(p)) {
-                continue;
-            }
+        for (const auto& p : files_under(".", skipped)) {
             auto t = fs::last_write_time(p, ec);
             if (ec) {
                 continue;
@@ -184,12 +174,11 @@ void header() {
 }
 
 void print_flags(const DevOptions& o) {
-    std::string flags;
-    for (auto [name, on] : {std::pair{"asan", o.asan}, {"ubsan", o.asan}, {"lldb", o.lldb}, {"profile", o.profile}}) {
-        if (on) {
-            flags += (flags.empty() ? "" : " ") + std::string(name);
-        }
-    }
+    const auto all = std::to_array<std::pair<std::string, bool>>(
+        {{"asan", o.asan}, {"ubsan", o.asan}, {"lldb", o.lldb}, {"profile", o.profile}});
+    std::string flags = join(all | std::views::filter([](const auto& f) -> bool { return f.second; }) |
+                                 std::views::keys | std::ranges::to<std::vector<std::string>>(),
+                             " ");
     if (!flags.empty()) {
         dim("  flags: " + flags);
     }
@@ -229,9 +218,7 @@ void tee_server_log(int fd, const fs::path& log_path) {
 }
 
 auto chomp(std::string s) -> std::string {
-    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
-        s.pop_back();
-    }
+    s.erase(s.find_last_not_of("\r\n") + 1); // npos + 1 == 0: all newlines
     return s;
 }
 
@@ -312,11 +299,10 @@ void rebuild(const DevOptions& o, const std::string& reason) {
 }
 
 auto changed_reason(const std::vector<std::string>& files) -> std::string {
-    std::string names;
-    for (const auto& f : files) {
-        names += (names.empty() ? "" : ", ") + fs::path(f).filename().string();
-    }
-    return "↺ " + names;
+    return "↺ " + join(files | std::views::transform([](const std::string& f) -> std::string {
+                           return fs::path(f).filename().string();
+                       }) | std::ranges::to<std::vector<std::string>>(),
+                       ", ");
 }
 
 } // namespace
@@ -328,11 +314,7 @@ auto cmd_dev(const DevOptions& o) -> int {
 
     auto missing = missing_critical_tools();
     if (!missing.empty()) {
-        std::string list;
-        for (const auto& m : missing) {
-            list += (list.empty() ? "" : ", ") + m;
-        }
-        err("✗ Missing dependencies: " + list);
+        err("✗ Missing dependencies: " + join(missing, ", "));
         info("Installing via: bash " + install_deps_script().string());
         if (run_inherit({"bash", install_deps_script().string()}) != 0) {
             fail("Installation failed. Install manually and retry.");
@@ -340,11 +322,7 @@ auto cmd_dev(const DevOptions& o) -> int {
         ok("✓ Dependencies installed. Retrying...");
         missing = missing_critical_tools();
         if (!missing.empty()) {
-            list.clear();
-            for (const auto& m : missing) {
-                list += (list.empty() ? "" : ", ") + m;
-            }
-            fail("Still missing: " + list);
+            fail("Still missing: " + join(missing, ", "));
         }
     }
 

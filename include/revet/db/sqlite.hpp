@@ -111,9 +111,7 @@ public:
         });
     }
     ~Pool() {
-        for (auto c : conns_) {
-            sqlite3_close(c);
-        }
+        std::ranges::for_each(conns_, sqlite3_close);
     }
     Pool(const Pool&) = delete;
     auto operator=(const Pool&) -> Pool& = delete;
@@ -361,17 +359,15 @@ auto backup(Handle<Intent>& h, const BackupOptions& o) -> std::optional<std::fil
     }
     h.query("VACUUM INTO ?", file.string());
     fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write);
-    std::vector<fs::path> kept;
-    for (const auto& e : fs::directory_iterator(o.dir)) {
-        const auto name = e.path().filename().string();
-        if (e.path().extension() == ".db" && name.starts_with(o.prefix + "-")) {
-            kept.push_back(e.path());
-        }
-    }
+    auto kept = fs::directory_iterator(o.dir) | std::views::filter([&](const fs::directory_entry& e) -> bool {
+                    return e.path().extension() == ".db" && e.path().filename().string().starts_with(o.prefix + "-");
+                }) |
+                std::views::transform([](const fs::directory_entry& e) -> fs::path { return e.path(); }) |
+                std::ranges::to<std::vector<fs::path>>();
     std::ranges::sort(kept); // stamps sort by time
-    for (std::size_t i = 0; i + o.keep < kept.size(); ++i) {
-        fs::remove(kept[i]);
-    }
+    // All but the newest o.keep.
+    const auto stale = kept.size() > o.keep ? kept.size() - o.keep : 0;
+    std::ranges::for_each(kept | std::views::take(stale), [](const fs::path& p) -> void { fs::remove(p); });
     return file;
 }
 

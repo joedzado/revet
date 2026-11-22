@@ -1,8 +1,11 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <csignal>
+#include <iterator>
+#include <ranges>
 #include <revet/web.hpp>
 #include <revet/websocket.hpp>
 #include <string>
@@ -59,9 +62,11 @@ auto client_frame(uint8_t first_byte, std::string_view payload,
         }
     }
     out.append(key);
-    for (size_t i = 0; i < n; ++i) {
-        out += static_cast<char>(payload[i] ^ key[i % 4]);
-    }
+    std::ranges::transform(std::views::zip(std::views::iota(0UZ), payload.substr(0, n)), std::back_inserter(out),
+                           [&](const auto& indexed) -> char {
+                               const auto [i, c] = indexed;
+                               return static_cast<char>(c ^ key[i % 4]);
+                           });
     return out;
 }
 
@@ -908,9 +913,11 @@ TEST_CASE("Conn::recv inflates a permessage-deflate text message and send_text d
 
     // RSV1 set, FIN set, text, masked, 5 bytes.
     std::string frame = std::string("\xC1\x80", 2) + std::string("\x01\x02\x03\x04", 4);
-    for (size_t i = 0; i < out.size(); ++i) {
-        frame += static_cast<char>(out[i] ^ "\x01\x02\x03\x04"[i % 4]);
-    }
+    std::ranges::transform(std::views::zip(std::views::iota(0UZ), out), std::back_inserter(frame),
+                           [](const auto& indexed) -> char {
+                               const auto [i, c] = indexed;
+                               return static_cast<char>(c ^ "\x01\x02\x03\x04"[i % 4]);
+                           });
     frame[1] = static_cast<char>(0x80 | out.size());
     send_raw(client_fd, frame);
 

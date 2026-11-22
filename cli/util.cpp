@@ -1,4 +1,5 @@
 // Output, processes, files, hashes and framework location.
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <climits>
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <map>
 #include <poll.h>
+#include <ranges>
 #include <spawn.h>
 #include <sstream>
 #include <sys/wait.h>
@@ -90,32 +92,20 @@ namespace {
 
 // The current environment with `overrides` ("KEY=VALUE") added or replacing entries.
 auto merged_env(const std::vector<std::string>& overrides) -> std::vector<std::string> {
-    std::vector<std::string> env;
-    for (char** e = environ; e != nullptr && *e != nullptr; ++e) {
-        std::string_view entry(*e);
-        std::string_view key = entry.substr(0, entry.find('='));
-        bool replaced = false;
-        for (const auto& o : overrides) {
-            if (std::string_view(o).substr(0, o.find('=')) == key) {
-                replaced = true;
-            }
-        }
-        if (!replaced) {
-            env.emplace_back(entry);
-        }
-    }
-    for (const auto& o : overrides) {
-        env.push_back(o);
-    }
+    auto key_of = [](std::string_view kv) -> std::string_view { return kv.substr(0, kv.find('=')); };
+    auto keys = overrides | std::views::transform(key_of);
+    auto not_overridden = [&](std::string_view entry) -> bool { return !std::ranges::contains(keys, key_of(entry)); };
+    // environ is a null-terminated array of "KEY=VALUE".
+    auto env = std::views::iota(environ) | std::views::take_while([](char** e) -> bool { return *e != nullptr; }) |
+               std::views::transform([](char** e) -> std::string_view { return *e; }) |
+               std::views::filter(not_overridden) | std::ranges::to<std::vector<std::string>>();
+    env.insert(env.end(), overrides.begin(), overrides.end());
     return env;
 }
 
 auto c_array(std::vector<std::string>& v) -> std::vector<char*> {
-    std::vector<char*> out;
-    out.reserve(v.size() + 1);
-    for (auto& s : v) {
-        out.push_back(s.data());
-    }
+    auto out = v | std::views::transform([](std::string& s) -> char* { return s.data(); }) |
+               std::ranges::to<std::vector<char*>>();
     out.push_back(nullptr);
     return out;
 }
@@ -286,11 +276,8 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
     if (timed_out) {
         kill(c.pid, SIGKILL);
     }
-    for (auto& f : fds) {
-        if (f.fd >= 0) {
-            close(f.fd);
-        }
-    }
+    std::ranges::for_each(fds | std::views::filter([](const pollfd& f) -> bool { return f.fd >= 0; }),
+                          [](const pollfd& f) -> void { close(f.fd); });
     r.rc = wait_child(c.pid);
     if (timed_out) {
         r.rc = -1;
@@ -319,21 +306,18 @@ auto which(std::string_view name) -> std::optional<fs::path> {
     if (path == nullptr) {
         return std::nullopt;
     }
-    std::string_view rest(path);
-    while (true) {
-        size_t colon = rest.find(':');
-        std::string_view dir = rest.substr(0, colon);
-        fs::path candidate = fs::path(dir.empty() ? "." : std::string(dir)) / std::string(name);
+    auto candidates =
+        std::string_view(path) | std::views::split(':') | std::views::transform([&](auto dir) -> fs::path {
+            return fs::path(dir.empty() ? "." : std::string(std::string_view(dir))) / std::string(name);
+        });
+    auto found = std::ranges::find_if(candidates, [](const fs::path& p) -> bool {
         std::error_code ec;
-        if (fs::is_regular_file(candidate, ec) && access(candidate.c_str(), X_OK) == 0) {
-            return candidate;
-        }
-        if (colon == std::string_view::npos) {
-            break;
-        }
-        rest = rest.substr(colon + 1);
+        return fs::is_regular_file(p, ec) && access(p.c_str(), X_OK) == 0;
+    });
+    if (found == candidates.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return *found;
 }
 
 auto cpu_count() -> unsigned {
@@ -366,35 +350,89 @@ void write_file(const fs::path& p, std::string_view content) {
 }
 
 auto split_lines_keepends(std::string_view s) -> std::vector<std::string> {
-    std::vector<std::string> out;
-    size_t start = 0;
-    while (start < s.size()) {
-        size_t nl = s.find('\n', start);
-        if (nl == std::string_view::npos) {
-            out.emplace_back(s.substr(start));
-            break;
-        }
-        out.emplace_back(s.substr(start, nl - start + 1));
-        start = nl + 1;
+    if (s.empty()) {
+        return {};
+    }
+    auto out =
+        s | std::views::split('\n') |
+        std::views::transform([](auto line) -> std::string { return std::string(std::string_view(line)) + '\n'; }) |
+        std::ranges::to<std::vector<std::string>>();
+    // split yields an empty piece after a trailing newline, and no newline ends an unterminated last line.
+    if (s.back() == '\n') {
+        out.pop_back();
+    } else {
+        out.back().pop_back();
     }
     return out;
 }
 
 auto strip(std::string_view s) -> std::string {
-    size_t b = 0;
-    size_t e = s.size();
-    auto ws = [](char c) -> bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; };
-    while (b < e && ws(s[b])) {
-        ++b;
+    constexpr std::string_view k_ws = " \t\n\r\f\v";
+    size_t b = s.find_first_not_of(k_ws);
+    if (b == std::string_view::npos) {
+        return {};
     }
-    while (e > b && ws(s[e - 1])) {
-        --e;
-    }
-    return std::string(s.substr(b, e - b));
+    return std::string(s.substr(b, s.find_last_not_of(k_ws) - b + 1));
 }
 
 auto starts_with(std::string_view s, std::string_view prefix) -> bool {
     return s.starts_with(prefix);
+}
+
+auto join(const std::vector<std::string>& parts, std::string_view sep) -> std::string {
+    if (parts.empty()) {
+        return {};
+    }
+    return std::ranges::fold_left(parts | std::views::drop(1), parts.front(),
+                                  [sep](std::string acc, const std::string& p) -> std::string {
+                                      acc += sep;
+                                      acc += p;
+                                      return acc;
+                                  });
+}
+
+auto replace_all(std::string s, std::string_view from, std::string_view to) -> std::string {
+    for (size_t at = s.find(from); at != std::string::npos; at = s.find(from, at + to.size())) {
+        s.replace(at, from.size(), to);
+    }
+    return s;
+}
+
+auto is_hidden(const fs::directory_entry& e) -> bool {
+    return e.path().filename().string().starts_with('.');
+}
+
+auto files_under(const fs::path& root,
+                 const std::function<bool(const fs::directory_entry&)>& skip) -> std::vector<fs::path> {
+    std::vector<fs::path> files;
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) {
+        return files;
+    }
+    for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+         !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        bool skipped = skip && skip(*it);
+        if (it->is_directory(ec)) {
+            if (skipped) {
+                it.disable_recursion_pending();
+            }
+        } else if (!skipped && it->is_regular_file(ec)) {
+            files.push_back(it->path());
+        }
+    }
+    return files;
+}
+
+auto find_up(const fs::path& start, const std::function<bool(const fs::path&)>& pred) -> std::optional<fs::path> {
+    for (fs::path d = start; !d.empty(); d = d.parent_path()) {
+        if (pred(d)) {
+            return d;
+        }
+        if (d == d.root_path()) {
+            break;
+        }
+    }
+    return std::nullopt;
 }
 
 // ── Hashes ──────────────────────────────────────────────────────────────────
@@ -583,13 +621,10 @@ auto framework_dir() -> const fs::path& {
         std::error_code ec;
         fs::path exe = fs::canonical(executable_path(), ec);
         // Installed: <framework>/prebuilt/bin/revet. Built in a checkout: <repo>/build/tools/revet.
-        for (fs::path d = exe.parent_path(); !d.empty(); d = d.parent_path()) {
-            if (fs::is_regular_file(d / "template" / "CMakeLists.txt", ec)) {
-                return d;
-            }
-            if (d == d.root_path()) {
-                break;
-            }
+        if (auto d = find_up(exe.parent_path(), [&](const fs::path& d) -> bool {
+                return fs::is_regular_file(d / "template" / "CMakeLists.txt", ec);
+            })) {
+            return *d;
         }
 #ifdef REVET_SOURCE_DIR
         // Built out of tree (build directory outside the checkout): the checkout it came from.
@@ -603,15 +638,9 @@ auto framework_dir() -> const fs::path& {
 
 auto framework_version() -> const std::string& {
     static const std::string version = [] -> std::string {
-        for (fs::path d = framework_dir(); !d.empty(); d = d.parent_path()) {
-            if (auto v = read_file(d / "VERSION")) {
-                return strip(*v);
-            }
-            if (d == d.root_path()) {
-                break;
-            }
-        }
-        return {"unknown"};
+        auto d = find_up(framework_dir(), [](const fs::path& d) -> bool { return fs::exists(d / "VERSION"); });
+        auto v = d ? read_file(*d / "VERSION") : std::nullopt;
+        return v ? strip(*v) : std::string("unknown");
     }();
     return version;
 }

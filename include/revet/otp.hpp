@@ -9,6 +9,8 @@
 //   if (throttle.locked(username)) return locked_page();
 //   ok ? throttle.reset(username) : throttle.fail(username);
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -90,12 +92,10 @@ inline auto code(std::string_view secret, std::uint64_t counter) -> std::string 
 // The step `code` matches, allowing one step of clock drift either way; 0 if none.
 inline auto matching_step(std::string_view secret, std::string_view submitted,
                           std::uint64_t now = now_step()) -> std::uint64_t {
-    for (const std::uint64_t step : {now - 1, now, now + 1}) {
-        if (crypto::secure_eq(code(secret, step), submitted)) {
-            return step;
-        }
-    }
-    return 0;
+    const auto steps = std::to_array<std::uint64_t>({now - 1, now, now + 1});
+    const auto match = std::ranges::find_if(
+        steps, [&](std::uint64_t step) -> bool { return crypto::secure_eq(code(secret, step), submitted); });
+    return match == steps.end() ? 0 : *match;
 }
 
 // Accepts each code once: a code seen at or before the last accepted step is refused.

@@ -127,11 +127,9 @@ inline auto allow(AllowConfig cfg) -> web::Middleware {
                 }
             }
 
-            for (const auto& v : cfg.validators) {
-                if (!v(file)) {
-                    detail::remove_all_files(files);
-                    return {.status = web::status::unprocessable_entity};
-                }
+            if (!std::ranges::all_of(cfg.validators, [&](const auto& v) -> bool { return v(file); })) {
+                detail::remove_all_files(files);
+                return {.status = web::status::unprocessable_entity};
             }
 
             auto dest = file.validated_dir / file.path.filename();

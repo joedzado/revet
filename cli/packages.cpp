@@ -7,7 +7,9 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <iterator>
 #include <map>
+#include <ranges>
 #include <thread>
 #include <utility>
 
@@ -93,25 +95,20 @@ void bg_search(const std::string& q) {
                 by_pkg[ref.substr(0, ref.find('/'))].push_back(ref);
             }
         }
-        std::vector<std::pair<std::string, std::string>> found;
-        for (auto& [name, refs] : by_pkg) {
-            sort_refs_newest_first(refs);
-            found.emplace_back(name, refs.front());
-            if (found.size() == 25) {
-                break;
-            }
-        }
+        auto found = by_pkg | std::views::take(25) |
+                     std::views::transform([](auto& pkg) -> std::pair<std::string, std::string> {
+                         sort_refs_newest_first(pkg.second);
+                         return {pkg.first, pkg.second.front()};
+                     }) |
+                     std::ranges::to<std::vector<std::pair<std::string, std::string>>>();
         post([q, found] -> void {
             State& st = *g_st;
             if (q != st.query) {
                 return;
             }
-            st.results.clear();
-            for (const auto& f : found) {
-                if (!find_dep(st.installed, f.first)) {
-                    st.results.push_back(f);
-                }
-            }
+            st.results = found |
+                         std::views::filter([&](const auto& f) -> bool { return !find_dep(st.installed, f.first); }) |
+                         std::ranges::to<std::vector<std::pair<std::string, std::string>>>();
             st.srch_cur = std::clamp(st.srch_cur, 0, std::max(0, static_cast<int>(st.results.size()) - 1));
             st.searching = false;
         });
@@ -187,8 +184,9 @@ auto render_installed(const State& st) -> Element {
     rows.push_back(hbox({text("  "), cell("Package", k_name_w), text("  "), cell("Installed", k_ver_w), text("  "),
                          cell("Latest", k_lat_w)}) |
                    bold | ftxui::dim);
-    for (size_t i = 0; i < st.installed.size(); ++i) {
-        const auto& [name, ref] = st.installed[i];
+    auto row_of = [&](const auto& indexed) -> Element {
+        const auto& [i, dep] = indexed;
+        const auto& [name, ref] = dep;
         auto lat = st.latest.find(name);
         bool known = lat != st.latest.end();
         bool upgradeable = known && lat->second != ref;
@@ -202,8 +200,10 @@ auto render_installed(const State& st) -> Element {
         Element row = hbox({text("  "), cell(name, k_name_w), text("  "), cell(ref_version(ref), k_ver_w), text("  "),
                             cell(lat_ver, k_lat_w), text("  "), sym});
         bool sel = std::cmp_equal(i, st.inst_cur);
-        rows.push_back(sel ? (row | color(Color::Cyan) | inverted | focus) : row);
-    }
+        return sel ? (row | color(Color::Cyan) | inverted | focus) : row;
+    };
+    std::ranges::copy(std::views::zip(std::views::iota(0UZ), st.installed) | std::views::transform(row_of),
+                      std::back_inserter(rows));
     return vbox(std::move(rows)) | yframe;
 }
 
@@ -216,13 +216,15 @@ auto render_search(const State& st) -> Element {
     } else if (!st.results.empty()) {
         rows.push_back(hbox({text("    "), cell("Package", k_name_w), text("  "), cell("Latest", k_ver_w)}) | bold |
                        ftxui::dim);
-        Elements list;
-        for (size_t j = 0; j < st.results.size(); ++j) {
-            bool sel = std::cmp_equal(j, st.srch_cur);
-            Element row = hbox({text(sel ? "  ▶ " : "    "), cell(st.results[j].first, k_name_w), text("  "),
-                                cell(ref_version(st.results[j].second), k_ver_w)});
-            list.push_back(sel ? (row | color(Color::Cyan) | inverted | focus) : row);
-        }
+        auto list = std::views::zip(std::views::iota(0UZ), st.results) |
+                    std::views::transform([&](const auto& indexed) -> Element {
+                        const auto& [j, result] = indexed;
+                        bool sel = std::cmp_equal(j, st.srch_cur);
+                        Element row = hbox({text(sel ? "  ▶ " : "    "), cell(result.first, k_name_w), text("  "),
+                                            cell(ref_version(result.second), k_ver_w)});
+                        return sel ? (row | color(Color::Cyan) | inverted | focus) : row;
+                    }) |
+                    std::ranges::to<Elements>();
         rows.push_back(vbox(std::move(list)) | yframe | flex);
     } else if (!st.query.empty()) {
         rows.push_back(text(""));
@@ -239,15 +241,18 @@ auto render_versions(const State& st) -> Element {
         rows.push_back(text("  no versions found") | ftxui::dim);
     } else {
         const std::string* cur = find_dep(st.installed, st.ver_pkg);
-        for (size_t i = 0; i < st.versions.size(); ++i) {
-            bool installed = cur != nullptr && *cur == st.versions[i];
+        auto row_of = [&](const auto& indexed) -> Element {
+            const auto& [i, version] = indexed;
+            bool installed = cur != nullptr && *cur == version;
             bool sel = std::cmp_equal(i, st.ver_cur);
-            Element row = text(std::string("  ") + (installed ? " ✔ " : "   ") + ref_version(st.versions[i]));
+            Element row = text(std::string("  ") + (installed ? " ✔ " : "   ") + ref_version(version));
             if (installed) {
                 row = row | color(Color::Green);
             }
-            rows.push_back(sel ? (row | inverted | focus) : row);
-        }
+            return sel ? (row | inverted | focus) : row;
+        };
+        std::ranges::copy(std::views::zip(std::views::iota(0UZ), st.versions) | std::views::transform(row_of),
+                          std::back_inserter(rows));
     }
     Element body = vbox(std::move(rows)) | yframe | size(HEIGHT, LESS_THAN, 20) | size(WIDTH, EQUAL, 44);
     return window(text(" versions: " + st.ver_pkg + " ") | bold,
@@ -418,11 +423,7 @@ auto cmd_packages() -> int {
     State& st = *g_st;
     st.installed = deps_from_toml(read_toml());
     if (!st.installed.empty()) {
-        std::vector<std::string> names;
-        for (const auto& d : st.installed) {
-            names.push_back(d.first);
-        }
-        bg_latest(names);
+        bg_latest(st.installed | std::views::keys | std::ranges::to<std::vector<std::string>>());
     }
 
     auto ui = Renderer([] -> Element { return render(*g_st); }) | CatchEvent([](const Event& e) -> bool {

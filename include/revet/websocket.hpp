@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <sodium.h>
 #include <stdexcept>
 #include <string>
@@ -184,15 +185,13 @@ inline auto utf8_tail_ok(std::string_view tail) -> bool {
     } else {
         return false;
     }
-    for (size_t i = 1; i < tail.size(); ++i) {
-        const auto b = static_cast<uint8_t>(tail[i]);
-        const uint8_t lo = i == 1 ? lo2 : uint8_t{0x80};
-        const uint8_t hi = i == 1 ? hi2 : uint8_t{0xBF};
-        if (b < lo || b > hi) {
-            return false;
-        }
-    }
-    return true;
+    // The second byte has the lead's range; later ones are plain continuation bytes.
+    return std::ranges::all_of(std::views::zip(std::views::iota(1UZ), tail.substr(1)),
+                               [&](const auto& indexed) -> bool {
+                                   const auto [i, c] = indexed;
+                                   const auto b = static_cast<uint8_t>(c);
+                                   return i == 1 ? (b >= lo2 && b <= hi2) : (b >= 0x80 && b <= 0xBF);
+                               });
 }
 
 // Codes a peer may send. 1004, 1005, 1006 and 1015 are reserved and never on the wire.
@@ -254,22 +253,20 @@ struct Deflate {
 
 namespace detail {
 
-inline auto trim(std::string_view s) -> std::string_view {
-    while (!s.empty() && s.front() == ' ') {
-        s.remove_prefix(1);
+// `s` without leading and trailing characters from `chars`.
+inline auto trim(std::string_view s, std::string_view chars = " ") -> std::string_view {
+    const auto first = s.find_first_not_of(chars);
+    if (first == std::string_view::npos) {
+        return {};
     }
-    while (!s.empty() && s.back() == ' ') {
-        s.remove_suffix(1);
-    }
-    return s;
+    return s.substr(first, s.find_last_not_of(chars) - first + 1);
 }
 
 inline auto lower(std::string_view s) -> std::string {
-    std::string out(s);
-    for (char& c : out) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return out;
+    return s | std::views::transform([](char c) -> char {
+               return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+           }) |
+           std::ranges::to<std::string>();
 }
 
 // A window size in 8..15, optionally quoted. nullopt for anything else.
@@ -289,68 +286,70 @@ inline auto window_bits(std::string_view v) -> std::optional<int> {
 
 } // namespace detail
 
+namespace detail {
+// One offer's agreement, or nullopt when it isn't permessage-deflate or has a parameter we can't honor.
+inline auto accept_deflate_offer(std::string_view offer) -> std::optional<Deflate> {
+    const auto semi = offer.find(';');
+    if (lower(trim(offer.substr(0, semi))) != "permessage-deflate") {
+        return std::nullopt;
+    }
+    std::string_view rest = semi == std::string_view::npos ? std::string_view{} : offer.substr(semi + 1);
+    if (rest.ends_with(';')) {
+        rest.remove_suffix(1); // a trailing ';' ends the list rather than adding an empty parameter
+    }
+
+    Deflate d;
+    d.enabled = true;
+    std::string response = "permessage-deflate";
+    bool seen_sn = false;
+    bool seen_cn = false;
+    bool seen_sb = false;
+    bool seen_cb = false;
+    for (auto part : rest | std::views::split(';')) {
+        const auto param = trim(std::string_view(part));
+        const auto eq = param.find('=');
+        const auto key = lower(trim(param.substr(0, eq)));
+        const bool has_value = eq != std::string_view::npos;
+        const auto value = has_value ? trim(param.substr(eq + 1)) : std::string_view{};
+
+        if (key == "server_no_context_takeover" && !has_value && !seen_sn) {
+            seen_sn = true;
+            d.server_no_ctx = true;
+            response += "; server_no_context_takeover";
+        } else if (key == "client_no_context_takeover" && !has_value && !seen_cn) {
+            // Accepted but not echoed: the client may keep its context, so our inflater always keeps its.
+            seen_cn = true;
+        } else if (key == "server_max_window_bits" && !seen_sb) {
+            seen_sb = true;
+            if (has_value) {
+                // zlib cannot make a raw 8-bit window, so 8 is declined rather than rounded up.
+                const auto bits = window_bits(value);
+                if (!bits || *bits == 8) {
+                    return std::nullopt;
+                } else {
+                    d.server_bits = *bits;
+                    response += std::format("; server_max_window_bits={}", *bits);
+                }
+            }
+        } else if (key == "client_max_window_bits" && !seen_cb) {
+            seen_cb = true;
+            if (has_value && !window_bits(value)) {
+                return std::nullopt;
+            }
+        } else {
+            return std::nullopt;
+        }
+    }
+    d.response = std::move(response);
+    return d;
+}
+} // namespace detail
+
 // Picks the first permessage-deflate offer we can accept; anything we can't honor is declined.
 inline auto negotiate_deflate(std::string_view header) -> Deflate {
-    while (!header.empty()) {
-        const auto comma = header.find(',');
-        const auto offer = detail::trim(header.substr(0, comma));
-        header = comma == std::string_view::npos ? std::string_view{} : header.substr(comma + 1);
-
-        const auto semi = offer.find(';');
-        if (detail::lower(detail::trim(offer.substr(0, semi))) != "permessage-deflate") {
-            continue;
-        }
-        std::string_view rest = semi == std::string_view::npos ? std::string_view{} : offer.substr(semi + 1);
-
-        Deflate d;
-        d.enabled = true;
-        std::string response = "permessage-deflate";
-        bool ok = true;
-        bool seen_sn = false;
-        bool seen_cn = false;
-        bool seen_sb = false;
-        bool seen_cb = false;
-        while (ok && !rest.empty()) {
-            const auto next = rest.find(';');
-            const auto param = detail::trim(rest.substr(0, next));
-            rest = next == std::string_view::npos ? std::string_view{} : rest.substr(next + 1);
-
-            const auto eq = param.find('=');
-            const auto key = detail::lower(detail::trim(param.substr(0, eq)));
-            const bool has_value = eq != std::string_view::npos;
-            const auto value = has_value ? detail::trim(param.substr(eq + 1)) : std::string_view{};
-
-            if (key == "server_no_context_takeover" && !has_value && !seen_sn) {
-                seen_sn = true;
-                d.server_no_ctx = true;
-                response += "; server_no_context_takeover";
-            } else if (key == "client_no_context_takeover" && !has_value && !seen_cn) {
-                // Accepted but not echoed: the client may keep its context, so our inflater always keeps its.
-                seen_cn = true;
-            } else if (key == "server_max_window_bits" && !seen_sb) {
-                seen_sb = true;
-                if (has_value) {
-                    // zlib cannot make a raw 8-bit window, so 8 is declined rather than rounded up.
-                    const auto bits = detail::window_bits(value);
-                    if (!bits || *bits == 8) {
-                        ok = false;
-                    } else {
-                        d.server_bits = *bits;
-                        response += std::format("; server_max_window_bits={}", *bits);
-                    }
-                }
-            } else if (key == "client_max_window_bits" && !seen_cb) {
-                seen_cb = true;
-                if (has_value && !detail::window_bits(value)) {
-                    ok = false;
-                }
-            } else {
-                ok = false;
-            }
-        }
-        if (ok) {
-            d.response = std::move(response);
-            return d;
+    for (auto offer : header | std::views::split(',')) {
+        if (auto d = detail::accept_deflate_offer(detail::trim(std::string_view(offer)))) {
+            return *d;
         }
     }
     return {};
@@ -737,10 +736,9 @@ private:
             if ((static_cast<uint8_t>(ext[0]) & 0x80) != 0) {
                 fail(CloseCode::Protocol, "payload length high bit set");
             }
-            len = 0;
-            for (char c : ext) {
-                len = (len << 8) | static_cast<uint8_t>(c);
-            }
+            len = std::ranges::fold_left(ext, uint64_t{0}, [](uint64_t acc, char c) -> uint64_t {
+                return (acc << 8) | static_cast<uint8_t>(c);
+            });
             if (len <= 0xFFFF) {
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <revet/web.hpp>
 #include <string>
@@ -5,24 +6,25 @@
 #include <vector>
 
 static auto dispatch_and_read(const std::vector<web::Route>& all_routes, web::Request req) -> std::string {
-    for (const auto& r : all_routes) {
-        if (web::match_route(r.path, req.path.path, req.params)) {
-            web::Response resp;
-            if (req.method == web::Method::GET && r.get) {
-                resp = r.get(req);
-            } else if (req.method == web::Method::POST && r.post) {
-                resp = r.post(req);
-            } else if (req.method == web::Method::PUT && r.put) {
-                resp = r.put(req);
-            } else if (req.method == web::Method::DEL && r.del) {
-                resp = r.del(req);
-            } else if (req.method == web::Method::PATCH && r.patch) {
-                resp = r.patch(req);
-            }
-            return resp.body;
-        }
+    auto route = std::ranges::find_if(
+        all_routes, [&](const web::Route& r) -> bool { return web::match_route(r.path, req.path.path, req.params); });
+    if (route == all_routes.end()) {
+        return "404";
     }
-    return "404";
+    const web::Route& r = *route;
+    web::Response resp;
+    if (req.method == web::Method::GET && r.get) {
+        resp = r.get(req);
+    } else if (req.method == web::Method::POST && r.post) {
+        resp = r.post(req);
+    } else if (req.method == web::Method::PUT && r.put) {
+        resp = r.put(req);
+    } else if (req.method == web::Method::DEL && r.del) {
+        resp = r.del(req);
+    } else if (req.method == web::Method::PATCH && r.patch) {
+        resp = r.patch(req);
+    }
+    return resp.body;
 }
 
 static auto make_req(web::Method m, std::string path) -> web::Request {

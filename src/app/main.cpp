@@ -12,8 +12,8 @@ void setup(std::vector<web::Route>& out);
 
 int main(int argc, char** argv) {
     web::init(argc, argv);
-    ::log::set_level(::log::Level::INFO);
-    ::log::init_from_env();
+    web::log::set_level(web::log::Level::INFO);
+    web::log::init_from_env();
     site_init();
     std::vector<web::Route> all_routes;
     routes::setup(all_routes);

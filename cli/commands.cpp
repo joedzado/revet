@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <array>
 #include <ctre.hpp>
+#include <iterator>
+#include <ranges>
 #include <sys/utsname.h>
 
 #include "cli.hpp"
@@ -42,33 +44,13 @@ auto llvm_tool(const std::string& tool, const std::string& linux_pkg) -> fs::pat
 
 // Sorted project sources under src/ and app/ with the given extensions.
 auto project_sources(std::initializer_list<std::string_view> exts) -> std::vector<std::string> {
-    std::vector<std::string> files;
-    for (const char* root : {"src", "app"}) {
-        std::error_code ec;
-        if (!fs::is_directory(root, ec)) {
-            continue;
-        }
-        for (auto it = fs::recursive_directory_iterator(root, ec); it != fs::recursive_directory_iterator();
-             it.increment(ec)) {
-            if (ec) {
-                break;
-            }
-            std::string name = it->path().filename().string();
-            if (!name.empty() && name[0] == '.') {
-                if (it->is_directory(ec)) {
-                    it.disable_recursion_pending();
-                }
-                continue;
-            }
-            if (!it->is_regular_file(ec)) {
-                continue;
-            }
-            std::string ext = it->path().extension().string();
-            if (std::ranges::find(exts, ext) != exts.end()) {
-                files.push_back(it->path().string());
-            }
-        }
-    }
+    auto paths = files_under("src", is_hidden);
+    std::ranges::copy(files_under("app", is_hidden), std::back_inserter(paths));
+    auto files = paths | std::views::filter([&](const fs::path& p) -> bool {
+                     return std::ranges::contains(exts, std::string_view(p.extension().string()));
+                 }) |
+                 std::views::transform([](const fs::path& p) -> std::string { return p.string(); }) |
+                 std::ranges::to<std::vector<std::string>>();
     std::ranges::sort(files);
     return files;
 }
@@ -101,12 +83,10 @@ auto cxx_compiler() -> std::string {
     if (const char* cxx = std::getenv("CXX"); cxx != nullptr && *cxx != 0) {
         return cxx;
     }
-    for (const char* c : {"clang++", "g++", "c++"}) {
-        if (which(c)) {
-            return c;
-        }
-    }
-    return "";
+    constexpr auto k_compilers = std::to_array<std::string_view>({"clang++", "g++", "c++"});
+    const auto* found =
+        std::ranges::find_if(k_compilers, [](std::string_view c) -> bool { return which(c).has_value(); });
+    return found == k_compilers.end() ? "" : std::string(*found);
 }
 
 } // namespace
@@ -238,27 +218,14 @@ auto cmd_new(std::string_view name_view, bool empty) -> int {
 
     // Template files, {{name}} filled in. CMakeLists.txt is generated at build time.
     fs::path tmpl = fw / "template";
-    for (auto it = fs::recursive_directory_iterator(tmpl, ec); it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
-        if (ec) {
-            break;
+    auto wanted = [&](const fs::path& rel) -> bool {
+        return rel.filename() != "CMakeLists.txt" &&
+               !(empty && (*rel.begin() == "app" || rel.filename() == "models.hpp"));
+    };
+    for (const auto& file : files_under(tmpl)) {
+        if (fs::path rel = file.lexically_relative(tmpl); wanted(rel)) {
+            write_file(dest / rel, replace_all(read_file(file).value_or(""), "{{name}}", name));
         }
-        if (!it->is_regular_file(ec)) {
-            continue;
-        }
-        fs::path rel = it->path().lexically_relative(tmpl);
-        if (rel.filename() == "CMakeLists.txt") {
-            continue;
-        }
-        if (empty && (*rel.begin() == "app" || rel.filename() == "models.hpp")) {
-            continue;
-        }
-        std::string content = read_file(it->path()).value_or("");
-        for (size_t at = content.find("{{name}}"); at != std::string::npos;
-             at = content.find("{{name}}", at + name.size())) {
-            content.replace(at, 8, name);
-        }
-        write_file(dest / rel, content);
     }
 
     if (empty) {
@@ -442,17 +409,21 @@ auto cmd_doctor() -> int {
         {"lldb", "Debugger (revet dev --lldb, d key)"},
         {"bun", "Builds static/optimistic.ts"},
     });
-    for (const auto& [name, why] : optional) {
-        checks.push_back({.name = name,
-                          .why = why,
-                          .critical = false,
-                          .version = which(name) ? version_of({name, "--version"}, first_number) : std::nullopt});
-    }
+    std::ranges::transform(optional, std::back_inserter(checks), [&](const auto& tool) -> Check {
+        const auto& [name, why] = tool;
+        return {.name = name,
+                .why = why,
+                .critical = false,
+                .version = which(name) ? version_of({name, "--version"}, first_number) : std::nullopt};
+    });
 
     info("");
     rule("Dependency Check");
-    int critical_missing = 0;
-    int optional_missing = 0;
+    auto missing = [](bool critical) -> auto {
+        return [critical](const Check& c) -> bool { return !c.version && c.critical == critical; };
+    };
+    auto critical_missing = std::ranges::count_if(checks, missing(true));
+    auto optional_missing = std::ranges::count_if(checks, missing(false));
     for (const auto& c : checks) {
         bool found = c.version.has_value();
         std::string line = std::string(found ? "✓ " : "✗ ") + c.name;
@@ -463,10 +434,7 @@ auto cmd_doctor() -> int {
             line += " " + *c.version;
         }
         if (!found && c.critical) {
-            line += " [CRITICAL]", ++critical_missing;
-        }
-        if (!found && !c.critical) {
-            ++optional_missing;
+            line += " [CRITICAL]";
         }
         info(line);
     }

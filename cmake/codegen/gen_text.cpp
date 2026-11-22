@@ -1,7 +1,10 @@
 // CSS class/id constants and locale strings.
+#include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <iterator>
 #include <map>
+#include <ranges>
 #include <set>
 
 #include "common.hpp"
@@ -27,11 +30,7 @@ auto replace_dashes(std::string s) -> std::string {
         "true",        "try",       "typedef",    "typeid",    "typename", "union",        "unsigned",
         "using",       "virtual",   "void",       "volatile",  "wchar_t",  "while",        "xor",
         "xor_eq"};
-    for (char& c : s) {
-        if (c == '-') {
-            c = '_';
-        }
-    }
+    std::ranges::replace(s, '-', '_');
     if (keywords.contains(s)) {
         s += '_';
     }
@@ -131,9 +130,7 @@ auto gen_styles(const Ctx& ctx) -> int {
 
         // Selectors on lines that end with a comma carry over to the block's '{' line.
         std::vector<std::pair<size_t, std::string>> pending;
-        size_t lineno = 0;
-        for (const auto& line : splitlines(content)) {
-            ++lineno;
+        for (const auto& [lineno, line] : std::views::zip(std::views::iota(1UZ), splitlines(content))) {
             std::string stripped = strip(line);
             if (stripped.empty()) {
                 pending.clear();
@@ -150,8 +147,7 @@ auto gen_styles(const Ctx& ctx) -> int {
             candidates.emplace_back(lineno, stripped);
             if (has_open) {
                 for (const auto& [li, sel] : candidates) {
-                    for (auto m : ctre::search_all<R"RE(\.([A-Za-z][A-Za-z0-9_\-]*))RE">(std::string_view(sel))) {
-                        std::string css_name = m.get<1>().to_string();
+                    for (const auto& css_name : captures<R"RE(\.([A-Za-z][A-Za-z0-9_\-]*))RE">(sel)) {
                         std::string cpp_name = replace_dashes(css_name);
                         if (!defined_classes.contains(cpp_name)) {
                             out.push_back(subst(named_class_t, {{"line", std::to_string(li)},
@@ -161,10 +157,12 @@ auto gen_styles(const Ctx& ctx) -> int {
                             defined_classes.insert(cpp_name);
                         }
                     }
-                    for (auto m : ctre::search_all<R"RE(#([A-Za-z][A-Za-z0-9_\-]*))RE">(std::string_view(sel))) {
-                        std::string css_name = m.get<1>().to_string();
-                        defined_ids.emplace(replace_dashes(css_name), css_name);
-                    }
+                    std::ranges::transform(
+                        captures<R"RE(#([A-Za-z][A-Za-z0-9_\-]*))RE">(sel),
+                        std::inserter(defined_ids, defined_ids.end()),
+                        [](const std::string& css_name) -> std::pair<const std::string, std::string> {
+                            return {replace_dashes(css_name), css_name};
+                        });
                 }
                 pending.clear();
             } else {
@@ -179,22 +177,15 @@ auto gen_styles(const Ctx& ctx) -> int {
     if (!defined_ids.empty()) {
         out.emplace_back("namespace ids {");
         out.emplace_back("");
-        for (const auto& [cpp_name, css_name] : defined_ids) {
-            out.push_back(subst(id_t, {{"cpp_name", cpp_name}, {"css_name", css_name}}));
-        }
+        std::ranges::transform(defined_ids, std::back_inserter(out), [&](const auto& id) -> std::string {
+            return subst(id_t, {{"cpp_name", id.first}, {"css_name", id.second}});
+        });
         out.emplace_back("");
         out.emplace_back("} // namespace ids");
     }
     out.emplace_back("");
     out.emplace_back("namespace html::detail {");
-    std::string joined;
-    for (size_t i = 0; i < all_css.size(); ++i) {
-        if (i != 0U) {
-            joined += '\n';
-        }
-        joined += all_css[i];
-    }
-    out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(joined), "\";"));
+    out.push_back(cat("inline const std::string _all_css_str = \"", escape_str(join(all_css, "\n")), "\";"));
     // Emitted verbatim.
     out.emplace_back("inline const bool _all_css_init = ([]{{ all_css_block = _all_css_str; return true; }})();");
     out.emplace_back("} // namespace html::detail");
@@ -219,84 +210,60 @@ auto gen_i18n(const Ctx& ctx) -> int {
     }
     const auto& header = rows.front();
 
-    std::vector<std::string> locales;
-    for (const auto& h : header) {
-        if (h != "key") {
-            locales.push_back(h);
-        }
-    }
+    auto locales =
+        header | std::views::filter([](const std::string& h) -> bool { return h != "key"; }) | std::ranges::to<Lines>();
 
-    std::vector<std::map<std::string, std::string>> records;
-    for (size_t r = 1; r < rows.size(); ++r) {
-        std::map<std::string, std::string> rec;
-        for (size_t c = 0; c < header.size(); ++c) {
-            if (c < rows[r].size()) {
-                rec[header[c]] = rows[r][c];
-            }
-        }
-        records.push_back(std::move(rec));
-    }
+    // Each row as column name → value (zip stops at the shorter of header and row).
+    using Record = std::map<std::string, std::string>;
+    auto records = rows | std::views::drop(1) | std::views::transform([&](const Lines& row) -> Record {
+                       return std::views::zip(header, row) | std::ranges::to<Record>();
+                   }) |
+                   std::ranges::to<std::vector<Record>>();
 
-    Lines bad;
-    for (const auto& l : locales) {
-        if (static_cast<unsigned int>(iso_639_1().contains(l)) == 0U) {
-            bad.push_back(l);
-        }
-    }
+    auto bad = locales | std::views::filter([](const std::string& l) -> bool { return !iso_639_1().contains(l); }) |
+               std::ranges::to<Lines>();
     if (!bad.empty()) {
         throw GenError("ERROR gen_i18n: unrecognized locale code(s): " + join(bad, ", ") +
                        "\n  Locale column headers must be ISO 639-1 two-letter codes (e.g. en, es, fr, de).");
     }
 
     const size_t n = locales.size();
-    std::string picker;
-    for (size_t i = 0; i < locales.size(); ++i) {
-        const std::string& l = locales[i];
-        std::string upper = l;
-        for (char& c : upper) {
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        }
-        if (i != 0U) {
-            picker += "\n        ";
-        }
-        picker += cat(R"(html::button{html::attr.type("submit"), html::attr.name("lang"), html::attr.value(")", l,
-                      "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
-                      " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
-    }
+    auto button = [](const auto& indexed) -> std::string {
+        const auto& [i, l] = indexed;
+        auto upper = l | std::views::transform([](char c) -> char {
+                         return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                     }) |
+                     std::ranges::to<std::string>();
+        return cat(R"(html::button{html::attr.type("submit"), html::attr.name("lang"), html::attr.value(")", l,
+                   "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
+                   " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
+    };
+    std::string picker =
+        join(std::views::zip(std::views::iota(0UZ), locales) | std::views::transform(button) | std::ranges::to<Lines>(),
+             "\n        ");
 
     const std::string str_const_t = tmpl(ctx, "i18n_str_const.tmpl");
-    std::string str_consts;
-    for (size_t r = 0; r < records.size(); ++r) {
-        const auto& rec = records[r];
+    auto str_const = [&](const Record& rec) -> std::string {
         auto key_it = rec.find("key");
         if (key_it == rec.end()) {
             throw GenError("gen_i18n: row without a 'key' column");
         }
-        std::string translations;
-        for (size_t i = 0; i < locales.size(); ++i) {
-            auto v = rec.find(locales[i]);
+        auto translation = [&](const std::string& locale) -> std::string {
+            auto v = rec.find(locale);
             if (v == rec.end()) {
-                throw GenError("gen_i18n: missing translation for " + locales[i] + " in " + key_it->second);
+                throw GenError("gen_i18n: missing translation for " + locale + " in " + key_it->second);
             }
-            if (i != 0U) {
-                translations += ", ";
-            }
-            translations += "\"" + escape_str(v->second) + "\"";
-        }
-        if (r != 0U) {
-            str_consts += '\n';
-        }
-        str_consts +=
-            subst(str_const_t, {{"n", std::to_string(n)}, {"key", key_it->second}, {"translations", translations}});
-    }
+            return "\"" + escape_str(v->second) + "\"";
+        };
+        std::string translations = join(locales | std::views::transform(translation) | std::ranges::to<Lines>(), ", ");
+        return subst(str_const_t, {{"n", std::to_string(n)}, {"key", key_it->second}, {"translations", translations}});
+    };
+    std::string str_consts = join(records | std::views::transform(str_const) | std::ranges::to<Lines>(), "\n");
 
-    std::string quoted_locales;
-    for (size_t i = 0; i < locales.size(); ++i) {
-        if (i != 0U) {
-            quoted_locales += ", ";
-        }
-        quoted_locales += "\"" + locales[i] + "\"";
-    }
+    std::string quoted_locales = join(locales | std::views::transform([](const std::string& l) -> std::string {
+                                          return "\"" + l + "\"";
+                                      }) | std::ranges::to<Lines>(),
+                                      ", ");
 
     const std::string header_t = tmpl_whole(ctx, "i18n_header.tmpl");
     write_file(out_path, subst(header_t, {{"locale_enum", join(locales, ", ")},

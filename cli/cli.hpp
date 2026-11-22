@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -80,6 +81,15 @@ auto strip_pch(std::string db) -> std::string;
 auto split_lines_keepends(std::string_view s) -> std::vector<std::string>;
 auto strip(std::string_view s) -> std::string;
 auto starts_with(std::string_view s, std::string_view prefix) -> bool;
+auto join(const std::vector<std::string>& parts, std::string_view sep) -> std::string;
+auto replace_all(std::string s, std::string_view from, std::string_view to) -> std::string;
+// Regular files under `root`, recursively, leaving out entries for which skip(entry) is true (a skipped
+// directory is not entered). Empty when `root` is missing.
+auto files_under(const fs::path& root,
+                 const std::function<bool(const fs::directory_entry&)>& skip = {}) -> std::vector<fs::path>;
+auto is_hidden(const fs::directory_entry& e) -> bool;
+// The nearest of `start` and its parents for which pred is true.
+auto find_up(const fs::path& start, const std::function<bool(const fs::path&)>& pred) -> std::optional<fs::path>;
 
 // ── Hashes (hex) ────────────────────────────────────────────────────────────
 auto md5_hex(std::string_view data) -> std::string;

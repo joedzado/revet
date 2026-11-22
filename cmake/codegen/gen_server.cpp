@@ -76,14 +76,8 @@ auto gen_server(const Ctx& ctx) -> int {
         body.emplace_back("// max_body not set: web::config::DEFAULT_MAX_BODY_BYTES applies");
     }
     if (data_dir) {
-        std::string escaped;
-        for (char c : *data_dir) {
-            if (c == '\\' || c == '"') {
-                escaped += '\\';
-            }
-            escaped += c;
-        }
-        body.push_back(cat("inline const bool data_dir_set = (web::config::data_dir(\"", escaped, "\"), true);"));
+        body.push_back(
+            cat("inline const bool data_dir_set = (web::config::data_dir(\"", escape_quotes(*data_dir), "\"), true);"));
     }
 
     write_file(out_path,

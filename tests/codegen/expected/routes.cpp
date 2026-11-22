@@ -30,6 +30,7 @@
 #include "server.hpp"  // revet.toml max_body, applied at static init
 
 namespace route_index {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     const auto features = card_grid(
@@ -172,6 +173,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_about {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     const auto content =
@@ -227,6 +229,7 @@ if (session) use(session->user_id);)cpp"
 }
 
 namespace route_about_team {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     auto make_card = [](std::string_view initials, std::string_view name) {
@@ -269,6 +272,7 @@ R"sh(revet dev      # start the server
 }
 
 namespace route_api_v1_users {
+namespace log = web::log; // ::log is the math function on glibc
 
 // GET /api/v1/users — return all users as a JSON array
 static auto render_get(const web::Request& /*req*/) -> web::Response {
@@ -299,6 +303,7 @@ static auto api_guards() -> std::vector<web::Middleware> {
 }
 
 namespace route_api_v2_items {
+namespace log = web::log; // ::log is the math function on glibc
 static auto render_get(const web::Request& req) -> web::Task<std::vector<Item>> {
     co_return std::vector<Item>{};
 }
@@ -308,6 +313,7 @@ static auto render_patch(const Item& body) -> web::Response { return {}; }
 }
 
 namespace route_chat {
+namespace log = web::log; // ::log is the math function on glibc
 
 static constexpr html::id k_feed{"chat-messages"};
 
@@ -459,6 +465,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_chat_send {
+namespace log = web::log; // ::log is the math function on glibc
 
 static constexpr std::string_view ROW_STYLE =
     "display:flex;justify-content:flex-end;margin:.3rem 0;animation:fadeIn .2s";
@@ -488,6 +495,7 @@ static auto render_post(const auto& req) -> web::Response {
 }
 
 namespace route_chat_stream {
+namespace log = web::log; // ::log is the math function on glibc
 
 static constexpr std::array FRAGMENTS = {
     "Lorem ipsum dolor sit amet.",
@@ -536,6 +544,7 @@ static void render_sse(const web::Request& /*req*/, web::SSEWriter& sse) {
 }
 
 namespace route_components {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     auto content =
@@ -647,6 +656,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_contact {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto fgroup(std::string_view id, std::string_view lbl,
                    std::string_view val, std::string_view err,
@@ -720,6 +730,7 @@ static auto render_post(const web::Request& req) -> web::Response {
 }
 
 namespace route_interactive {
+namespace log = web::log; // ::log is the math function on glibc
 
 static const auto s_pos_rel       = css::make(css::pos::relative);
 static const auto s_auto_resize   = html::css_class({.min_height = "4rem"});
@@ -885,6 +896,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_interactive_search {
+namespace log = web::log; // ::log is the math function on glibc
 
 static const auto s_result_row   = html::css_class({.padding = ".45rem .875rem", .font_size = ".875rem"})
                                         .extra("border-bottom:1px solid var(--border)");
@@ -940,10 +952,12 @@ static auto render_get(const auto& req) -> web::Response {
 }
 
 namespace route_items {
+namespace log = web::log; // ::log is the math function on glibc
 static auto render_get(const web::Request& req) -> web::Task<web::Response> { co_return web::Response{}; }
 }
 
 namespace route_live {
+namespace log = web::log; // ::log is the math function on glibc
 
 static const auto color_grid_style = css::flex(css::wrap::wrap, css::gap::_3)
     .extra("padding:1.5rem 0;min-height:160px");
@@ -972,6 +986,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_live_stream {
+namespace log = web::log; // ::log is the math function on glibc
 
 static constexpr std::string_view SWATCH_WRAP =
     "animation:sw-in .3s;display:flex;flex-direction:column;align-items:center;gap:6px";
@@ -1000,6 +1015,7 @@ static void render_sse(const web::Request& /*req*/, web::SSEWriter& sse) {
 }
 
 namespace route_quakes {
+namespace log = web::log; // ::log is the math function on glibc
 
 static const log::TuTag LOG(log::tags::ROUTES);
 
@@ -1026,6 +1042,7 @@ static auto render_get(const web::Request& req) -> web::Task<web::Response> {
 }
 
 namespace route_set_locale {
+namespace log = web::log; // ::log is the math function on glibc
 // GET /set_locale?lang=es  — sets the locale cookie and redirects back.
 
 static auto render_get(const web::Request& req) -> web::Response {
@@ -1044,6 +1061,7 @@ static auto render_get(const web::Request& req) -> web::Response {
 }
 
 namespace route_site_init {
+namespace log = web::log; // ::log is the math function on glibc
 
 static const log::TuTag LOG(log::tags::APP);
 
@@ -1075,6 +1093,7 @@ void site_init() {
 }
 
 namespace route_upload {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto route_guards() -> std::vector<web::Middleware> {
     return {
@@ -1256,6 +1275,7 @@ static auto render_post(const web::Request& req) -> web::Response {
 }
 
 namespace route_users {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     const auto rows = html::list(USERS, [](const auto& entry) {
@@ -1296,6 +1316,7 @@ static auto render_get(const auto& req) {
 }
 
 namespace route_ws_echo {
+namespace log = web::log; // ::log is the math function on glibc
 static void render_ws(const web::Request& req, web::State<Cart> cart, web::ws::Conn& conn) {
     (void)req; (void)cart; (void)conn;
 }
@@ -1303,6 +1324,7 @@ static auto route_guards() -> std::vector<web::Middleware> { return {}; }
 }
 
 namespace route_fonts__file_ {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const web::Request& req) -> web::Response {
     auto file = std::string(req.params.get("file"));
@@ -1313,6 +1335,7 @@ static auto render_get(const web::Request& req) -> web::Response {
 }
 
 namespace route_items__id__edit_form {
+namespace log = web::log; // ::log is the math function on glibc
 static auto render_get(const web::Request& req, web::State<Cart> cart,
                        web::Flash<Notice> notice) -> web::Response {
     return {};
@@ -1327,6 +1350,7 @@ static void render_sse(const web::Request& req, web::Flash<Notice> n, web::SSEWr
 }
 
 namespace route_users__id_ {
+namespace log = web::log; // ::log is the math function on glibc
 
 static auto render_get(const auto& req) {
     const auto id = req.params.get("id");

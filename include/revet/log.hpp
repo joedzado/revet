@@ -9,7 +9,7 @@
 #include <string_view>
 #include <unordered_map>
 
-namespace log {
+namespace web::log {
 
 // ── Tag Registry ──────────────────────────────────────────────────────────────
 
@@ -189,4 +189,10 @@ struct TuTag {
     }
 };
 
-} // namespace log
+} // namespace web::log
+
+// `log::` for app code. glibc declares the math function ::log at global scope, where a namespace of the
+// same name is an error, so there code outside app/routes (which codegen wraps) writes web::log::.
+#ifndef __GLIBC__
+namespace log = web::log;
+#endif

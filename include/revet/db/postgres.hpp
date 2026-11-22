@@ -187,7 +187,6 @@ public:
         return db::detail::convert<T>(raw[0][0], 0);
     }
 
-
     template<typename... Args>
     void exec(std::string_view sql, Args&&... args)
         requires std::is_same_v<Intent, Write>
@@ -239,11 +238,9 @@ private:
     ResultPtr run(std::string_view sql, Args&&... args) {
         const auto pg_sql = detail::positional_sql(sql);
         const std::vector<std::optional<std::string>> values{detail::to_nullable_pg_param(std::forward<Args>(args))...};
-        std::vector<const char*> params;
-        params.reserve(values.size());
-        for (const auto& v : values) {
-            params.push_back(v ? v->c_str() : nullptr);
-        }
+        const auto params =
+            values | std::views::transform([](const auto& v) -> const char* { return v ? v->c_str() : nullptr; }) |
+            std::ranges::to<std::vector<const char*>>();
         return ResultPtr(PQexecParams(conn_, pg_sql.c_str(), static_cast<int>(params.size()), nullptr, params.data(),
                                       nullptr, nullptr, 0));
     }

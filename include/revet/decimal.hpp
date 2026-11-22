@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <compare>
 #include <cstdint>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -46,15 +48,12 @@ public:
         if (dot != std::string_view::npos && frac.empty()) {
             throw DecimalError("decimal: invalid number");
         }
-        wide value = 0;
-        for (const auto part : {whole, frac}) {
-            for (const char c : part) {
-                if (c < '0' || c > '9') {
-                    throw DecimalError("decimal: invalid number");
-                }
-                value = add_checked(mul_checked(value, 10), c - '0');
-            }
+        auto is_digit = [](char c) -> bool { return c >= '0' && c <= '9'; };
+        if (!std::ranges::all_of(whole, is_digit) || !std::ranges::all_of(frac, is_digit)) {
+            throw DecimalError("decimal: invalid number");
         }
+        auto shift_in = [](wide acc, char c) -> wide { return add_checked(mul_checked(acc, 10), c - '0'); };
+        const wide value = std::ranges::fold_left(frac, std::ranges::fold_left(whole, wide{0}, shift_in), shift_in);
         if (frac.size() > kMaxScale) {
             throw DecimalError("decimal: scale too large");
         }
@@ -167,11 +166,7 @@ private:
     }
 
     static auto pow10(int n) -> wide {
-        wide r = 1;
-        for (int i = 0; i < n; ++i) {
-            r = mul_checked(r, 10);
-        }
-        return r;
+        return std::ranges::fold_left(std::views::repeat(wide{10}, n), wide{1}, mul_checked);
     }
 
     static auto add_checked(wide a, wide b) -> wide {

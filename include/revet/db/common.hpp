@@ -3,9 +3,10 @@
 
 #pragma once
 #include <charconv>
-#include <format>
 #include <cstddef>
+#include <format>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -73,7 +74,8 @@ auto convert(const std::optional<std::string>& cell, size_t col) -> T {
 template<typename... Cols, typename RowT, size_t... I>
 auto typed_row(const RowT& row, std::index_sequence<I...>) -> std::tuple<Cols...> {
     if (row.size() < sizeof...(Cols)) {
-        throw std::runtime_error(std::format("db: query returned {} columns, expected {}", row.size(), sizeof...(Cols)));
+        throw std::runtime_error(
+            std::format("db: query returned {} columns, expected {}", row.size(), sizeof...(Cols)));
     }
     return std::tuple<Cols...>{convert<Cols>(std::optional<std::string>(row[I]), I)...};
 }
@@ -83,12 +85,10 @@ auto typed_row(const RowT& row, std::index_sequence<I...>) -> std::tuple<Cols...
 // for (auto [name, total, count] : rows) ...
 template<typename... Cols, typename ResultT>
 auto typed(const ResultT& raw) -> std::vector<std::tuple<Cols...>> {
-    std::vector<std::tuple<Cols...>> out;
-    out.reserve(raw.size());
-    for (const auto& row : raw) {
-        out.push_back(detail::typed_row<Cols...>(row, std::index_sequence_for<Cols...>{}));
-    }
-    return out;
+    return raw | std::views::transform([](const auto& row) -> std::tuple<Cols...> {
+               return detail::typed_row<Cols...>(row, std::index_sequence_for<Cols...>{});
+           }) |
+           std::ranges::to<std::vector<std::tuple<Cols...>>>();
 }
 } // namespace db
 

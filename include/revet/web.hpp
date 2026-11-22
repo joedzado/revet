@@ -118,16 +118,8 @@ inline auto server_config() -> ServerConfig& {
 namespace detail {
 // "64MB", "512k", "1.5GiB", "1048576" → bytes. Units are binary (K = 1024). Empty on bad input.
 inline auto parse_size(std::string_view text) -> std::optional<size_t> {
-    while (!text.empty() && text.front() == ' ') {
-        text.remove_prefix(1);
-    }
-    while (!text.empty() && text.back() == ' ') {
-        text.remove_suffix(1);
-    }
-    size_t i = 0;
-    while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '.')) {
-        ++i;
-    }
+    text = ws::detail::trim(text);
+    const size_t i = std::min(text.find_first_not_of("0123456789."), text.size());
     if (i == 0) {
         return std::nullopt;
     }
@@ -137,12 +129,8 @@ inline auto parse_size(std::string_view text) -> std::optional<size_t> {
     } catch (...) {
         return std::nullopt;
     }
-    std::string unit;
-    for (char c : text.substr(i)) {
-        if (c != ' ') {
-            unit += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-    }
+    const std::string unit = ws::detail::lower(
+        text.substr(i) | std::views::filter([](char c) -> bool { return c != ' '; }) | std::ranges::to<std::string>());
     double mult = 1;
     if (unit.empty() || unit == "b") {
         mult = 1;
@@ -164,16 +152,9 @@ inline auto parse_size(std::string_view text) -> std::optional<size_t> {
 
 // "127.0.0.1,192.168.64.1" → each address.
 inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
-    std::vector<std::string> out;
-    while (!text.empty()) {
-        const auto comma = text.find(',');
-        const auto part = text.substr(0, comma);
-        if (!part.empty()) {
-            out.emplace_back(part);
-        }
-        text = comma == std::string_view::npos ? std::string_view{} : text.substr(comma + 1);
-    }
-    return out;
+    return text | std::views::split(',') | std::views::filter([](auto part) -> bool { return !part.empty(); }) |
+           std::views::transform([](auto part) -> std::string { return std::string(std::string_view(part)); }) |
+           std::ranges::to<std::vector<std::string>>();
 }
 } // namespace detail
 
@@ -318,13 +299,7 @@ struct ParamMap {
         if (it == data.end()) {
             return std::nullopt;
         }
-        std::string_view v = it->second;
-        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) {
-            v.remove_prefix(1);
-        }
-        while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) {
-            v.remove_suffix(1);
-        }
+        std::string_view v = ws::detail::trim(it->second, " \t");
         if (v.empty()) {
             return std::nullopt;
         }
@@ -649,14 +624,12 @@ inline auto sanitize_filename(std::string_view name) -> std::string {
     if (auto p = name.find_last_of("/\\"); p != std::string_view::npos) {
         name = name.substr(p + 1);
     }
-    std::string out;
-    out.reserve(name.size());
-    for (unsigned char c : name) {
-        if (c == 0 || c < 0x20 || c == 0x7F) {
-            continue;
-        }
-        out += static_cast<char>(c);
-    }
+    // Control characters dropped.
+    std::string out = name | std::views::filter([](char c) -> bool {
+                          const auto u = static_cast<unsigned char>(c);
+                          return u >= 0x20 && u != 0x7F;
+                      }) |
+                      std::ranges::to<std::string>();
     if (auto start = out.find_first_not_of('.'); start == std::string::npos) {
         return "upload";
     } else if (start > 0) {
@@ -759,13 +732,12 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
             if (std::filesystem::exists(dest)) {
                 auto stem = dest.stem().string();
                 auto ext = dest.extension().string();
-                for (int i = 1; std::filesystem::exists(dest); ++i) {
-                    std::string name = stem;
-                    name += '_';
-                    name += std::to_string(i);
-                    name += ext;
-                    dest = incoming_dir / name;
-                }
+                // The first free name_<n>.ext.
+                auto candidates = std::views::iota(1) | std::views::transform([&](int i) -> std::filesystem::path {
+                                      return incoming_dir / std::format("{}_{}{}", stem, i, ext);
+                                  });
+                dest = *std::ranges::find_if(
+                    candidates, [](const std::filesystem::path& p) -> bool { return !std::filesystem::exists(p); });
             }
 
             {
@@ -841,30 +813,24 @@ inline auto to_response(T&& val) -> Response {
 
 inline auto match_route(std::string_view pattern, std::string_view path, ParamMap& out) -> bool {
     auto split = [](std::string_view s) -> std::vector<std::string_view> {
-        std::vector<std::string_view> parts;
-        size_t start = 0;
-        while (start <= s.size()) {
-            size_t end = s.find('/', start);
-            parts.push_back(s.substr(start, end - start));
-            if (end == std::string_view::npos) {
-                break;
-            }
-            start = end + 1;
-        }
-        return parts;
+        return s | std::views::split('/') |
+               std::views::transform([](auto part) -> std::string_view { return std::string_view(part); }) |
+               std::ranges::to<std::vector<std::string_view>>();
     };
     auto pat = split(pattern);
     auto seg = split(path);
     if (pat.size() != seg.size()) {
         return false;
     }
+    auto is_param = [](const auto& ps) -> bool { return std::get<0>(ps).starts_with(':'); };
+    auto pairs = std::views::zip(pat, seg);
+    if (!std::ranges::all_of(
+            pairs, [&](const auto& ps) -> bool { return is_param(ps) || std::get<0>(ps) == std::get<1>(ps); })) {
+        return false;
+    }
     ParamMap captured;
-    for (size_t i = 0; i < pat.size(); ++i) {
-        if (!pat[i].empty() && pat[i][0] == ':') {
-            captured.data[std::string(pat[i].substr(1))] = sanitize::url_decode_path(seg[i]);
-        } else if (pat[i] != seg[i]) {
-            return false;
-        }
+    for (const auto& [p, s] : pairs | std::views::filter(is_param)) {
+        captured.data[std::string(p.substr(1))] = sanitize::url_decode_path(s);
     }
     out = std::move(captured);
     return true;
@@ -872,27 +838,16 @@ inline auto match_route(std::string_view pattern, std::string_view path, ParamMa
 
 inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decode = true) -> ParamMap {
     ParamMap out;
-    size_t start = 0;
-    while (start < s.size()) {
-        size_t end = s.find(pair_sep, start);
-        std::string_view const pair = s.substr(start, end - start);
+    // key=value pairs; a later duplicate key wins.
+    for (auto part : s | std::views::split(pair_sep)) {
+        const std::string_view pair(part);
         if (size_t const sep = pair.find('='); sep != std::string_view::npos) {
-            std::string key(pair.substr(0, sep));
-            std::string val(pair.substr(sep + 1));
-            auto trim = [](std::string& str) -> void {
-                str.erase(str.find_last_not_of(" \t\r\n") + 1);
-                str.erase(0, str.find_first_not_of(" \t\r\n"));
-            };
-            trim(key);
-            trim(val);
+            const auto key = ws::detail::trim(pair.substr(0, sep), " \t\r\n");
+            const std::string val(ws::detail::trim(pair.substr(sep + 1), " \t\r\n"));
             if (!key.empty()) {
-                out.data[key] = url_decode ? sanitize::url_decode(val) : std::move(val);
+                out.data[std::string(key)] = url_decode ? sanitize::url_decode(val) : val;
             }
         }
-        if (end == std::string_view::npos) {
-            break;
-        }
-        start = end + 1;
     }
     return out;
 }
@@ -960,9 +915,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     }
     std::string_view const full_path = first_line.substr(m_end + 1, p_end - (m_end + 1));
     req.http_version = std::string(first_line.substr(p_end + 1));
-    while (!req.http_version.empty() && (req.http_version.back() == ' ' || req.http_version.back() == '\t')) {
-        req.http_version.pop_back();
-    }
+    req.http_version.erase(req.http_version.find_last_not_of(" \t") + 1); // npos + 1 == 0: all blanks
 
     if (size_t const q_idx = full_path.find('?'); q_idx != std::string_view::npos) {
         req.path = Url(std::string(full_path.substr(0, q_idx)));
@@ -994,20 +947,8 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
             return {};
         }
         if (size_t const sep = line.find(':'); sep != std::string_view::npos) {
-            std::string key(line.substr(0, sep));
-            std::string val(line.substr(sep + 1));
-            auto trim = [](std::string& str) -> void {
-                if (size_t last = str.find_last_not_of(" \t\r\n"); last != std::string::npos) {
-                    str.erase(last + 1);
-                }
-                if (size_t first = str.find_first_not_of(" \t\r\n"); first != std::string::npos) {
-                    str.erase(0, first);
-                } else {
-                    str.clear();
-                }
-            };
-            trim(key);
-            trim(val);
+            std::string key(ws::detail::trim(line.substr(0, sep), " \t\r\n"));
+            std::string val(ws::detail::trim(line.substr(sep + 1), " \t\r\n"));
 
             std::string lkey = key;
             std::ranges::transform(lkey, lkey.begin(),
@@ -1160,16 +1101,16 @@ struct SSEWriter {
         if (!event.empty()) {
             msg += std::format("event: {}\n", event);
         }
-        std::string_view rem = data;
-        while (!rem.empty()) {
-            auto nl = rem.find('\n');
-            msg += "data: ";
-            msg += rem.substr(0, nl);
-            msg += '\n';
-            if (nl == std::string_view::npos) {
-                break;
+        // One "data:" line per line of `data`.
+        if (!data.empty()) {
+            for (auto line : data | std::views::split('\n')) {
+                msg += "data: ";
+                msg += std::string_view(line);
+                msg += '\n';
             }
-            rem = rem.substr(nl + 1);
+            if (data.back() == '\n') {
+                msg.erase(msg.size() - std::string_view("data: \n").size()); // no empty line after a trailing newline
+            }
         }
         msg += '\n';
         ::send(fd, msg.data(), msg.size(), 0);
@@ -1317,12 +1258,8 @@ inline auto run_async_handler(std::shared_ptr<const Request> req, const AsyncHan
     }
     // Keep what middleware added on the way out, such as a CSRF cookie.
     // The handler wins where both set the same name.
-    for (const auto& [key, value] : from_pipeline.cookies.data) {
-        resp.cookies.data.try_emplace(key, value);
-    }
-    for (const auto& [key, value] : from_pipeline.headers.data) {
-        resp.headers.data.try_emplace(key, value);
-    }
+    resp.cookies.data.insert(from_pipeline.cookies.data.begin(), from_pipeline.cookies.data.end());
+    resp.headers.data.insert(from_pipeline.headers.data.begin(), from_pipeline.headers.data.end());
     co_return resp;
 }
 
@@ -1423,23 +1360,9 @@ inline auto is_ws_upgrade(const Request& req) -> bool {
         return false;
     }
     const std::string connection = ascii_lower(req.headers.get("connection"));
-    std::string_view list = connection;
-    bool has_upgrade_token = false;
-    while (!list.empty()) {
-        const auto comma = list.find(',');
-        auto token = list.substr(0, comma);
-        while (!token.empty() && token.front() == ' ') {
-            token.remove_prefix(1);
-        }
-        while (!token.empty() && token.back() == ' ') {
-            token.remove_suffix(1);
-        }
-        has_upgrade_token = has_upgrade_token || token == "upgrade";
-        if (comma == std::string_view::npos) {
-            break;
-        }
-        list.remove_prefix(comma + 1);
-    }
+    const bool has_upgrade_token = std::ranges::any_of(connection | std::views::split(','), [](auto token) -> bool {
+        return ws::detail::trim(std::string_view(token)) == "upgrade";
+    });
     return has_upgrade_token && ws::valid_key(req.headers.get("sec-websocket-key"));
 }
 
@@ -1698,15 +1621,16 @@ inline void listen(const std::vector<Route>& all_routes) {
     detail::io_pool() = std::make_unique<WorkerPool>(ithreads);
 
     // Exits rather than returns, so a supervisor sees a failure and tries again.
-    std::vector<pollfd> listeners;
-    for (const auto& address : cfg.binds.empty() ? std::vector<std::string>{""} : cfg.binds) {
+    auto listen_on = [&](const std::string& address) -> pollfd {
         const auto fd = detail::open_listener(address, cfg.port);
         if (!fd) {
             std::println(stderr, "{}", fd.error());
             std::exit(1);
         }
-        listeners.push_back({.fd = *fd, .events = POLLIN, .revents = 0});
-    }
+        return {.fd = *fd, .events = POLLIN, .revents = 0};
+    };
+    const auto binds = cfg.binds.empty() ? std::vector<std::string>{""} : cfg.binds;
+    auto listeners = binds | std::views::transform(listen_on) | std::ranges::to<std::vector<pollfd>>();
 
     std::println("Server running on port {} at {} "
                  "(request-threads={}, io-threads={})",
@@ -1717,10 +1641,8 @@ inline void listen(const std::vector<Route>& all_routes) {
         if (poll(listeners.data(), static_cast<nfds_t>(listeners.size()), -1) <= 0) {
             continue;
         }
-        for (const auto& listener : listeners) {
-            if ((listener.revents & POLLIN) == 0) {
-                continue;
-            }
+        for (const auto& listener :
+             listeners | std::views::filter([](const pollfd& l) -> bool { return (l.revents & POLLIN) != 0; })) {
             int const client_fd = accept(listener.fd, nullptr, nullptr);
             if (client_fd < 0) {
                 continue;
@@ -1755,19 +1677,18 @@ inline auto Response::flash(const T& val) -> Response& {
 namespace web::api {
 // JSON error response — {"error":"<msg>"} with the given status
 inline auto error(Status s, std::string_view msg) -> Response {
-    std::string body;
-    body.reserve(12 + msg.size());
-    body += R"({"error":")";
-    for (char c : msg) {
+    auto escaped = [](const char& c) -> std::string_view {
         if (c == '"') {
-            body += "\\\"";
-        } else if (c == '\\') {
-            body += "\\\\";
-        } else {
-            body += c;
+            return "\\\"";
         }
-    }
-    body += "\"}";
+        if (c == '\\') {
+            return "\\\\";
+        }
+        return {&c, 1};
+    };
+    std::string body = R"({"error":")" +
+                       (msg | std::views::transform(escaped) | std::views::join | std::ranges::to<std::string>()) +
+                       "\"}";
     return {.body = std::move(body), .content_type = "application/json", .status = s};
 }
 

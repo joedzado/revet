@@ -81,9 +81,7 @@ inline auto num(double v, int decimals = 3) -> std::string {
     }
     std::string s = std::format("{:.{}f}", v, decimals);
     if (s.find('.') != std::string::npos) {
-        while (s.back() == '0') {
-            s.pop_back();
-        }
+        s.erase(s.find_last_not_of('0') + 1);
         if (s.back() == '.') {
             s.pop_back();
         }

@@ -1,7 +1,10 @@
 // app/queries/*.sql -> queries.hpp (typed async/sync wrappers).
+#include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <tuple>
 
@@ -40,32 +43,27 @@ auto is_word(char c) -> bool {
 // to spaces; sub mode rewrites :name → ? for declared params (outside literals/comments).
 auto process_sql(const std::string& sql, const std::set<std::string>* params) -> std::string {
     std::string out;
-    auto keep = [&](char c) -> char { return params == nullptr ? ' ' : c; };
+    const size_t n = sql.size();
+    // Copies sql[from, to), or blanks it in scrub mode.
+    auto keep = [&](size_t from, size_t to) -> void {
+        out += params == nullptr ? std::string(to - from, ' ') : sql.substr(from, to - from);
+    };
     size_t i = 0;
-    while (i < sql.size()) {
-        if (sql[i] == '-' && i + 1 < sql.size() && sql[i + 1] == '-') {
-            while (i < sql.size() && sql[i] != '\n') {
-                out += keep(sql[i]);
-                ++i;
-            }
+    while (i < n) {
+        if (sql.compare(i, 2, "--") == 0) {
+            size_t end = std::min(sql.find('\n', i), n);
+            keep(i, end);
+            i = end;
         } else if (sql[i] == '\'') {
-            out += keep(sql[i]);
-            ++i;
-            while (i < sql.size() && sql[i] != '\'') {
-                out += keep(sql[i]);
-                ++i;
-            }
-            if (i < sql.size()) {
-                out += keep(sql[i]);
-                ++i;
-            }
+            size_t close = sql.find('\'', i + 1);
+            size_t end = close == std::string::npos ? n : close + 1;
+            keep(i, end);
+            i = end;
         } else if (params != nullptr && sql[i] == ':') {
             size_t j = i + 1;
-            if (j < sql.size() && ((std::isalpha(static_cast<unsigned char>(sql[j])) != 0) || sql[j] == '_')) {
-                size_t k = j;
-                while (k < sql.size() && is_word(sql[k])) {
-                    ++k;
-                }
+            if (j < n && ((std::isalpha(static_cast<unsigned char>(sql[j])) != 0) || sql[j] == '_')) {
+                auto k = static_cast<size_t>(
+                    std::find_if_not(sql.begin() + static_cast<std::ptrdiff_t>(j), sql.end(), is_word) - sql.begin());
                 std::string name = sql.substr(j, k - j);
                 if (params->contains(name)) {
                     out += '?';
@@ -84,23 +82,15 @@ auto process_sql(const std::string& sql, const std::set<std::string>* params) ->
 }
 
 auto snake_to_camel(const std::string& s) -> std::string {
-    std::string out;
-    size_t start = 0;
-    while (start <= s.size()) {
-        size_t end = s.find('_', start);
-        if (end == std::string::npos) {
-            end = s.size();
+    // Each word: first letter upper, the rest lower.
+    auto capitalized = [](auto word) -> std::string {
+        std::string w = lower(std::string_view(word));
+        if (!w.empty()) {
+            w[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(w[0])));
         }
-        std::string w = s.substr(start, end - start);
-        // First letter upper, the rest lower.
-        for (size_t k = 0; k < w.size(); ++k) {
-            w[k] = static_cast<char>(k == 0 ? std::toupper(static_cast<unsigned char>(w[k]))
-                                            : std::tolower(static_cast<unsigned char>(w[k])));
-        }
-        out += w;
-        start = end + 1;
-    }
-    return out;
+        return w;
+    };
+    return join(s | std::views::split('_') | std::views::transform(capitalized) | std::ranges::to<Lines>(), "");
 }
 
 // 'int64' -> 'int64_t', 'string?' -> 'std::optional<std::string>'.
@@ -109,14 +99,7 @@ auto cpp_type(const std::string& t, const std::string& file, const std::string& 
     std::string base = nullable ? t.substr(0, t.size() - 1) : t;
     auto it = param_types().find(base);
     if (it == param_types().end()) {
-        std::string valid;
-        for (const auto& [k, v] : param_types()) {
-            (void)v;
-            if (!valid.empty()) {
-                valid += ", ";
-            }
-            valid += k;
-        }
+        std::string valid = join(param_types() | std::views::keys | std::ranges::to<Lines>(), ", ");
         die(cat(file, ": block '", name, "': unknown type '", t, "' — valid types: ", valid,
                 " (add '?' for nullable)"));
     }
@@ -141,52 +124,43 @@ auto main_verb_after_with(const std::string& sql) -> std::optional<std::string> 
 }
 
 auto infer_verb(const std::string& sql, const std::string& file, const std::string& name) -> std::string_view {
-    for (const auto& line : splitlines(sql)) {
-        std::string stripped = strip(line);
-        if (stripped.empty() || starts_with(stripped, "--")) {
-            continue;
+    auto lines = splitlines(sql) | std::views::transform(strip) | std::ranges::to<Lines>();
+    auto first =
+        std::ranges::find_if(lines, [](const std::string& l) -> bool { return !l.empty() && !starts_with(l, "--"); });
+    if (first == lines.end()) {
+        die(cat(file, ": block '", name, "': no SQL statement found"));
+    }
+    std::string token = lower(first->substr(0, first->find_first_of(" \t\n\r\f\v")));
+    if (exec_verbs().contains(token)) {
+        return "exec";
+    }
+    if (token == "select" || token == "values" || token == "pragma") {
+        return "query";
+    }
+    if (token == "with") {
+        auto main = main_verb_after_with(sql);
+        if (!main) {
+            die(cat(file, ": block '", name, "': WITH has no statement after its CTEs"));
         }
-        size_t end = 0;
-        while (end < stripped.size() && (std::isspace(static_cast<unsigned char>(stripped[end])) == 0)) {
-            ++end;
-        }
-        std::string token = lower(stripped.substr(0, end));
-        if (exec_verbs().contains(token)) {
+        // A data-modifying CTE statement with RETURNING still yields rows.
+        if (*main != "select" && !ctre::search<R"RE(\breturning\b)RE">(lower(process_sql(sql, nullptr)))) {
             return "exec";
         }
-        if (token == "select" || token == "values" || token == "pragma") {
-            return "query";
-        }
-        if (token == "with") {
-            auto main = main_verb_after_with(sql);
-            if (!main) {
-                die(cat(file, ": block '", name, "': WITH has no statement after its CTEs"));
-            }
-            // A data-modifying CTE statement with RETURNING still yields rows.
-            if (*main != "select" && !ctre::search<R"RE(\breturning\b)RE">(lower(process_sql(sql, nullptr)))) {
-                return "exec";
-            }
-            return "query";
-        }
-        die(cat(file, ": block '", name, "': unrecognised SQL verb '", token,
-                "' — expected SELECT, WITH, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, or TRUNCATE"));
+        return "query";
     }
-    die(cat(file, ": block '", name, "': no SQL statement found"));
+    die(cat(file, ": block '", name, "': unrecognised SQL verb '", token,
+            "' — expected SELECT, WITH, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, or TRUNCATE"));
 }
 
 auto emit_pair(const std::string& fn, const std::string& opts, const std::string& async_ret,
                const std::string& sync_ret, const Lines& async_body, const Lines& sync_body) -> Lines {
     Lines out;
     out.push_back(cat("inline auto ", fn, "(auto& db", opts, ") -> ", async_ret, " {"));
-    for (const auto& l : async_body) {
-        out.push_back(l);
-    }
+    append(out, async_body);
     out.emplace_back("}");
     out.emplace_back("");
     out.push_back(cat("inline auto sync_", fn, "(auto& db", opts, ") -> ", sync_ret, " {"));
-    for (const auto& l : sync_body) {
-        out.push_back(l);
-    }
+    append(out, sync_body);
     out.emplace_back("}");
     out.emplace_back("");
     return out;
@@ -245,14 +219,10 @@ auto emit_query_model(const std::string& fn, const std::string& sql, const std::
         cat("    for (auto& r : raw) out.push_back(revet::json::from_row<", mdl, ">(r));"),
     };
     Lines async_body = {cat("    auto raw = co_await db.async_query(\"", sql, "\"", call_args, ");")};
-    for (const auto& l : map_rows) {
-        async_body.push_back(l);
-    }
+    append(async_body, map_rows);
     async_body.emplace_back("    co_return out;");
     Lines sync_body = {cat("    auto raw = db.query(\"", sql, "\"", call_args, ");")};
-    for (const auto& l : map_rows) {
-        sync_body.push_back(l);
-    }
+    append(sync_body, map_rows);
     sync_body.emplace_back("    return out;");
     return emit_pair(fn, opts, cat("web::Task<std::vector<", mdl, ">>"), cat("std::vector<", mdl, ">"), async_body,
                      sync_body);
@@ -281,9 +251,7 @@ auto gen_queries(const Ctx& ctx) -> int {
         std::string file = sql_file.filename().string();
         std::string content = read_text(sql_file);
 
-        size_t lineno = 0;
-        for (const auto& line : splitlines(content)) {
-            ++lineno;
+        for (const auto& [lineno, line] : std::views::zip(std::views::iota(1UZ), splitlines(content))) {
             std::string stripped = strip(line);
             std::string where = file + ":" + std::to_string(lineno) + ": ";
             if (ctre::match<R"RE(--\s*exec\s*)RE">(stripped)) {
@@ -295,31 +263,20 @@ auto gen_queries(const Ctx& ctx) -> int {
             if (auto m = ctre::starts_with<R"RE(--\s*@revet:(\w+))RE">(stripped)) {
                 std::string key = m.get<1>().to_string();
                 if (!valid_directives().contains(key)) {
-                    std::string valid;
-                    for (const auto& d : valid_directives()) {
-                        if (!valid.empty()) {
-                            valid += ", ";
-                        }
-                        valid += "@revet:" + d;
-                    }
+                    std::string valid =
+                        join(valid_directives() | std::views::transform([](const std::string& d) -> std::string {
+                                 return "@revet:" + d;
+                             }) | std::ranges::to<Lines>(),
+                             ", ");
                     die(cat(where, "unknown directive '@revet:", key, "' — valid directives: ", valid));
                 }
             }
         }
 
-        // re.split(r"--\s*@revet:name:\s*", content)
-        std::vector<std::string> blocks;
-        size_t prev = 0;
-        for (auto m : ctre::search_all<R"RE(--\s*@revet:name:\s*)RE">(std::string_view(content))) {
-            size_t pos = offset_in(content, m.to_view());
-            blocks.push_back(content.substr(prev, pos - prev));
-            prev = pos + m.size();
-        }
-        blocks.push_back(content.substr(prev));
-
         Lines ns_out;
-        for (size_t bi = 1; bi < blocks.size(); ++bi) {
-            Lines block_lines = splitlines(blocks[bi]);
+        // The text before the first `-- @revet:name:` is not a block.
+        for (const auto& block : split_at<R"RE(--\s*@revet:name:\s*)RE">(content) | std::views::drop(1)) {
+            Lines block_lines = splitlines(block);
             if (block_lines.empty()) {
                 die(file + ": empty @revet:name block");
             }
@@ -331,29 +288,23 @@ auto gen_queries(const Ctx& ctx) -> int {
             std::string scalar;
             std::vector<std::pair<std::string, std::string>> params; // ordered: (name, C++ type)
             Lines sql_lines;
-            for (size_t li = 1; li < block_lines.size(); ++li) {
-                const std::string& line = block_lines[li];
+            for (const auto& line : block_lines | std::views::drop(1)) {
                 std::string stripped = strip(line);
                 if (auto m = ctre::starts_with<R"RE(--\s*@revet:model:\s*(\w+))RE">(stripped)) {
                     model = m.get<1>().to_string();
                 } else if (ctre::match<R"RE(--\s*@revet:raw\s*)RE">(stripped)) {
                     is_raw = true;
                 } else if (auto r = ctre::match<R"RE(--\s*@revet:returns:\s*([^\n]+))RE">(stripped)) {
-                    for (const auto& t : split_args(r.get<1>().to_view())) {
-                        std::string ts = strip(t);
-                        if (!ts.empty()) {
-                            returns.push_back(cpp_type(ts, file, name));
-                        }
-                    }
+                    std::ranges::transform(
+                        split_args(r.get<1>().to_view()), std::back_inserter(returns),
+                        [&](const std::string& t) -> std::string { return cpp_type(t, file, name); });
                 } else if (auto sc = ctre::match<R"RE(--\s*@revet:scalar:\s*(\w+\??)\s*)RE">(stripped)) {
                     scalar = cpp_type(sc.get<1>().to_string(), file, name);
                 } else if (auto pm = ctre::starts_with<R"RE(--\s*@revet:param:\s*(\w+)\s+(\w+\??))RE">(stripped)) {
                     std::string pname = pm.get<1>().to_string();
                     std::string ctype = cpp_type(pm.get<2>().to_string(), file, name);
-                    for (const auto& p : params) {
-                        if (p.first == pname) {
-                            die(cat(file, ": block '", name, "': duplicate param '", pname, "'"));
-                        }
+                    if (std::ranges::contains(params, pname, &std::pair<std::string, std::string>::first)) {
+                        die(cat(file, ": block '", name, "': duplicate param '", pname, "'"));
                     }
                     params.emplace_back(pname, ctype);
                 } else {
@@ -365,63 +316,47 @@ auto gen_queries(const Ctx& ctx) -> int {
 
             // :name references outside literals and comments, in order (repeats kept).
             std::string scrubbed = process_sql(sql, nullptr);
-            std::vector<std::string> sql_param_refs;
-            std::set<std::string> sql_param_set;
-            for (auto m : ctre::search_all<R"RE(:([A-Za-z_]\w*))RE">(std::string_view(scrubbed))) {
-                sql_param_refs.push_back(m.get<1>().to_string());
-                sql_param_set.insert(m.get<1>().to_string());
-            }
+            Lines sql_param_refs = captures<R"RE(:([A-Za-z_]\w*))RE">(scrubbed);
+            std::set<std::string> sql_param_set(sql_param_refs.begin(), sql_param_refs.end());
 
             std::string struct_name;
             std::string sql_escaped;
             std::string args_decl;
             std::string call_args;
             if (!params.empty()) {
-                std::set<std::string> declared;
-                for (const auto& p : params) {
-                    declared.insert(p.first);
+                auto declared = params | std::views::keys | std::ranges::to<std::set<std::string>>();
+                if (auto unused = std::ranges::find_if(
+                        params, [&](const std::string& p) -> bool { return !sql_param_set.contains(p); },
+                        &std::pair<std::string, std::string>::first);
+                    unused != params.end()) {
+                    die(cat(file, ": block '", name, "': param '", unused->first, "' declared but not used in SQL"));
                 }
-                for (const auto& p : params) {
-                    if (!sql_param_set.contains(p.first)) {
-                        die(cat(file, ": block '", name, "': param '", p.first, "' declared but not used in SQL"));
-                    }
-                }
-                for (const auto& ref : sql_param_set) {
-                    if (!declared.contains(ref)) {
-                        die(cat(file, ": block '", name, "': SQL uses ':", ref,
-                                "' but it is not declared with @revet:param"));
-                    }
+                if (auto undeclared = std::ranges::find_if(
+                        sql_param_set, [&](const std::string& r) -> bool { return !declared.contains(r); });
+                    undeclared != sql_param_set.end()) {
+                    die(cat(file, ": block '", name, "': SQL uses ':", *undeclared,
+                            "' but it is not declared with @revet:param"));
                 }
                 sql_escaped = escape_str(process_sql(sql, &declared));
                 struct_name = snake_to_camel(name) + "Params";
 
-                Lines fields;
-                for (const auto& p : params) {
-                    fields.push_back(cat("    ", p.second, " ", p.first, ";"));
-                }
                 ns_out.push_back(cat("struct ", struct_name, " {"));
-                for (const auto& f : fields) {
-                    ns_out.push_back(f);
-                }
+                std::ranges::transform(params, std::back_inserter(ns_out), [](const auto& p) -> std::string {
+                    return cat("    ", p.second, " ", p.first, ";");
+                });
                 ns_out.emplace_back("};");
                 ns_out.emplace_back("");
 
                 args_decl = "const " + struct_name + "& p";
-                for (const auto& ref : sql_param_refs) {
-                    call_args += ", p." + ref;
-                }
-                call_args = ", " + call_args.substr(2);
-                if (sql_param_refs.empty()) {
-                    call_args.clear();
-                }
+                call_args = join(sql_param_refs | std::views::transform([](const std::string& r) -> std::string {
+                                     return ", p." + r;
+                                 }) | std::ranges::to<Lines>(),
+                                 "");
             } else if (!sql_param_set.empty()) {
-                std::string refs;
-                for (const auto& r : sql_param_set) {
-                    if (!refs.empty()) {
-                        refs += ", ";
-                    }
-                    refs += ":" + r;
-                }
+                std::string refs = join(sql_param_set | std::views::transform([](const std::string& r) -> std::string {
+                                            return ":" + r;
+                                        }) | std::ranges::to<Lines>(),
+                                        ", ");
                 die(cat(file, ": block '", name, "': SQL uses named params (", refs,
                         ") but no '@revet:param' directives are declared"));
             } else {
@@ -469,17 +404,13 @@ auto gen_queries(const Ctx& ctx) -> int {
             } else {
                 emitted = emit_query_raw(name, sql_escaped, args_decl, call_args);
             }
-            for (const auto& l : emitted) {
-                ns_out.push_back(l);
-            }
+            append(ns_out, emitted);
         }
 
         if (!ns_out.empty()) {
             out.push_back("namespace " + ns + " {");
             out.emplace_back("");
-            for (const auto& l : ns_out) {
-                out.push_back(l);
-            }
+            append(out, ns_out);
             out.push_back("} // namespace " + ns);
             out.emplace_back("");
         }

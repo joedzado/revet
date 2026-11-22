@@ -1,7 +1,10 @@
 // app/routes/**/*.cpp -> routes.hpp (urls::) and routes.cpp (route table).
 #include <algorithm>
+#include <functional>
 #include <iostream>
+#include <iterator>
 #include <map>
+#include <ranges>
 #include <set>
 #include <tuple>
 
@@ -21,10 +24,8 @@ struct Entry {
 
 // rel is relative to app/routes.
 auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
-    std::vector<std::string> parts;
-    for (const auto& e : rel) {
-        parts.push_back(e.string());
-    }
+    auto parts = rel | std::views::transform([](const fs::path& e) -> std::string { return e.string(); }) |
+                 std::ranges::to<Lines>();
     std::string& last = parts.back();
     size_t dot = last.rfind('.');
     if (dot != std::string::npos && dot != 0) {
@@ -34,19 +35,27 @@ auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
         parts.pop_back();
     }
 
-    std::vector<std::string> route_parts;
-    std::vector<std::string> ns_parts;
-    for (const auto& part : parts) {
-        if (auto m = ctre::match<R"RE(\[([^\n]+)\])RE">(part)) { // [id].cpp -> :id
-            route_parts.push_back(":" + m.get<1>().to_string());
-            ns_parts.push_back("_" + m.get<1>().to_string() + "_");
-        } else {
-            route_parts.push_back(part);
-            std::string p = part;
-            std::ranges::replace(p, '-', '_');
-            ns_parts.push_back(p);
+    // [id].cpp -> :id in the route, _id_ in the namespace.
+    auto param = [](const std::string& part) -> std::optional<std::string> {
+        if (auto m = ctre::match<R"RE(\[([^\n]+)\])RE">(part)) {
+            return m.get<1>().to_string();
         }
-    }
+        return std::nullopt;
+    };
+    auto route_parts = parts | std::views::transform([&](const std::string& part) -> std::string {
+                           auto p = param(part);
+                           return p ? ":" + *p : part;
+                       }) |
+                       std::ranges::to<Lines>();
+    auto ns_parts = parts | std::views::transform([&](const std::string& part) -> std::string {
+                        if (auto p = param(part)) {
+                            return "_" + *p + "_";
+                        }
+                        std::string ns = part;
+                        std::ranges::replace(ns, '-', '_');
+                        return ns;
+                    }) |
+                    std::ranges::to<Lines>();
     std::string route = "/" + join(route_parts, "/");
     std::string ns = join(ns_parts, "_");
     std::ranges::replace(ns, '-', '_');
@@ -59,12 +68,10 @@ auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
 auto scan_model_names(const fs::path& models_dir) -> std::set<std::string> {
     std::set<std::string> names;
     for (const auto& f : glob(models_dir, ".hpp")) {
-        std::string content = read_text(f);
-        for (auto m : ctre::search_all<
-                 R"RE((?:\[\[\s*revet::model[^\]]*\]\]\s*struct|struct\s*\[\[\s*revet::model[^\]]*\]\])\s+(\w+))RE">(
-                 std::string_view(content))) {
-            names.insert(m.get<1>().to_string());
-        }
+        auto found = captures<
+            R"RE((?:\[\[\s*revet::model[^\]]*\]\]\s*struct|struct\s*\[\[\s*revet::model[^\]]*\]\])\s+(\w+))RE">(
+            read_text(f));
+        names.insert(found.begin(), found.end());
     }
     return names;
 }
@@ -84,25 +91,27 @@ auto extract_state_vars(const std::string& func_name, const std::string& src) ->
         args = head.get<1>().to_view();
     }
 
-    std::set<std::pair<std::string, std::string>> needed;
-    for (auto m : find_state_types(args)) {
-        needed.insert({m.get<1>().to_string(), m.get<2>().to_string()});
-    }
+    auto needed = find_state_types(args) |
+                  std::views::transform([](const auto& m) -> std::pair<std::string, std::string> {
+                      return {m.template get<1>().to_string(), m.template get<2>().to_string()};
+                  }) |
+                  std::ranges::to<std::set<std::pair<std::string, std::string>>>();
     info.needed = !needed.empty();
-    for (const auto& [mode, type] : needed) {
-        std::string var = "state_" + type;
-        info.state_vars.push_back(var);
-        info.flashes.emplace_back(mode, type, var);
-    }
+    info.state_vars = needed | std::views::values |
+                      std::views::transform([](const std::string& type) -> std::string { return "state_" + type; }) |
+                      std::ranges::to<Lines>();
+    info.flashes = needed |
+                   std::views::transform([](const auto& n) -> std::tuple<std::string, std::string, std::string> {
+                       return {n.first, n.second, "state_" + n.second};
+                   }) |
+                   std::ranges::to<std::vector<std::tuple<std::string, std::string, std::string>>>();
     return info;
 }
 
 auto handler_args(const std::vector<std::string>& state_vars, const std::string& suffix = "") -> std::string {
-    std::string out = "req";
-    for (const auto& v : state_vars) {
-        out += ", " + v;
-    }
-    return out + suffix;
+    Lines args = {"req"};
+    args.insert(args.end(), state_vars.begin(), state_vars.end());
+    return join(args, ", ") + suffix;
 }
 
 void emit_state_loading(Lines& out, const StateInfo& info) {
@@ -228,14 +237,8 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
     };
 
     fs::path routes_cpp = resolved(out_c);
-    const Node* ref = nullptr;
-    for (const auto& e : db.items) {
-        if (file_of(e) == routes_cpp) {
-            ref = &e;
-            break;
-        }
-    }
-    if (ref == nullptr) {
+    auto ref = std::ranges::find_if(db.items, [&](const Node& e) -> bool { return file_of(e) == routes_cpp; });
+    if (ref == db.items.end()) {
         return;
     }
     Node ref_copy = *ref;
@@ -244,23 +247,14 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
     const Lines always_headers = {"routes.hpp",  "components.hpp", "styles.hpp", "states.hpp",
                                   "toggles.hpp", "i18n.hpp",       "uploads.hpp"};
     const Lines optional_headers = {"queries.hpp", "resources.hpp", "models.hpp", "forms.hpp", "apis.hpp"};
-    std::vector<fs::path> headers;
-    for (const auto& h : always_headers) {
-        headers.push_back(gen_dir / h);
-    }
-    for (const auto& h : optional_headers) {
-        if (file_exists(gen_dir / h)) {
-            headers.push_back(gen_dir / h);
-        }
-    }
-
-    Lines include_pairs; // arguments form: "-include", "<abs>"
-    Lines include_flags; // command form:    "-include <abs>"
-    for (const auto& h : headers) {
-        include_pairs.emplace_back("-include");
-        include_pairs.push_back(h.string());
-        include_flags.push_back("-include " + h.string());
-    }
+    auto in_gen = [&](const std::string& h) -> fs::path { return gen_dir / h; };
+    auto headers = always_headers | std::views::transform(in_gen) | std::ranges::to<std::vector<fs::path>>();
+    std::ranges::copy(optional_headers | std::views::transform(in_gen) | std::views::filter(file_exists),
+                      std::back_inserter(headers));
+    // command form: "-include <abs>"
+    auto include_flags =
+        headers | std::views::transform([](const fs::path& h) -> std::string { return "-include " + h.string(); }) |
+        std::ranges::to<Lines>();
 
     auto make_entry = [&](const fs::path& src_file) -> Node {
         Node entry = ref_copy;
@@ -274,45 +268,35 @@ void patch_compile_commands(const Ctx& ctx, const fs::path& out_c, const fs::pat
             std::string prefix = sp == std::string::npos ? "" : cmd.substr(0, sp);
             entry.set("command", str_node(prefix + extra + " " + src_abs.string()));
         } else if (const Node* args_node = ref_copy.find("arguments")) {
-            Node args;
-            args.kind = Node::Kind::Array;
-            for (const auto& a : args_node->items) {
-                args.items.push_back(a);
-            }
-            for (size_t i = 0; i < args.items.size(); ++i) {
-                if (args.items[i].kind == Node::Kind::String && args.items[i].s == "-o" && i + 1 < args.items.size()) {
-                    args.items[i + 1] = str_node(stem + ".o");
-                }
+            Node args = *args_node;
+            auto is_o = [](const Node& a) -> bool { return a.kind == Node::Kind::String && a.s == "-o"; };
+            if (auto o = std::ranges::find_if(args.items, is_o);
+                o != args.items.end() && std::next(o) != args.items.end()) {
+                *std::next(o) = str_node(stem + ".o");
             }
             if (!args.items.empty()) {
                 args.items.back() = str_node(src_abs.string());
             }
-            for (const auto& p : include_pairs) {
-                args.items.push_back(str_node(p));
-            }
+            // arguments form: "-include", "<abs>"
+            std::ranges::for_each(headers, [&](const fs::path& h) -> void {
+                args.items.push_back(str_node("-include"));
+                args.items.push_back(str_node(h.string()));
+            });
             args.items.push_back(str_node("-Wno-unused-function"));
             entry.set("arguments", args);
         }
         return entry;
     };
 
-    std::set<fs::path> site_files;
-    for (const auto& f : glob(site, ".cpp", true)) {
-        if (f.filename() != "site_init.cpp") {
-            site_files.insert(resolved(f));
-        }
-    }
+    auto site_files = glob(site, ".cpp", true) |
+                      std::views::filter([](const fs::path& f) -> bool { return f.filename() != "site_init.cpp"; }) |
+                      std::views::transform(resolved) | std::ranges::to<std::set<fs::path>>();
 
     Node out;
     out.kind = Node::Kind::Array;
-    for (const auto& e : db.items) {
-        if (static_cast<unsigned int>(site_files.contains(file_of(e))) == 0U) {
-            out.items.push_back(e);
-        }
-    }
-    for (const auto& f : site_files) {
-        out.items.push_back(make_entry(f));
-    }
+    std::ranges::copy_if(db.items, std::back_inserter(out.items),
+                         [&](const Node& e) -> bool { return !site_files.contains(file_of(e)); });
+    std::ranges::transform(site_files, std::back_inserter(out.items), make_entry);
 
     write_file(cc, dump_json_indent2(out));
 }
@@ -337,11 +321,11 @@ auto gen_routes(const Ctx& ctx) -> int {
     fs::path out_c = out_h.parent_path() / "routes.cpp";
 
     // Entries: sorted paths, then static routes before parameterized ones (stable).
-    std::vector<Entry> entries;
-    for (const auto& f : glob(site, ".cpp", true)) {
-        auto [route, ns] = route_and_ns(fs::relative(f, site));
-        entries.push_back({.route = route, .ns = ns, .file = f});
-    }
+    auto entries = glob(site, ".cpp", true) | std::views::transform([&](const fs::path& f) -> Entry {
+                       auto [route, ns] = route_and_ns(fs::relative(f, site));
+                       return {.route = route, .ns = ns, .file = f};
+                   }) |
+                   std::ranges::to<std::vector<Entry>>();
     std::ranges::stable_sort(entries, [](const Entry& a, const Entry& b) -> bool {
         int ka = a.route.contains(':') ? 1 : 0;
         int kb = b.route.contains(':') ? 1 : 0;
@@ -357,40 +341,28 @@ auto gen_routes(const Ctx& ctx) -> int {
     const std::string static_asset_t = tmpl(ctx, "routes_static_asset.tmpl");
     const std::string toggle_handler_t = tmpl(ctx, "routes_toggle_handler.tmpl");
 
-    Lines hpp_url_entries;
-    for (const auto& e : entries) {
-        Lines params;
-        for (auto m : ctre::search_all<R"RE(:(\w+))RE">(std::string_view(e.route))) {
-            params.push_back(m.get<1>().to_string());
+    auto prefixed = [](const Lines& items, std::string_view before, std::string_view after = "") -> Lines {
+        return items |
+               std::views::transform([&](const std::string& p) -> std::string { return cat(before, p, after); }) |
+               std::ranges::to<Lines>();
+    };
+    auto url_entry = [&](const Entry& e) -> std::string {
+        Lines params = captures<R"RE(:(\w+))RE">(e.route);
+        if (params.empty()) {
+            return subst(url_static_t, {{"ns", e.ns}, {"route", e.route}});
         }
-        if (!params.empty()) {
-            std::string param_args;
-            for (size_t i = 0; i < params.size(); ++i) {
-                if (i != 0U) {
-                    param_args += ", ";
-                }
-                param_args += "std::string_view " + params[i];
-            }
-            std::string fmt_route = replace_all<R"RE(:\w+)RE">(e.route, "{}");
-            // Args are url-encoded with sanitize::url_encode when building a URL.
-            Lines wrapped;
-            for (const auto& p : params) {
-                wrapped.push_back("sanitize::url_encode(" + p + ")");
-            }
-            std::string encoded_args = join(wrapped, ", ");
-            hpp_url_entries.push_back(subst(
-                url_param_t,
-                {{"ns", e.ns}, {"param_args", param_args}, {"fmt_route", fmt_route}, {"args_list", encoded_args}}));
-        } else {
-            hpp_url_entries.push_back(subst(url_static_t, {{"ns", e.ns}, {"route", e.route}}));
-        }
-    }
+        // Args are url-encoded with sanitize::url_encode when building a URL.
+        return subst(url_param_t, {{"ns", e.ns},
+                                   {"param_args", join(prefixed(params, "std::string_view "), ", ")},
+                                   {"fmt_route", replace_all<R"RE(:\w+)RE">(e.route, "{}")},
+                                   {"args_list", join(prefixed(params, "sanitize::url_encode(", ")"), ", ")}});
+    };
+    auto hpp_url_entries = entries | std::views::transform(url_entry) | std::ranges::to<Lines>();
 
     // ── includes ──
     std::set<std::string> global_includes = {"#include \"routes.hpp\"", "#include \"styles.hpp\"", "#include <vector>"};
-    for (const auto& hpp : glob(ctx.proj / "types", ".hpp")) {
-        global_includes.insert(rel_include(hpp, ctx.proj));
-    }
+    std::ranges::transform(glob(ctx.proj / "types", ".hpp"), std::inserter(global_includes, global_includes.end()),
+                           [&](const fs::path& hpp) -> std::string { return rel_include(hpp, ctx.proj); });
     if (have_models) {
         global_includes.insert("#include \"models.hpp\"");
     }
@@ -404,30 +376,22 @@ auto gen_routes(const Ctx& ctx) -> int {
     // ── site bodies: includes hoisted, the rest kept (ordered map by namespace) ──
     std::vector<std::pair<std::string, std::string>> site_contents;
     for (const auto& e : entries) {
-        std::string content = read_text(e.file);
-        Lines stripped;
-        for (const auto& line : splitlines(content)) {
-            std::string s = strip(line);
-            if (starts_with(s, "#include")) {
-                if (s.contains("models.hpp") || s.contains("json_models.hpp") || s.contains("web.hpp") ||
-                    s.contains("routes.hpp") || s.contains("styles.hpp")) {
-                    continue;
-                }
-                global_includes.insert(s);
-            } else {
-                stripped.push_back(line);
-            }
-        }
-        std::string body = join(stripped, "\n");
-        bool replaced = false;
-        for (auto& [k, v] : site_contents) {
-            if (k == e.ns) {
-                v = body;
-                replaced = true;
-                break;
-            }
-        }
-        if (!replaced) {
+        Lines lines = splitlines(read_text(e.file));
+        auto is_include = [](const std::string& line) -> bool { return strip(line).starts_with("#include"); };
+        // Hoisted, except headers routes.cpp already has.
+        auto hoisted = [](const std::string& inc) -> bool {
+            constexpr auto k_provided = std::to_array<std::string_view>(
+                {"models.hpp", "json_models.hpp", "web.hpp", "routes.hpp", "styles.hpp"});
+            return std::ranges::none_of(k_provided, [&](std::string_view h) -> bool { return inc.contains(h); });
+        };
+        std::ranges::copy(lines | std::views::filter(is_include) | std::views::transform(strip) |
+                              std::views::filter(hoisted),
+                          std::inserter(global_includes, global_includes.end()));
+        std::string body = join(lines | std::views::filter(std::not_fn(is_include)) | std::ranges::to<Lines>(), "\n");
+        if (auto it = std::ranges::find(site_contents, e.ns, &std::pair<std::string, std::string>::first);
+            it != site_contents.end()) {
+            it->second = body;
+        } else {
             site_contents.emplace_back(e.ns, body);
         }
     }
@@ -436,13 +400,14 @@ auto gen_routes(const Ctx& ctx) -> int {
     std::vector<std::pair<std::string, std::string>> toggle_routes; // (route, name)
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
-        for (auto m : find_toggles(std::string_view(content))) {
-            toggle_routes.emplace_back(m.get<1>().to_string(), m.get<3>().to_string());
-        }
+        std::ranges::transform(find_toggles(std::string_view(content)), std::back_inserter(toggle_routes),
+                               [](const auto& m) -> std::pair<std::string, std::string> {
+                                   return {m.template get<1>().to_string(), m.template get<3>().to_string()};
+                               });
     }
-    for (const auto& [route, name] : toggle_routes) {
-        hpp_url_entries.push_back(subst(url_static_t, {{"ns", name}, {"route", route}}));
-    }
+    std::ranges::transform(toggle_routes, std::back_inserter(hpp_url_entries), [&](const auto& t) -> std::string {
+        return subst(url_static_t, {{"ns", t.second}, {"route", t.first}});
+    });
 
     // ── routes.hpp ──
     fs::path version_file = ctx.proj.parent_path() / "VERSION";
@@ -455,22 +420,14 @@ auto gen_routes(const Ctx& ctx) -> int {
                              "#include <revet/upload.hpp>", "#include \"toggles.hpp\"", "#include \"components.hpp\"",
                              "#include \"i18n.hpp\"", "#include \"uploads.hpp\"", "#include \"resources.hpp\""});
     hpp.emplace_back("namespace urls {");
-    for (const auto& l : hpp_url_entries) {
-        hpp.push_back(l);
-    }
-    hpp.emplace_back("}");
-    for (const auto& l :
-         Lines{"", "namespace revet {", cat("inline constexpr std::string_view version = \"", version_str, "\";"),
-               "} // namespace revet"}) {
-        hpp.push_back(l);
-    }
+    hpp.insert(hpp.end(), hpp_url_entries.begin(), hpp_url_entries.end());
+    hpp.insert(hpp.end(),
+               {"}", "", "namespace revet {", cat("inline constexpr std::string_view version = \"", version_str, "\";"),
+                "} // namespace revet"});
     write_lines(out_h, hpp);
 
     // ── routes.cpp ──
-    Lines cpp;
-    for (const auto& inc : global_includes) {
-        cpp.push_back(inc); // std::set is already sorted
-    }
+    Lines cpp(global_includes.begin(), global_includes.end()); // std::set is already sorted
     cpp.emplace_back("#include \"htmx_asset.hpp\"");
     cpp.emplace_back("#include \"optimistic_asset.hpp\"");
     cpp.emplace_back("#include \"scripts.hpp\"");
@@ -479,6 +436,7 @@ auto gen_routes(const Ctx& ctx) -> int {
 
     for (const auto& [ns, content] : site_contents) {
         cpp.push_back("namespace route_" + ns + " {");
+        cpp.emplace_back("namespace log = web::log; // ::log is the math function on glibc");
         cpp.push_back(content);
         cpp.emplace_back("}");
         cpp.emplace_back("");
@@ -486,18 +444,18 @@ auto gen_routes(const Ctx& ctx) -> int {
 
     cpp.emplace_back("namespace routes {");
     cpp.emplace_back("void setup(std::vector<web::Route>& out) {");
-    for (const auto& [path, symbol] : std::vector<std::pair<std::string, std::string>>{
-             {"/_revet/htmx.js", "htmx_js"}, {"/_revet/optimistic.js", "optimistic_js"}}) {
-        cpp.push_back(subst(static_asset_t, {{"path", path}, {"symbol", symbol}}));
-    }
+    auto emit = [&](const std::string& t, const char* path_key, const char* name_key) -> auto {
+        return [&t, path_key, name_key](const std::pair<std::string, std::string>& r) -> std::string {
+            return subst(t, {{path_key, r.first}, {name_key, r.second}});
+        };
+    };
+    const std::vector<std::pair<std::string, std::string>> framework_assets = {
+        {"/_revet/htmx.js", "htmx_js"}, {"/_revet/optimistic.js", "optimistic_js"}};
+    std::ranges::transform(framework_assets, std::back_inserter(cpp), emit(static_asset_t, "path", "symbol"));
     // App scripts (app/scripts/*.js): the URL carries a content hash, so they can be cached for good.
     const std::string app_script_t = tmpl(ctx, "routes_app_script.tmpl");
-    for (const auto& [url, ident] : app_script_routes(ctx)) {
-        cpp.push_back(subst(app_script_t, {{"path", url}, {"symbol", ident}}));
-    }
-    for (const auto& [route, name] : toggle_routes) {
-        cpp.push_back(subst(toggle_handler_t, {{"path", route}, {"name", name}}));
-    }
+    std::ranges::transform(app_script_routes(ctx), std::back_inserter(cpp), emit(app_script_t, "path", "symbol"));
+    std::ranges::transform(toggle_routes, std::back_inserter(cpp), emit(toggle_handler_t, "path", "name"));
 
     for (const auto& e : entries) {
         std::string src = read_text(e.file);
@@ -522,12 +480,8 @@ auto gen_routes(const Ctx& ctx) -> int {
             // `Task<Response> func(` or `func(...) -> web::Task<Response>`
             bool is_async = static_cast<bool>(
                 search_after<R"RE(\s*\([^)]*\)\s*->\s*web::Task\s*<\s*(?:web::)?Response\s*>)RE">(src, func));
-            for (auto m :
-                 ctre::search_all<R"RE(Task\s*<\s*(?:web::)?Response\s*>\s+(\w+)\s*\()RE">(std::string_view(src))) {
-                if (m.get<1>().to_view() == func) {
-                    is_async = true;
-                }
-            }
+            is_async = is_async || std::ranges::contains(
+                                       captures<R"RE(Task\s*<\s*(?:web::)?Response\s*>\s+(\w+)\s*\()RE">(src), func);
 
             if (is_async) {
                 cpp.push_back(
@@ -547,13 +501,13 @@ auto gen_routes(const Ctx& ctx) -> int {
                 emit_state_loading(cpp, st);
                 cpp.push_back(cat("            auto resp = web::to_response(route_", e.ns, "::", func, "(",
                                   handler_args(st.state_vars), "));"));
-                for (const auto& [mode, type, var] : st.flashes) {
-                    (void)var;
-                    if (mode == "Flash") {
-                        cpp.push_back(cat("            if (req.cookies.get(\"_cw_", type,
-                                          R"(") != "") resp.cookies["_cw_)", type, R"("] = "";)"));
-                    }
-                }
+                std::ranges::transform(
+                    st.flashes | std::views::filter([](const auto& f) -> bool { return std::get<0>(f) == "Flash"; }),
+                    std::back_inserter(cpp), [](const auto& f) -> std::string {
+                        const auto& type = std::get<1>(f);
+                        return cat("            if (req.cookies.get(\"_cw_", type, R"(") != "") resp.cookies["_cw_)",
+                                   type, R"("] = "";)");
+                    });
                 cpp.emplace_back("            return resp;");
                 cpp.emplace_back("        };");
             }

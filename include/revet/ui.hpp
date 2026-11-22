@@ -1,6 +1,7 @@
 #pragma once
 #include "css.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <format>
 #include <initializer_list>
@@ -197,11 +198,11 @@ inline auto carousel_item(html::Node content) -> html::Node {
     return html::div{detail::cls("ui-car-item"), std::move(content)};
 }
 inline auto carousel(std::initializer_list<html::Node> items) -> html::Node {
-    html::Node children;
-    for (const auto& item : items) {
-        children = std::move(children) + carousel_item(item);
-    }
-    return html::div{detail::cls("ui-car-wrap"), std::move(children)};
+    return html::div{
+        detail::cls("ui-car-wrap"),
+        std::ranges::fold_left(items, html::Node{}, [](html::Node acc, const html::Node& item) -> html::Node {
+            return std::move(acc) + carousel_item(item);
+        })};
 }
 inline auto carousel(html::Node items) -> html::Node {
     return html::div{detail::cls("ui-car-wrap"), std::move(items)};

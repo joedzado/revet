@@ -1,7 +1,9 @@
 // Embeds bundled JS (htmx, optimistic) as string_view constants.
 // Both are invoked from gen_routes (routes.cpp includes their headers).
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <ranges>
 
 #include "common.hpp"
 
@@ -9,32 +11,20 @@ namespace revet::codegen {
 namespace {
 
 auto shell_quote(const std::string& s) -> std::string {
-    std::string out = "'";
-    for (char c : s) {
-        if (c == '\'') {
-            out += "'\\''";
-        } else {
-            out += c;
-        }
-    }
-    return out + "'";
+    return "'" + replace_all<"'">(s, "'\\''") + "'";
 }
 
 auto find_bun() -> fs::path {
     if (const char* path = std::getenv("PATH")) {
-        std::string p = path;
-        size_t start = 0;
-        while (start <= p.size()) {
-            size_t end = p.find(':', start);
-            if (end == std::string::npos) {
-                end = p.size();
-            }
-            fs::path candidate = fs::path(p.substr(start, end - start)) / "bun";
+        auto candidates =
+            std::string_view(path) | std::views::split(':') |
+            std::views::transform([](auto dir) -> fs::path { return fs::path(std::string_view(dir)) / "bun"; });
+        auto found = std::ranges::find_if(candidates, [](const fs::path& p) -> bool {
             std::error_code ec;
-            if (fs::is_regular_file(candidate, ec)) {
-                return candidate;
-            }
-            start = end + 1;
+            return fs::is_regular_file(p, ec);
+        });
+        if (found != candidates.end()) {
+            return *found;
         }
     }
     if (const char* home = std::getenv("HOME")) {
@@ -51,20 +41,20 @@ auto gen_htmx(const Ctx& ctx) -> int {
     std::string version = "2.0.11";
     fs::path toml = ctx.proj / "revet.toml";
     if (file_exists(toml)) {
-        bool in_htmx = false;
-        for (const auto& line : splitlines(read_text(toml))) {
-            if (ctre::starts_with<R"RE(\s*\[htmx\])RE">(line)) {
-                in_htmx = true;
-                continue;
-            }
-            if (in_htmx) {
-                if (starts_with(strip(line), "[")) {
-                    break;
-                }
-                if (auto m = ctre::starts_with<R"RE(\s*version\s*=\s*"([^"]+)")RE">(line)) {
-                    version = m.get<1>().to_string();
-                    break;
-                }
+        // `version = "..."` in the [htmx] section.
+        Lines lines = splitlines(read_text(toml));
+        auto start = std::ranges::find_if(lines, [](const std::string& l) -> bool {
+            return static_cast<bool>(ctre::starts_with<R"RE(\s*\[htmx\])RE">(l));
+        });
+        if (start != lines.end()) {
+            auto section =
+                std::ranges::subrange(std::next(start), lines.end()) |
+                std::views::take_while([](const std::string& l) -> bool { return !starts_with(strip(l), "["); });
+            constexpr auto version_line = ctre::starts_with<R"RE(\s*version\s*=\s*"([^"]+)")RE">;
+            auto line = std::ranges::find_if(
+                section, [&](const std::string& l) -> bool { return static_cast<bool>(version_line(l)); });
+            if (line != section.end()) {
+                version = version_line(*line).get<1>().to_string();
             }
         }
     }

@@ -2,6 +2,7 @@
 // Dates and times as apps show them: local calendar days, ISO dates, "3 h ago".
 // Times are Unix epoch milliseconds (int64) unless a type says otherwise.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -74,14 +75,11 @@ inline auto parse_date(std::string_view s) -> std::optional<std::chrono::year_mo
         return std::nullopt;
     }
     auto digits = [&](size_t pos, size_t n) -> std::optional<int> {
-        int v = 0;
-        for (size_t i = pos; i < pos + n; ++i) {
-            if (s[i] < '0' || s[i] > '9') {
-                return std::nullopt;
-            }
-            v = v * 10 + (s[i] - '0');
+        const auto field = s.substr(pos, n);
+        if (!std::ranges::all_of(field, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
+            return std::nullopt;
         }
-        return v;
+        return std::ranges::fold_left(field, 0, [](int v, char c) -> int { return v * 10 + (c - '0'); });
     };
     const auto y = digits(0, 4);
     const auto m = digits(5, 2);

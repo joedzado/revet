@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <ctre.hpp>
 #include <fcntl.h>
+#include <iterator>
+#include <ranges>
 #include <sys/file.h>
 #include <system_error>
 #include <unistd.h>
@@ -27,12 +29,13 @@ auto toml_first(const fs::path& project) -> std::optional<std::string> {
     if (!content) {
         return std::nullopt;
     }
-    for (const auto& line : split_lines_keepends(*content)) {
-        if (auto m = ctre::starts_with<Pattern>(line)) {
-            return m.template get<1>().to_string();
-        }
+    auto lines = split_lines_keepends(*content);
+    auto line = std::ranges::find_if(
+        lines, [](const std::string& l) -> bool { return static_cast<bool>(ctre::starts_with<Pattern>(l)); });
+    if (line == lines.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return ctre::starts_with<Pattern>(*line).template get<1>().to_string();
 }
 
 auto is_dep_section(std::string_view line) -> bool {
@@ -41,24 +44,21 @@ auto is_dep_section(std::string_view line) -> bool {
 
 // `<ws>["']?name["']?<ws>=` at the start of the line.
 auto is_dep_line(std::string_view line, std::string_view name) -> bool {
-    size_t i = 0;
-    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
-        ++i;
-    }
-    if (i < line.size() && (line[i] == '"' || line[i] == '\'')) {
-        ++i;
-    }
-    if (line.substr(i, name.size()) != name) {
+    auto skip_blanks = [](std::string_view s) -> std::string_view {
+        return s.substr(std::min(s.find_first_not_of(" \t"), s.size()));
+    };
+    auto skip_quote = [](std::string_view s) -> std::string_view {
+        return s.starts_with('"') || s.starts_with('\'') ? s.substr(1) : s;
+    };
+    std::string_view rest = skip_quote(skip_blanks(line));
+    if (!rest.starts_with(name)) {
         return false;
     }
-    i += name.size();
-    if (i < line.size() && (line[i] == '"' || line[i] == '\'')) {
-        ++i;
-    }
-    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
-        ++i;
-    }
-    return i < line.size() && line[i] == '=';
+    return skip_blanks(skip_quote(rest.substr(name.size()))).starts_with('=');
+}
+
+auto is_section_header(std::string_view line) -> bool {
+    return strip(line).starts_with('[');
 }
 
 } // namespace
@@ -101,19 +101,16 @@ void write_toml(std::string_view content) {
 
 auto deps_from_toml(std::string_view content) -> Deps {
     Deps deps;
-    bool in_deps = false;
-    for (const auto& raw : split_lines_keepends(content)) {
-        std::string line = strip(raw);
-        if (starts_with(line, "[build.dependencies]")) {
-            in_deps = true;
-            continue;
-        }
-        if (!in_deps) {
-            continue;
-        }
-        if (starts_with(line, "[")) {
-            break;
-        }
+    auto lines =
+        split_lines_keepends(content) | std::views::transform(strip) | std::ranges::to<std::vector<std::string>>();
+    auto start =
+        std::ranges::find_if(lines, [](const std::string& l) -> bool { return l.starts_with("[build.dependencies]"); });
+    if (start == lines.end()) {
+        return deps;
+    }
+    auto section = std::ranges::subrange(std::next(start), lines.end()) |
+                   std::views::take_while([](const std::string& l) -> bool { return !l.starts_with('['); });
+    for (const auto& line : section) {
         std::string key;
         std::string ref;
         if (auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(line)) {
@@ -136,105 +133,67 @@ auto deps_from_toml(std::string_view content) -> Deps {
 }
 
 auto find_dep(const Deps& deps, std::string_view name) -> const std::string* {
-    for (const auto& [k, v] : deps) {
-        if (k == name) {
-            return &v;
-        }
-    }
-    return nullptr;
+    auto it = std::ranges::find(deps, name, &Deps::value_type::first);
+    return it == deps.end() ? nullptr : &it->second;
 }
 
 auto upsert_dep(std::string_view content, std::string_view name, std::string_view ref) -> std::string {
     auto lines = split_lines_keepends(content);
-    std::optional<size_t> section_start;
-    std::optional<size_t> section_end;
-    std::optional<size_t> existing;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        if (is_dep_section(lines[i])) {
-            section_start = i;
-            continue;
-        }
-        if (section_start && !section_end) {
-            std::string s = strip(lines[i]);
-            if (starts_with(s, "[")) {
-                section_end = i;
-                break;
-            }
-            if (is_dep_line(lines[i], name)) {
-                existing = i;
-            }
-        }
-    }
     std::string entry = std::string(name) + " = \"" + std::string(ref) + "\"\n";
-
-    std::string out;
-    if (!section_start) {
-        out = std::string(content);
+    auto start = std::ranges::find_if(lines, is_dep_section);
+    if (start == lines.end()) {
+        std::string out(content);
         if (!out.empty() && out.back() != '\n') {
             out += '\n';
         }
         return out + "\n[build.dependencies]\n" + entry;
     }
-    if (existing) {
-        lines[*existing] = entry;
+    auto end = std::find_if(std::next(start), lines.end(), is_section_header);
+    // The last matching line wins, as in deps_from_toml.
+    auto body = std::ranges::subrange(std::next(start), end) | std::views::reverse;
+    if (auto existing = std::ranges::find_if(body, [&](const std::string& l) -> bool { return is_dep_line(l, name); });
+        existing != body.end()) {
+        *existing = std::move(entry);
     } else {
-        size_t at = section_end.value_or(lines.size());
-        if (at > 0 && !lines[at - 1].empty() && lines[at - 1].back() != '\n') {
-            lines[at - 1] += '\n';
+        if (auto& last = *std::prev(end); !last.empty() && last.back() != '\n') {
+            last += '\n';
         }
-        lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(at), entry);
+        lines.insert(end, std::move(entry));
     }
-    for (const auto& l : lines) {
-        out += l;
-    }
-    return out;
+    return join(lines, "");
 }
 
 auto remove_dep(std::string_view content, std::string_view name) -> std::pair<std::string, bool> {
-    std::string out;
-    bool in_deps = false;
-    bool found = false;
-    for (const auto& line : split_lines_keepends(content)) {
-        if (is_dep_section(line)) {
-            in_deps = true;
-            out += line;
-            continue;
-        }
-        if (in_deps && starts_with(strip(line), "[")) {
-            in_deps = false;
-        }
-        if (in_deps && is_dep_line(line, name)) {
-            found = true;
-            continue;
-        }
-        out += line;
+    auto lines = split_lines_keepends(content);
+    auto start = std::ranges::find_if(lines, is_dep_section);
+    if (start == lines.end()) {
+        return {std::string(content), false};
     }
-    return {out, found};
+    auto end = std::find_if(std::next(start), lines.end(), is_section_header);
+    auto removed = std::ranges::remove_if(std::next(start), end,
+                                          [&](const std::string& l) -> bool { return is_dep_line(l, name); });
+    bool found = !removed.empty();
+    lines.erase(removed.begin(), removed.end());
+    return {join(lines, ""), found};
 }
 
 // ── Conan ───────────────────────────────────────────────────────────────────
 
 auto framework_requirements() -> std::vector<std::string> {
-    std::vector<std::string> reqs;
     auto content = read_file(framework_dir() / "conanfile.txt");
     if (!content) {
-        return reqs;
+        return {};
     }
-    bool in_requires = false;
-    for (const auto& raw : split_lines_keepends(*content)) {
-        std::string line = strip(raw);
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-        if (line[0] == '[') {
-            in_requires = line == "[requires]";
-            continue;
-        }
-        if (in_requires) {
-            reqs.push_back(line);
-        }
+    auto lines = split_lines_keepends(*content) | std::views::transform(strip) |
+                 std::views::filter([](const std::string& l) -> bool { return !l.empty() && !l.starts_with('#'); }) |
+                 std::ranges::to<std::vector<std::string>>();
+    auto start = std::ranges::find(lines, "[requires]");
+    if (start == lines.end()) {
+        return {};
     }
-    return reqs;
+    return std::ranges::subrange(std::next(start), lines.end()) |
+           std::views::take_while([](const std::string& l) -> bool { return !l.starts_with('['); }) |
+           std::ranges::to<std::vector<std::string>>();
 }
 
 auto project_conanfile(const Deps& deps) -> fs::path {
@@ -242,22 +201,13 @@ auto project_conanfile(const Deps& deps) -> fs::path {
         return framework_dir() / "conanfile.txt";
     }
     std::vector<std::string> reqs = framework_requirements();
-    std::vector<std::string> names;
-    names.reserve(reqs.size());
-    for (const auto& r : reqs) {
-        names.push_back(r.substr(0, r.find('/')));
-    }
-    std::string content = "[requires]\n";
-    for (const auto& r : reqs) {
-        content += r + "\n";
-    }
-    for (const auto& [name, ref] : deps) {
-        (void)name;
-        if (std::ranges::find(names, ref.substr(0, ref.find('/'))) == names.end()) {
-            content += ref + "\n";
-        }
-    }
-    content += "\n[generators]\nCMakeDeps\nCMakeToolchain\n";
+    auto name_of = [](const std::string& ref) -> std::string { return ref.substr(0, ref.find('/')); };
+    auto names = reqs | std::views::transform(name_of) | std::ranges::to<std::vector<std::string>>();
+    std::ranges::copy(deps | std::views::values | std::views::filter([&](const std::string& ref) -> bool {
+                          return !std::ranges::contains(names, name_of(ref));
+                      }),
+                      std::back_inserter(reqs));
+    std::string content = "[requires]\n" + join(reqs, "\n") + "\n\n[generators]\nCMakeDeps\nCMakeToolchain\n";
     fs::path out = fs::path(k_build_dir) / "project_conanfile.txt";
     write_file(out, content);
     return out;
@@ -270,14 +220,15 @@ auto py_repr(std::string_view s) -> std::string {
     bool has_single = s.contains('\'');
     bool has_double = s.contains('"');
     char q = has_single && !has_double ? '"' : '\'';
-    std::string out(1, q);
-    for (char c : s) {
-        if (c == '\\' || c == q) {
-            out += '\\';
-        }
-        out += c;
-    }
-    return out + q;
+    return std::ranges::fold_left(s, std::string(1, q),
+                                  [q](std::string acc, char c) -> std::string {
+                                      if (c == '\\' || c == q) {
+                                          acc += '\\';
+                                      }
+                                      acc += c;
+                                      return acc;
+                                  }) +
+           q;
 }
 } // namespace
 
@@ -286,14 +237,11 @@ auto py_repr(std::string_view s) -> std::string {
 auto deps_hash(const Deps& deps) -> std::string {
     Deps sorted = deps;
     std::ranges::sort(sorted);
-    std::string s = "[";
-    for (size_t i = 0; i < sorted.size(); ++i) {
-        if (i != 0U) {
-            s += ", ";
-        }
-        s += "(" + py_repr(sorted[i].first) + ", " + py_repr(sorted[i].second) + ")";
-    }
-    s += ']';
+    auto pairs = sorted | std::views::transform([](const auto& d) -> std::string {
+                     return "(" + py_repr(d.first) + ", " + py_repr(d.second) + ")";
+                 }) |
+                 std::ranges::to<std::vector<std::string>>();
+    std::string s = "[" + join(pairs, ", ") + "]";
     for (const auto& req : framework_requirements()) {
         s += "\n" + req;
     }
@@ -336,19 +284,15 @@ void conan_update_lockfile(const fs::path& conanfile) {
 }
 
 auto conan_refs(std::string_view list_output, std::string_view name) -> std::vector<std::string> {
-    std::vector<std::string> refs;
-    for (const auto& raw : split_lines_keepends(list_output)) {
-        std::string line = strip(raw);
+    auto is_ref = [name](const std::string& line) -> bool {
         if (name.empty()) {
-            if (ctre::starts_with<R"RE([a-zA-Z][a-zA-Z0-9_\-]*/\d)RE">(line)) {
-                refs.push_back(line);
-            }
-        } else if (starts_with(line, std::string(name) + "/") && line.size() > name.size() + 1 &&
-                   (std::isdigit(static_cast<unsigned char>(line[name.size() + 1])) != 0)) {
-            refs.push_back(line);
+            return static_cast<bool>(ctre::starts_with<R"RE([a-zA-Z][a-zA-Z0-9_\-]*/\d)RE">(line));
         }
-    }
-    return refs;
+        return starts_with(line, std::string(name) + "/") && line.size() > name.size() + 1 &&
+               (std::isdigit(static_cast<unsigned char>(line[name.size() + 1])) != 0);
+    };
+    return split_lines_keepends(list_output) | std::views::transform(strip) | std::views::filter(is_ref) |
+           std::ranges::to<std::vector<std::string>>();
 }
 
 auto ref_version(std::string_view ref) -> std::string {
@@ -360,21 +304,18 @@ namespace {
 // Numeric parts of the version, split on '.' and '-'; non-numeric parts are dropped.
 auto version_key(std::string_view ref) -> std::vector<long long> {
     std::string v = !ref.contains('/') ? "0" : ref_version(ref);
-    std::vector<long long> key;
-    size_t start = 0;
-    while (start <= v.size()) {
-        size_t end = v.find_first_of(".-", start);
-        if (end == std::string::npos) {
-            end = v.size();
-        }
-        std::string_view part = std::string_view(v).substr(start, end - start);
-        if (!part.empty() &&
-            std::ranges::all_of(part, [](char c) -> int { return std::isdigit(static_cast<unsigned char>(c)); })) {
-            key.push_back(part.size() > 18 ? LLONG_MAX : std::stoll(std::string(part)));
-        }
-        start = end + 1;
-    }
-    return key;
+    std::ranges::replace(v, '-', '.');
+    auto numeric = [](std::string_view part) -> bool {
+        return !part.empty() && std::ranges::all_of(part, [](char c) -> bool {
+            return std::isdigit(static_cast<unsigned char>(c)) != 0;
+        });
+    };
+    return v | std::views::split('.') |
+           std::views::transform([](auto part) -> std::string_view { return std::string_view(part); }) |
+           std::views::filter(numeric) | std::views::transform([](std::string_view part) -> long long {
+               return part.size() > 18 ? LLONG_MAX : std::stoll(std::string(part));
+           }) |
+           std::ranges::to<std::vector<long long>>();
 }
 } // namespace
 
@@ -427,13 +368,10 @@ auto conan_profile() -> std::optional<std::string> {
 namespace {
 // The last `n` lines of `s`.
 auto tail_lines(const std::string& s, size_t n) -> std::string {
-    size_t at = s.size();
-    for (size_t count = 0; at > 0 && count <= n; --at) {
-        if (s[at - 1] == '\n') {
-            ++count;
-        }
-    }
-    return at == 0 ? s : s.substr(at + 1);
+    auto lines = split_lines_keepends(s);
+    return join(lines | std::views::drop(lines.size() - std::min(n, lines.size())) |
+                    std::ranges::to<std::vector<std::string>>(),
+                "");
 }
 } // namespace
 
@@ -450,12 +388,6 @@ void generate_cmakelists() {
     }
 
     std::string name = toml_first<R"RE(\s*name\s*=\s*"([^"]+)")RE">(project).value_or(project.filename().string());
-    auto replace_all = [](std::string s, std::string_view from, std::string_view to) -> std::string {
-        for (size_t at = s.find(from); at != std::string::npos; at = s.find(from, at + to.size())) {
-            s.replace(at, from.size(), to);
-        }
-        return s;
-    };
     std::string content = replace_all(*tmpl, "{{name}}", name);
     content = replace_all(content, "{{framework_dir}}", framework_dir().string());
     content = replace_all(content, "{{binary}}", project_binary_name(project));
@@ -491,17 +423,16 @@ auto target_profile(const std::string& target) -> fs::path {
     if (!fs::is_regular_file(profile, ec)) {
         std::vector<std::string> known;
         if (fs::is_directory(targets_dir(), ec)) {
-            for (const auto& d : fs::directory_iterator(targets_dir(), ec)) {
-                if (fs::is_regular_file(d.path() / "profile", ec)) {
-                    known.push_back(d.path().filename().string());
-                }
-            }
+            known = fs::directory_iterator(targets_dir(), ec) |
+                    std::views::filter([&](const fs::directory_entry& d) -> bool {
+                        return fs::is_regular_file(d.path() / "profile", ec);
+                    }) |
+                    std::views::transform(
+                        [](const fs::directory_entry& d) -> std::string { return d.path().filename().string(); }) |
+                    std::ranges::to<std::vector<std::string>>();
         }
         std::ranges::sort(known);
-        std::string list;
-        for (const auto& k : known) {
-            list += (list.empty() ? "" : ", ") + k;
-        }
+        std::string list = join(known, ", ");
         fail("unknown target: " + target + (list.empty() ? "" : " (available: " + list + ")"));
     }
     return profile;
@@ -688,11 +619,10 @@ auto parse_routes(std::string_view routes_cpp) -> std::vector<Route> {
             {"SSE", {"r.sse", "r.sse"}},
             {"WS", {"r.ws", "r.ws"}},
         });
-        for (const auto& [method, names] : fields) {
-            if (b.contains(names[0]) || b.contains(names[1])) {
-                r.methods.emplace_back(method);
-            }
-        }
+        r.methods = fields | std::views::filter([&](const auto& f) -> bool {
+                        return b.contains(f.second[0]) || b.contains(f.second[1]);
+                    }) |
+                    std::views::keys | std::ranges::to<std::vector<std::string>>();
         routes.push_back(std::move(r));
     }
     return routes;
@@ -706,8 +636,7 @@ void print_routes() {
         return;
     }
     for (const auto& r : routes) {
-        std::string line = "  " + std::string(k_cyan) + r.path + std::string(k_reset) + " ";
-        for (const auto& m : r.methods) {
+        auto colored = [](const std::string& m) -> std::string {
             std::string_view color = k_cyan;
             if (m == "GET") {
                 color = k_green;
@@ -716,9 +645,10 @@ void print_routes() {
             } else if (m == "DEL") {
                 color = k_red;
             }
-            line += " " + std::string(color) + m + std::string(k_reset);
-        }
-        info(line);
+            return " " + std::string(color) + m + std::string(k_reset);
+        };
+        info("  " + std::string(k_cyan) + r.path + std::string(k_reset) + " " +
+             join(r.methods | std::views::transform(colored) | std::ranges::to<std::vector<std::string>>(), ""));
     }
 }
 

@@ -2,7 +2,9 @@
 
 #include "html.hpp"
 
+#include <algorithm>
 #include <array>
+#include <format>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -147,25 +149,12 @@ inline thread_local std::unordered_map<std::string_view, std::string_view> ui_js
 inline std::string all_css_block;
 
 constexpr auto fnv1a(std::string_view s) -> uint32_t {
-    uint32_t h = 2166136261U;
-    for (auto c : s) {
-        h = (h ^ static_cast<uint8_t>(c)) * 16777619U;
-    }
-    return h;
+    return std::ranges::fold_left(
+        s, 2166136261U, [](uint32_t h, char c) -> uint32_t { return (h ^ static_cast<uint8_t>(c)) * 16777619U; });
 }
 
 inline auto make_class_name(std::string_view rules) -> std::string {
-    uint32_t h = fnv1a(rules);
-    std::array<char, 10> buf{};
-    buf[0] = 'c';
-    buf[1] = 'w';
-    buf[2] = '-';
-    for (int i = 8; i >= 3; --i) {
-        buf[static_cast<size_t>(i)] = "0123456789abcdef"[h & 0xf];
-        h >>= 4;
-    }
-    buf[9] = '\0';
-    return buf.data();
+    return std::format("cw-{:06x}", fnv1a(rules) & 0xFFFFFFU);
 }
 } // namespace detail
 
@@ -258,7 +247,6 @@ struct html_doc : Node {
         }
         str = render();
     }
-
 
     [[nodiscard]] auto render() const -> std::string {
         std::string css;

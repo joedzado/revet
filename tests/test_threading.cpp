@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -15,13 +16,11 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
 
     auto const handle_req = [&](int fd) -> void {
         auto const req = web::parse_request(fd);
-        for (const auto& r : all_routes) {
-            if (r.path == req.path.path) {
-                web::send_response(fd, r.get(req));
-                return;
-            }
-        }
-        web::send_response(fd, {.body = "404", .location = {}, .cookies = {}, .status = web::status::not_found});
+        auto route = std::ranges::find(all_routes, req.path.path, &web::Route::path);
+        web::send_response(
+            fd, route != all_routes.end()
+                    ? route->get(req)
+                    : web::Response{.body = "404", .location = {}, .cookies = {}, .status = web::status::not_found});
     };
 
     SECTION("Concurrent requests on same router") {

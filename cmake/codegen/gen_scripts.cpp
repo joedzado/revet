@@ -9,6 +9,8 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <iterator>
+#include <ranges>
 
 #include "common.hpp"
 
@@ -89,11 +91,8 @@ struct AppScript {
 // Non-word characters become _, and a leading digit gets a leading underscore.
 auto ident_of(const std::string& stem) -> std::string {
     std::string name = stem;
-    for (char& c : name) {
-        if (!(std::isalnum(static_cast<unsigned char>(c)) != 0) && c != '_') {
-            c = '_';
-        }
-    }
+    std::ranges::replace_if(
+        name, [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '_'; }, '_');
     if (!name.empty() && (std::isdigit(static_cast<unsigned char>(name[0])) != 0)) {
         name = "_" + name;
     }
@@ -101,53 +100,44 @@ auto ident_of(const std::string& stem) -> std::string {
 }
 
 auto scan_scripts(const Ctx& ctx) -> std::vector<AppScript> {
-    std::vector<AppScript> out;
     fs::path dir = ctx.proj / "app" / "scripts";
     if (!fs::is_directory(dir)) {
-        return out;
+        return {};
     }
-
-    std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".js") {
-            files.push_back(entry.path());
-        }
-    }
-    std::ranges::sort(files, [](const fs::path& a, const fs::path& b) -> bool {
-        return a.filename().string() < b.filename().string();
-    });
-
-    for (const auto& f : files) {
-        std::string src = read_text(f);
-        std::string stem = f.stem().string();
-        std::string digest = sha256_hex(src).substr(0, 10);
-        out.push_back({.ident = ident_of(stem), .url = cat("/_app/", stem, ".", digest, ".js"), .src = src});
-    }
-    return out;
+    std::vector<fs::path> files = glob(dir, ".js"); // sorted by path, so by file name
+    return files | std::views::filter([](const fs::path& f) -> bool { return f.extension() == ".js"; }) |
+           std::views::transform([](const fs::path& f) -> AppScript {
+               std::string src = read_text(f);
+               std::string stem = f.stem().string();
+               return {.ident = ident_of(stem),
+                       .url = cat("/_app/", stem, ".", sha256_hex(src).substr(0, 10), ".js"),
+                       .src = src};
+           }) |
+           std::ranges::to<std::vector<AppScript>>();
 }
 
 } // namespace
 
 // Used by gen_routes to list app scripts as routes.
 auto app_script_routes(const Ctx& ctx) -> std::vector<std::pair<std::string, std::string>> {
-    std::vector<std::pair<std::string, std::string>> out;
-    for (const auto& s : scan_scripts(ctx)) {
-        out.emplace_back(s.url, s.ident);
-    }
-    return out;
+    return scan_scripts(ctx) | std::views::transform([](const AppScript& s) -> std::pair<std::string, std::string> {
+               return {s.url, s.ident};
+           }) |
+           std::ranges::to<std::vector<std::pair<std::string, std::string>>>();
 }
 
 auto gen_scripts(const Ctx& ctx) -> int {
     fs::path out_path = setup(ctx, "scripts.hpp");
     Lines lines = file_header({"#include <revet/html.hpp>", "#include <string_view>"});
     lines.emplace_back("namespace scripts {");
-    for (const auto& s : scan_scripts(ctx)) {
-        lines.push_back("inline constexpr std::string_view " + s.ident + " = \"" + s.url + "\";");
-        lines.push_back("inline constexpr std::string_view " + s.ident + "_js = \"" + escape_str(s.src) + "\";");
-        lines.push_back("inline auto " + s.ident + "_tag() -> html::Node {");
-        lines.push_back("    return html::script{html::attr.src(" + s.ident + R"(), html::attr("defer", "")};)");
-        lines.emplace_back("}");
-    }
+    std::ranges::copy(
+        scan_scripts(ctx) | std::views::transform([](const AppScript& s) -> Lines {
+            return {"inline constexpr std::string_view " + s.ident + " = \"" + s.url + "\";",
+                    "inline constexpr std::string_view " + s.ident + "_js = \"" + escape_str(s.src) + "\";",
+                    "inline auto " + s.ident + "_tag() -> html::Node {",
+                    "    return html::script{html::attr.src(" + s.ident + R"(), html::attr("defer", "")};)", "}"};
+        }) | std::views::join,
+        std::back_inserter(lines));
     lines.emplace_back("} // namespace scripts");
     lines.emplace_back("");
     write_lines(out_path, lines);

@@ -1,8 +1,11 @@
 // Resource, upload, dependency and toggle generators.
 // Each reads revet.toml (or app/states) and writes one generated include or CMake fragment.
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <iterator>
 #include <map>
+#include <ranges>
 #include <set>
 #include <sys/stat.h>
 
@@ -34,12 +37,10 @@ struct Pair {
 };
 
 auto items_of(const Node& table) -> std::vector<Pair> {
-    std::vector<Pair> out;
-    out.reserve(table.keys.size());
-    for (size_t i = 0; i < table.keys.size(); ++i) {
-        out.push_back({.key = table.keys[i], .value = &table.vals[i]});
-    }
-    return out;
+    return std::views::zip(table.keys, table.vals) | std::views::transform([](const auto& kv) -> Pair {
+               return {.key = std::get<0>(kv), .value = &std::get<1>(kv)};
+           }) |
+           std::ranges::to<std::vector<Pair>>();
 }
 
 } // namespace
@@ -75,8 +76,8 @@ auto gen_resources(const Ctx& ctx) -> int {
         long long pool;
         bool is_default;
     };
-    std::vector<Resource> resources;
-    for (const auto& [name, rnode] : items_of(*table_or_empty(data, "resources"))) {
+    auto resource_of = [&](const Pair& item) -> Resource {
+        const auto& [name, rnode] = item;
         Resource r;
         r.name = name;
         const Node* type = rnode->find("type");
@@ -92,8 +93,10 @@ auto gen_resources(const Ctx& ctx) -> int {
         r.pool = (pool != nullptr) ? py_int(*pool) : thread_count;
         const Node* def = rnode->find("default");
         r.is_default = (def != nullptr) ? py_bool(*def) : false;
-        resources.push_back(std::move(r));
-    }
+        return r;
+    };
+    auto resources = items_of(*table_or_empty(data, "resources")) | std::views::transform(resource_of) |
+                     std::ranges::to<std::vector<Resource>>();
 
     if (resources.empty()) {
         return exit_empty("// no [resources.*] in revet.toml");
@@ -109,19 +112,11 @@ auto gen_resources(const Ctx& ctx) -> int {
         throw GenError("gen_resources: unknown resource type '" + type + "'");
     };
 
-    std::string dflt = resources.front().name;
-    for (const auto& r : resources) {
-        if (r.is_default) {
-            dflt = r.name;
-            break;
-        }
-    }
-    std::string dflt_ns;
-    for (const auto& r : resources) {
-        if (r.name == dflt) {
-            dflt_ns = ns_for(r.type);
-        }
-    }
+    // The first resource marked default, else the first one.
+    auto dflt_it = std::ranges::find_if(resources, &Resource::is_default);
+    const Resource& dflt_res = dflt_it == resources.end() ? resources.front() : *dflt_it;
+    std::string dflt = dflt_res.name;
+    std::string dflt_ns = ns_for(dflt_res.type);
 
     const std::string pool_fn_t = tmpl(ctx, "resources_pool_fn.tmpl");
     const std::string handle_fn_t = tmpl(ctx, "resources_handle_fn.tmpl");
@@ -136,25 +131,18 @@ auto gen_resources(const Ctx& ctx) -> int {
                    "namespace resources {",
                    "namespace _pools {",
                    ""};
-    Lines pool_lines;
-    Lines handle_lines;
-    std::set<std::string> backends;
-    for (const auto& r : resources) {
-        std::string ns = ns_for(r.type);
-        backends.insert(r.type);
-        pool_lines.push_back(
-            subst(pool_fn_t, {{"ns", ns}, {"name", r.name}, {"path", r.path}, {"pool", std::to_string(r.pool)}}));
-        pool_lines.emplace_back("");
-        handle_lines.push_back(subst(handle_fn_t, {{"ns", ns}, {"name", r.name}}));
-    }
-    for (const auto& l : pool_lines) {
-        lines.push_back(l);
-    }
+    // Each pool function is followed by a blank line.
+    std::ranges::transform(resources, std::back_inserter(lines), [&](const Resource& r) -> std::string {
+        return subst(pool_fn_t,
+                     {{"ns", ns_for(r.type)}, {"name", r.name}, {"path", r.path}, {"pool", std::to_string(r.pool)}}) +
+               "\n";
+    });
     lines.emplace_back("} // namespace _pools");
     lines.emplace_back("");
-    for (const auto& l : handle_lines) {
-        lines.push_back(l);
-    }
+    std::ranges::transform(resources, std::back_inserter(lines), [&](const Resource& r) -> std::string {
+        return subst(handle_fn_t, {{"ns", ns_for(r.type)}, {"name", r.name}});
+    });
+    auto backends = resources | std::views::transform(&Resource::type) | std::ranges::to<std::set<std::string>>();
 
     if (dflt != "db") {
         lines.emplace_back("");
@@ -165,13 +153,7 @@ auto gen_resources(const Ctx& ctx) -> int {
     lines.emplace_back("");
     write_lines(out, lines);
 
-    std::string list;
-    for (const auto& b : backends) {
-        if (!list.empty()) {
-            list += ' ';
-        }
-        list += b;
-    }
+    std::string list = join(backends | std::ranges::to<Lines>(), " ");
     write_file(backends_out, "# Auto-generated — do not edit\nset(REVET_DB_BACKENDS " + list + ")\n");
     return 0;
 }
@@ -194,16 +176,15 @@ auto gen_uploads(const Ctx& ctx) -> int {
         std::string incoming;
         std::string validated;
     };
-    std::vector<Bucket> dirs;
-    for (const auto& [name, d] : items_of(*table_or_empty(data, "uploads"))) {
-        Bucket b;
-        b.name = name;
-        const Node* inc = d->find("incoming");
-        const Node* val = d->find("validated");
-        b.incoming = (inc != nullptr) ? py_str(*inc) : "app/uploads/" + name + "/incoming";
-        b.validated = (val != nullptr) ? py_str(*val) : "app/uploads/" + name + "/validated";
-        dirs.push_back(std::move(b));
-    }
+    auto dirs = items_of(*table_or_empty(data, "uploads")) | std::views::transform([](const Pair& item) -> Bucket {
+                    const auto& [name, d] = item;
+                    const Node* inc = d->find("incoming");
+                    const Node* val = d->find("validated");
+                    return {.name = name,
+                            .incoming = (inc != nullptr) ? py_str(*inc) : "app/uploads/" + name + "/incoming",
+                            .validated = (val != nullptr) ? py_str(*val) : "app/uploads/" + name + "/validated"};
+                }) |
+                std::ranges::to<std::vector<Bucket>>();
 
     if (dirs.empty()) {
         write_file(out, empty);
@@ -224,10 +205,10 @@ auto gen_uploads(const Ctx& ctx) -> int {
     Lines lines = file_header({"#include <filesystem>", "#include <string_view>"});
     lines.emplace_back("namespace uploads {");
     lines.emplace_back("");
-    for (const auto& b : dirs) {
-        lines.push_back(subst(ns_t, {{"name", b.name}, {"incoming", b.incoming}, {"validated", b.validated}}));
-        lines.emplace_back("");
-    }
+    // Each namespace is followed by a blank line.
+    std::ranges::transform(dirs, std::back_inserter(lines), [&](const Bucket& b) -> std::string {
+        return subst(ns_t, {{"name", b.name}, {"incoming", b.incoming}, {"validated", b.validated}}) + "\n";
+    });
     lines.emplace_back("} // namespace uploads");
     lines.emplace_back("");
     write_lines(out, lines);
@@ -243,20 +224,15 @@ auto gen_dependencies(const Ctx& ctx) -> int {
 
     // Line-based on purpose: matches the original parser's behaviour exactly.
     std::vector<std::pair<std::string, std::string>> deps; // key -> conan ref (insertion order)
-    if (file_exists(toml)) {
-        bool in_deps = false;
-        for (const auto& line : splitlines(read_text(toml))) {
-            std::string stripped = strip(line);
-            if (starts_with(stripped, "[build.dependencies]")) {
-                in_deps = true;
-                continue;
-            }
-            if (!in_deps) {
-                continue;
-            }
-            if (starts_with(stripped, "[")) {
-                break;
-            }
+    Lines lines = file_exists(toml)
+                      ? splitlines(read_text(toml)) | std::views::transform(strip) | std::ranges::to<Lines>()
+                      : Lines{};
+    auto start = std::ranges::find_if(
+        lines, [](const std::string& l) -> bool { return starts_with(l, "[build.dependencies]"); });
+    if (start != lines.end()) {
+        auto section = std::ranges::subrange(std::next(start), lines.end()) |
+                       std::views::take_while([](const std::string& l) -> bool { return !starts_with(l, "["); });
+        for (const auto& stripped : section) {
             std::string key;
             std::string ref;
             if (auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(stripped)) {
@@ -268,15 +244,9 @@ auto gen_dependencies(const Ctx& ctx) -> int {
             } else {
                 continue;
             }
-            bool replaced = false;
-            for (auto& d : deps) {
-                if (d.first == key) {
-                    d.second = ref;
-                    replaced = true;
-                    break;
-                }
-            }
-            if (!replaced) {
+            if (auto it = std::ranges::find(deps, key, &std::pair<std::string, std::string>::first); it != deps.end()) {
+                it->second = ref;
+            } else {
                 deps.emplace_back(key, ref);
             }
         }
@@ -331,9 +301,10 @@ auto gen_toggles(const Ctx& ctx) -> int {
     std::vector<Toggle> toggles;
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
         std::string content = read_text(f);
-        for (auto m : find_toggles(std::string_view(content))) {
-            toggles.push_back({.name = m.get<3>().to_string(), .default_on = m.get<2>().to_view() == "true"});
-        }
+        std::ranges::transform(
+            find_toggles(std::string_view(content)), std::back_inserter(toggles), [](const auto& m) -> Toggle {
+                return {.name = m.template get<3>().to_string(), .default_on = m.template get<2>().to_view() == "true"};
+            });
     }
 
     if (toggles.empty()) {
@@ -342,10 +313,10 @@ auto gen_toggles(const Ctx& ctx) -> int {
     }
 
     const std::string fn_t = tmpl(ctx, "toggles_fn.tmpl");
-    Lines fns;
-    for (const auto& t : toggles) {
-        fns.push_back(subst(fn_t, {{"name", t.name}, {"default_str", t.default_on ? "true" : "false"}}));
-    }
+    auto fns = toggles | std::views::transform([&](const Toggle& t) -> std::string {
+                   return subst(fn_t, {{"name", t.name}, {"default_str", t.default_on ? "true" : "false"}});
+               }) |
+               std::ranges::to<Lines>();
     const std::string header_t = tmpl_whole(ctx, "toggles_header.tmpl");
     write_file(out, subst(header_t, {{"functions", join(fns, "\n\n")}}));
     return 0;

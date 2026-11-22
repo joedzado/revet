@@ -1,10 +1,23 @@
 #include "node.hpp"
 
+#include <algorithm>
+#include <format>
+#include <ranges>
 #include <stdexcept>
 
 namespace revet::codegen {
 
 namespace {
+
+// First position at or after `from` whose character is not in `set`, or t.size().
+auto skip_set(std::string_view t, size_t from, std::string_view set) -> size_t {
+    return std::min(t.find_first_not_of(set, from), t.size());
+}
+
+// First position at or after `from` whose character is in `set`, or t.size().
+auto skip_to(std::string_view t, size_t from, std::string_view set) -> size_t {
+    return std::min(t.find_first_of(set, from), t.size());
+}
 
 [[noreturn]] void fail(const std::string& what) {
     throw std::runtime_error(what);
@@ -12,12 +25,7 @@ namespace {
 
 // "\\u" plus four lowercase hex digits.
 void append_u_escape(std::string& out, unsigned v) {
-    static constexpr std::string_view k_hex = "0123456789abcdef";
-    out += "\\u";
-    for (unsigned shift = 16; shift > 0;) {
-        shift -= 4;
-        out += k_hex[(v >> shift) & 0xFU];
-    }
+    out += std::format("\\u{:04x}", v & 0xFFFFU);
 }
 
 void append_utf8(std::string& out, unsigned cp) {
@@ -58,9 +66,7 @@ private:
     size_t p_ = 0;
 
     void ws() {
-        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) {
-            ++p_;
-        }
+        p_ = skip_set(t_, p_, " \t\n\r");
     }
 
     auto peek() -> char {
@@ -227,10 +233,7 @@ private:
             expect_word("null");
         } else {
             size_t start = p_;
-            while (p_ < t_.size() && (t_[p_] == '-' || t_[p_] == '+' || t_[p_] == '.' || t_[p_] == 'e' ||
-                                      t_[p_] == 'E' || (t_[p_] >= '0' && t_[p_] <= '9'))) {
-                ++p_;
-            }
+            p_ = skip_set(t_, p_, "-+.eE0123456789");
             if (start == p_) {
                 fail("json: unexpected character");
             }
@@ -304,6 +307,17 @@ void dump_string(std::string& out, const std::string& s) {
     out += '"';
 }
 
+// Dumped items separated by ",\n".
+auto join_dumped(auto&& items) -> std::string {
+    return std::ranges::fold_left(items, std::string(), [](std::string acc, const std::string& item) -> std::string {
+        if (!acc.empty()) {
+            acc += ",\n";
+        }
+        acc += item;
+        return acc;
+    });
+}
+
 void dump_value(std::string& out, const Node& n, int level) {
     const std::string pad(static_cast<size_t>(level + 1) * 2, ' ');
     const std::string close_pad(static_cast<size_t>(level) * 2, ' ');
@@ -326,13 +340,11 @@ void dump_value(std::string& out, const Node& n, int level) {
                 break;
             }
             out += "[\n";
-            for (size_t i = 0; i < n.items.size(); ++i) {
-                if (i != 0U) {
-                    out += ",\n";
-                }
-                out += pad;
-                dump_value(out, n.items[i], level + 1);
-            }
+            out += join_dumped(n.items | std::views::transform([&](const Node& item) -> std::string {
+                                   std::string s = pad;
+                                   dump_value(s, item, level + 1);
+                                   return s;
+                               }));
             out += "\n" + close_pad + "]";
             break;
         case Node::Kind::Table:
@@ -341,15 +353,14 @@ void dump_value(std::string& out, const Node& n, int level) {
                 break;
             }
             out += "{\n";
-            for (size_t i = 0; i < n.keys.size(); ++i) {
-                if (i != 0U) {
-                    out += ",\n";
-                }
-                out += pad;
-                dump_string(out, n.keys[i]);
-                out += ": ";
-                dump_value(out, n.vals[i], level + 1);
-            }
+            out +=
+                join_dumped(std::views::zip(n.keys, n.vals) | std::views::transform([&](const auto& kv) -> std::string {
+                                std::string s = pad;
+                                dump_string(s, std::get<0>(kv));
+                                s += ": ";
+                                dump_value(s, std::get<1>(kv), level + 1);
+                                return s;
+                            }));
             out += "\n" + close_pad + "}";
             break;
     }
@@ -425,34 +436,21 @@ private:
     }
 
     void skip_inline_ws() {
-        while (p_ < t_.size() && (t_[p_] == ' ' || t_[p_] == '\t')) {
-            ++p_;
-        }
+        p_ = skip_set(t_, p_, " \t");
     }
 
     void skip_comment() {
-        while (p_ < t_.size() && t_[p_] != '\n') {
-            ++p_;
-        }
+        p_ = skip_to(t_, p_, "\n");
     }
 
     // Whitespace, newlines and comments between statements and inside arrays.
     void skip_blank() {
-        while (p_ < t_.size()) {
-            char c = t_[p_];
-            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                ++p_;
-            } else if (c == '#') {
-                skip_comment();
-            } else {
-                break;
-            }
+        for (p_ = skip_set(t_, p_, " \t\n\r"); p_ < t_.size() && t_[p_] == '#'; p_ = skip_set(t_, p_, " \t\n\r")) {
+            skip_comment();
         }
     }
 
-    static auto bare_char(char c) -> bool {
-        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
-    }
+    static constexpr std::string_view k_bare_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 
     auto simple_key() -> std::string {
         skip_inline_ws();
@@ -461,9 +459,7 @@ private:
             return n.s;
         }
         size_t start = p_;
-        while (p_ < t_.size() && bare_char(t_[p_])) {
-            ++p_;
-        }
+        p_ = skip_set(t_, p_, k_bare_chars);
         if (start == p_) {
             bad("expected key");
         }
@@ -483,13 +479,12 @@ private:
     }
 
     static auto child_table(Node& t, const std::string& key) -> Node& {
-        for (size_t i = 0; i < t.keys.size(); ++i) {
-            if (t.keys[i] == key) {
-                if (t.vals[i].kind != Node::Kind::Table) {
-                    fail("toml: key is not a table: " + key);
-                }
-                return t.vals[i];
+        if (auto it = std::ranges::find(t.keys, key); it != t.keys.end()) {
+            Node& existing = t.vals[static_cast<size_t>(it - t.keys.begin())];
+            if (existing.kind != Node::Kind::Table) {
+                fail("toml: key is not a table: " + key);
             }
+            return existing;
         }
         Node child;
         child.kind = Node::Kind::Table;
@@ -499,11 +494,8 @@ private:
     }
 
     static auto table_at(Node& root, const std::vector<std::string>& path) -> Node& {
-        Node* cur = &root;
-        for (const auto& seg : path) {
-            cur = &child_table(*cur, seg);
-        }
-        return *cur;
+        return *std::ranges::fold_left(
+            path, &root, [](Node* cur, const std::string& seg) -> Node* { return &child_table(*cur, seg); });
     }
 
     auto string_value() -> Node {
@@ -666,10 +658,7 @@ private:
             return n;
         }
         size_t start = p_;
-        while (p_ < t_.size() && t_[p_] != ' ' && t_[p_] != '\t' && t_[p_] != '\n' && t_[p_] != '\r' && t_[p_] != ',' &&
-               t_[p_] != ']' && t_[p_] != '}' && t_[p_] != '#') {
-            ++p_;
-        }
+        p_ = skip_to(t_, p_, " \t\n\r,]}#");
         std::string tok(t_.substr(start, p_ - start));
         if (tok == "true" || tok == "false") {
             n.kind = Node::Kind::Bool;
@@ -693,20 +682,14 @@ auto Node::find(std::string_view key) const -> const Node* {
     if (kind != Kind::Table) {
         return nullptr;
     }
-    for (size_t i = 0; i < keys.size(); ++i) {
-        if (keys[i] == key) {
-            return &vals[i];
-        }
-    }
-    return nullptr;
+    auto it = std::ranges::find(keys, key);
+    return it == keys.end() ? nullptr : &vals[static_cast<size_t>(it - keys.begin())];
 }
 
 void Node::set(const std::string& key, Node value) {
-    for (size_t i = 0; i < keys.size(); ++i) {
-        if (keys[i] == key) {
-            vals[i] = std::move(value);
-            return;
-        }
+    if (auto it = std::ranges::find(keys, key); it != keys.end()) {
+        vals[static_cast<size_t>(it - keys.begin())] = std::move(value);
+        return;
     }
     keys.push_back(key);
     vals.push_back(std::move(value));

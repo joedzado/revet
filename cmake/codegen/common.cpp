@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <ranges>
 #include <sstream>
 
 namespace revet::codegen {
@@ -16,21 +17,8 @@ auto read_text(const fs::path& p) -> std::string {
     }
     std::ostringstream ss;
     ss << in.rdbuf();
-    std::string raw = ss.str();
     // Universal newlines: \r\n and \r are read as \n.
-    std::string out;
-    out.reserve(raw.size());
-    for (size_t i = 0; i < raw.size(); ++i) {
-        if (raw[i] == '\r') {
-            out += '\n';
-            if (i + 1 < raw.size() && raw[i + 1] == '\n') {
-                ++i;
-            }
-        } else {
-            out += raw[i];
-        }
-    }
-    return out;
+    return replace_all<R"RE(\r\n?)RE">(ss.str(), "\n");
 }
 
 auto file_exists(const fs::path& p) -> bool {
@@ -66,24 +54,14 @@ auto glob(const fs::path& dir, std::string_view suffix, bool recursive) -> std::
     if (!fs::exists(dir, ec)) {
         return out;
     }
-    auto consider = [&](const fs::directory_entry& e) -> void {
-        if (!e.is_regular_file(ec)) {
-            return;
-        }
-        std::string name = e.path().filename().string();
-        if (name.size() >= suffix.size() && name.ends_with(suffix)) {
-            out.push_back(e.path());
-        }
+    auto matching = [&](const auto& entries) -> std::vector<fs::path> {
+        return entries | std::views::filter([&](const fs::directory_entry& e) -> bool {
+                   return e.is_regular_file(ec) && e.path().filename().string().ends_with(suffix);
+               }) |
+               std::views::transform([](const fs::directory_entry& e) -> fs::path { return e.path(); }) |
+               std::ranges::to<std::vector<fs::path>>();
     };
-    if (recursive) {
-        for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
-            consider(e);
-        }
-    } else {
-        for (const auto& e : fs::directory_iterator(dir, ec)) {
-            consider(e);
-        }
-    }
+    out = recursive ? matching(fs::recursive_directory_iterator(dir, ec)) : matching(fs::directory_iterator(dir, ec));
     std::ranges::sort(out);
     return out;
 }
@@ -100,20 +78,17 @@ auto tmpl_whole(const Ctx& ctx, std::string_view name) -> std::string {
 
 auto tmpl(const Ctx& ctx, std::string_view name) -> std::string {
     std::string s = tmpl_whole(ctx, name);
-    while (!s.empty() && s.back() == '\n') {
-        s.pop_back();
-    }
+    s.erase(s.find_last_not_of('\n') + 1); // npos + 1 == 0: all newlines
     return s;
 }
 
 auto subst(std::string_view text, const Vars& vars) -> std::string {
     auto lookup = [&](const std::string& key) -> const std::string& {
-        for (const auto& [k, v] : vars) {
-            if (k == key) {
-                return v;
-            }
+        auto it = std::ranges::find(vars, key, &Vars::value_type::first);
+        if (it == vars.end()) {
+            throw GenError("template: no value for '" + key + "'");
         }
-        throw GenError("template: no value for '" + key + "'");
+        return it->second;
     };
     auto ident_char = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     std::string out;
@@ -138,10 +113,9 @@ auto subst(std::string_view text, const Vars& vars) -> std::string {
             key = std::string(text.substr(i + 2, close - i - 2));
             i = close + 1;
         } else {
-            size_t j = i + 1;
-            while (j < text.size() && ident_char(text[j])) {
-                ++j;
-            }
+            const auto* name_end =
+                std::find_if_not(text.begin() + static_cast<std::ptrdiff_t>(i) + 1, text.end(), ident_char);
+            auto j = static_cast<size_t>(name_end - text.begin());
             if (j == i + 1) {
                 throw GenError("template: invalid placeholder");
             }
@@ -155,30 +129,20 @@ auto subst(std::string_view text, const Vars& vars) -> std::string {
 
 // ── Strings ─────────────────────────────────────────────────────────────────
 
-namespace {
-auto is_space(char c) -> bool {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
-}
-} // namespace
-
 auto strip(std::string_view s) -> std::string {
-    size_t b = 0;
-    size_t e = s.size();
-    while (b < e && is_space(s[b])) {
-        ++b;
+    constexpr std::string_view k_ws = " \t\n\r\f\v";
+    size_t b = s.find_first_not_of(k_ws);
+    if (b == std::string_view::npos) {
+        return {};
     }
-    while (e > b && is_space(s[e - 1])) {
-        --e;
-    }
-    return std::string(s.substr(b, e - b));
+    return std::string(s.substr(b, s.find_last_not_of(k_ws) - b + 1));
 }
 
 auto lower(std::string_view s) -> std::string {
-    std::string out(s);
-    for (char& c : out) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return out;
+    return s | std::views::transform([](char c) -> char {
+               return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+           }) |
+           std::ranges::to<std::string>();
 }
 
 auto starts_with(std::string_view s, std::string_view prefix) -> bool {
@@ -190,36 +154,27 @@ auto ends_with(std::string_view s, std::string_view suffix) -> bool {
 }
 
 auto join(const Lines& parts, std::string_view sep) -> std::string {
-    std::string out;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        if (i != 0U) {
-            out += sep;
-        }
-        out += parts[i];
+    if (parts.empty()) {
+        return {};
     }
-    return out;
+    return std::ranges::fold_left(parts | std::views::drop(1), parts.front(),
+                                  [sep](std::string acc, const std::string& p) -> std::string {
+                                      acc += sep;
+                                      acc += p;
+                                      return acc;
+                                  });
 }
 
 auto splitlines(std::string_view s) -> Lines {
-    Lines out;
-    std::string cur;
-    bool pending = false; // true when cur holds text not yet pushed
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if (c == '\r' || c == '\n') {
-            out.push_back(cur);
-            cur.clear();
-            pending = false;
-            if (c == '\r' && i + 1 < s.size() && s[i + 1] == '\n') {
-                ++i;
-            }
-        } else {
-            cur += c;
-            pending = true;
-        }
+    std::string text = replace_all<R"RE(\r\n?)RE">(s, "\n");
+    if (text.empty()) {
+        return {};
     }
-    if (pending) {
-        out.push_back(cur);
+    auto out = text | std::views::split('\n') |
+               std::views::transform([](auto line) -> std::string { return std::string(std::string_view(line)); }) |
+               std::ranges::to<Lines>();
+    if (text.back() == '\n') {
+        out.pop_back(); // split's empty piece after the final newline
     }
     return out;
 }
@@ -252,39 +207,38 @@ auto split_args(std::string_view s) -> Lines {
 }
 
 auto escape_str(std::string_view s) -> std::string {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        if (c == '\\') {
-            out += "\\\\";
-        } else if (c == '"') {
-            out += "\\\"";
-        } else if (c == '\r') {
-            out += "\\r";
-        } else if (c == '\n') {
-            out += "\\n";
-        } else {
-            out += c;
+    auto escaped = [](const char& c) -> std::string_view {
+        switch (c) {
+            case '\\':
+                return "\\\\";
+            case '"':
+                return "\\\"";
+            case '\r':
+                return "\\r";
+            case '\n':
+                return "\\n";
+            default:
+                return {&c, 1};
         }
-    }
-    return out;
+    };
+    return s | std::views::transform(escaped) | std::views::join | std::ranges::to<std::string>();
+}
+
+auto escape_quotes(std::string_view s) -> std::string {
+    auto escaped = [](const char& c) -> std::string_view {
+        if (c == '\\') {
+            return "\\\\";
+        }
+        if (c == '"') {
+            return "\\\"";
+        }
+        return {&c, 1};
+    };
+    return s | std::views::transform(escaped) | std::views::join | std::ranges::to<std::string>();
 }
 
 auto collapse_ws(std::string_view s) -> std::string {
-    std::string out;
-    bool in_ws = false;
-    for (char c : s) {
-        if (is_space(c)) {
-            if (!in_ws) {
-                out += ' ';
-            }
-            in_ws = true;
-        } else {
-            out += c;
-            in_ws = false;
-        }
-    }
-    return out;
+    return replace_all<R"RE(\s+)RE">(s, " ");
 }
 
 auto count_newlines(std::string_view s, std::size_t end) -> std::size_t {
@@ -297,9 +251,7 @@ auto rel_include(const fs::path& hpp, const fs::path& proj) -> std::string {
 
 auto file_header(std::initializer_list<std::string> includes) -> Lines {
     Lines out{"// Auto-generated — do not edit", "#pragma once"};
-    for (const auto& inc : includes) {
-        out.push_back(inc);
-    }
+    out.insert(out.end(), includes);
     out.emplace_back("");
     return out;
 }

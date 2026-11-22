@@ -1,7 +1,9 @@
 // Checks against vectors produced by real Rails (ActiveRecord::Encryption, from
 // Rails 8.1) with throwaway keys. Fixture: tests/fixtures/rails_encryption_vectors.json
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <revet/rails_encryption.hpp>
 #include <simdjson.h>
@@ -72,13 +74,10 @@ auto fixture() -> const Fixture& {
 }
 
 auto hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) -> std::string {
-    static constexpr std::string_view digits = "0123456789abcdef";
-    std::string out;
-    for (const unsigned char c : key) {
-        out += digits[c >> 4];
-        out += digits[c & 15];
-    }
-    return out;
+    return std::ranges::fold_left(key, std::string(), [](std::string acc, unsigned char c) -> std::string {
+        acc += std::format("{:02x}", c);
+        return acc;
+    });
 }
 
 // Flips one payload character, keeping the base64 valid.
@@ -161,13 +160,14 @@ TEST_CASE("rails encryption: reads jsonb shapes", "[rails]") {
     const auto& v = by_name(f.primary, "json");
 
     // A jsonb string scalar: the message, JSON-escaped and quoted.
-    std::string quoted = "\"";
-    for (const char c : v.cipher) {
-        if (c == '"' || c == '\\') {
-            quoted += '\\';
-        }
-        quoted += c;
-    }
+    std::string quoted =
+        std::ranges::fold_left(v.cipher, std::string("\""), [](std::string acc, char c) -> std::string {
+            if (c == '"' || c == '\\') {
+                acc += '\\';
+            }
+            acc += c;
+            return acc;
+        });
     quoted += '"';
     CHECK(enc.decrypt(quoted, Scheme::Primary) == v.plain);
 

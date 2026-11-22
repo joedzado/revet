@@ -109,9 +109,9 @@ inline void every(std::chrono::milliseconds interval, std::function<void()> fn,
             try {
                 fn();
             } catch (const std::exception& e) {
-                ::log::error("jobs::every: {}", e.what());
+                log::error("jobs::every: {}", e.what());
             } catch (...) {
-                ::log::error("jobs::every: unknown exception");
+                log::error("jobs::every: unknown exception");
             }
             std::this_thread::sleep_for(interval);
         }

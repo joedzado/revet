@@ -3,9 +3,7 @@
 
 static auto make_map(std::initializer_list<std::pair<std::string, std::string>> pairs) -> web::ParamMap {
     web::ParamMap m;
-    for (const auto& [k, v] : pairs) {
-        m.data[k] = v;
-    }
+    m.data.insert(pairs.begin(), pairs.end());
     return m;
 }
 
