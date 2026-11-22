@@ -37,9 +37,9 @@ ExcludeHeaderFilterRegex: '^/(usr|opt)/.*|.*/(\.revet|\.conan2|vendor|build|_dep
 CheckOptions:
   # Map-like operator[] (insert or key lookup), not an index.
   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access.ExcludeClasses: '::std::map;::std::unordered_map;::std::flat_map;::web::ParamMap;::simdjson::dom::object;::simdjson::dom::element'
-  # Plain structs with all-public members are fine (C.2, C.131).
+  # Plain structs with all-public members are fine.
   misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
-  # Positive literals in bit operations (`x & 0x3F`, `n << 8`) can't carry a sign (ES.101).
+  # Positive literals in bit operations (`x & 0x3F`, `n << 8`) can't carry a sign.
   bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
   # value() throws on an empty optional, so it is a checked access.
   bugprone-unchecked-optional-access.IgnoreValueCalls: true

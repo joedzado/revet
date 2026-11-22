@@ -1,6 +1,6 @@
 #pragma once
 // Threads that outlive the code that starts them: connection handlers, scheduled jobs, the CLI's watchers.
-// They are owned here instead of detached (C++ Core Guidelines CP.26). Finished threads are reaped as new
+// They are owned here instead of detached. Finished threads are reaped as new
 // ones start; at exit every thread is asked to stop, then joined.
 
 #include <algorithm>
