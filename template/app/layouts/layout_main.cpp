@@ -8,21 +8,25 @@
 #include <revet/htmx.hpp>
 #include <revet/page.hpp>
 #include <revet/web.hpp>
+#include <utility>
 
-static constexpr html::id SB_ID{"sb-toggle"};
+namespace {
+constexpr html::id SB_ID{"sb-toggle"};
+} // namespace
 
 [[revet::export]]
-web::Response layout_main(const web::Request& req, std::string_view title, html::Node inner) {
+auto layout_main(const web::Request& req, std::string_view title, html::Node inner) -> web::Response {
     const auto db = resources::users_db();
     const auto count_rows = queries::users::sync_count(db);
-    const int user_count =
-        (!count_rows.empty() && !count_rows[0].empty() && !count_rows[0][0].empty()) ? std::stoi(count_rows[0][0]) : 0;
+    const int user_count = (!count_rows.empty() && !count_rows.at(0).empty() && !count_rows.at(0).at(0).empty())
+                               ? std::stoi(count_rows.at(0).at(0))
+                               : 0;
 
-    const bool is_users = title.find("User") != std::string_view::npos;
-    const bool is_about = title.find("About") != std::string_view::npos;
+    const bool is_users = title.contains("User");
+    const bool is_about = title.contains("About");
     const bool is_home = !is_users && !is_about;
 
-    const auto nav_link = [](bool is_active, std::string_view href, std::string_view label) {
+    const auto nav_link = [](bool is_active, std::string_view href, std::string_view label) -> html::a {
         if (is_active) {
             return html::a{styles::sidebar_link, styles::active, html::attr.href(href), label};
         }
@@ -53,7 +57,7 @@ web::Response layout_main(const web::Request& req, std::string_view title, html:
     return web::to_response(html::html_doc{
         html::lang("en"), html::standard_head({.title = title, .optimistic = true}),
         html::body{web::csrf::htmx_headers(req), html::checkbox{SB_ID, styles::sb_toggle_input}, sidebar,
-                   html::div{styles::main_wrapper, header, html::main_el{styles::main_content, inner},
+                   html::div{styles::main_wrapper, header, html::main_el{styles::main_content, std::move(inner)},
                              html::footer{html::span{"Built with revet — C++23 server-rendered framework"},
                                           html::span{"© 2026 {{name}}"}}}}});
 }

@@ -17,4 +17,4 @@ struct [[revet::model]] CountResponse {
 [[revet::external("GET https://earthquake.usgs.gov/fdsnws/event/1/count?format=geojson")]]
 auto count(std::string starttime, std::string endtime) -> web::Task<CountResponse>;
 
-}  // namespace usgs_gov
+} // namespace usgs_gov

@@ -9,9 +9,10 @@
 #include "forms.hpp"
 #include "json_models.hpp"
 
-static const log::TuTag LOG(log::tags::ROUTES);
+namespace {
+const log::TuTag LOG(log::tags::ROUTES);
 
-static auto render_page(const web::Request& req, const UserNewForm& form) -> web::Response {
+auto render_page(const web::Request& req, const UserNewForm& form) -> web::Response {
     const auto field_group = [](const auto& field, std::string_view placeholder) -> html::Node {
         const bool has_error = !field.error.empty();
         return html::div{styles::field_group,
@@ -41,11 +42,13 @@ static auto render_page(const web::Request& req, const UserNewForm& form) -> web
     return layout_main(req, "New User — {{name}}", content);
 }
 
-static auto render_get(const web::Request& req) -> web::Response {
+auto render_get(const web::Request& req) -> web::Response {
     return render_page(req, {});
 }
 
-static auto render_post(const web::Request& req) -> web::Task<web::Response> {
+// revet keeps req alive until the handler finishes.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-reference-coroutine-parameters)
+auto render_post(const web::Request& req) -> web::Task<web::Response> {
     UserNewForm form;
     forms::populate(form, req.form);
     if (const auto result = forms::validate(form); !result) {
@@ -64,3 +67,4 @@ static auto render_post(const web::Request& req) -> web::Task<web::Response> {
 
     co_return web::redirect(urls::users).flash(Toast{.message = "User created successfully.", .kind = "success"});
 }
+} // namespace

@@ -9,9 +9,12 @@
 
 #include "json_models.hpp"
 
-static const log::TuTag LOG(log::tags::ROUTES);
+namespace {
+const log::TuTag LOG(log::tags::ROUTES);
 
-static auto render_get(const web::Request& req) -> web::Task<web::Response> {
+// revet keeps req alive until the handler finishes.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-reference-coroutine-parameters)
+auto render_get(const web::Request& req) -> web::Task<web::Response> {
     const auto id = req.params.get("id");
     const auto db = resources::users_db();
     const auto rows = co_await queries::users::find_by_id(db, {.id = std::stoi(id)});
@@ -25,8 +28,8 @@ static auto render_get(const web::Request& req) -> web::Task<web::Response> {
         co_return resp;
     }
 
-    const auto& u = rows[0];
-    const std::string initial = u.name.empty() ? "?" : std::string{u.name[0]};
+    const auto& u = rows.at(0);
+    const std::string initial = u.name.empty() ? "?" : std::string{u.name.at(0)};
 
     const auto content = html::div{
         styles::container,
@@ -46,3 +49,4 @@ static auto render_get(const web::Request& req) -> web::Task<web::Response> {
 
     co_return layout_main(req, u.name + " — {{name}}", content);
 }
+} // namespace

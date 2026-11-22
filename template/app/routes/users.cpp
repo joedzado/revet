@@ -8,9 +8,12 @@ using namespace std::chrono_literals;
 
 #include "json_models.hpp"
 
-static constexpr html::id USER_RESULTS("user-results");
+namespace {
+constexpr html::id USER_RESULTS("user-results");
 
-static auto render_get(const web::Request& req, web::Flash<Toast> flash) -> web::Task<web::Response> {
+// revet keeps req alive until the handler finishes.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-reference-coroutine-parameters)
+auto render_get(const web::Request& req, web::Flash<Toast> flash) -> web::Task<web::Response> {
     const auto db = resources::users_db();
     const auto rows = co_await queries::users::all(db);
 
@@ -21,7 +24,7 @@ static auto render_get(const web::Request& req, web::Flash<Toast> flash) -> web:
             : html::Node{};
 
     const auto items = html::list(rows, [](const auto& u) -> html::Node {
-        const std::string initial = u.name.empty() ? "?" : std::string{u.name[0]};
+        const std::string initial = u.name.empty() ? "?" : std::string{u.name.at(0)};
         return html::a{
             styles::user_row,
             html::attr.href(urls::users__id_(u.id)),
@@ -54,3 +57,4 @@ static auto render_get(const web::Request& req, web::Flash<Toast> flash) -> web:
 
     co_return layout_main(req, "Users — {{name}}", content);
 }
+} // namespace

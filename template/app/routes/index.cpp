@@ -9,19 +9,22 @@
 
 #include "components.hpp"
 
-static const log::TuTag LOG(log::tags::ROUTES);
+namespace {
+const log::TuTag LOG(log::tags::ROUTES);
 
-static constexpr html::typed_id<int> k_counter{"counter-value"};
+constexpr html::typed_id<int> k_counter{"counter-value"};
+} // namespace
 
 // ── Private components ────────────────────────────────────────────────────────
 
-static auto dash_header() -> html::Node {
+namespace {
+auto dash_header() -> html::Node {
     return html::div{
         styles::dash_header, html::h1{styles::page_title, "Dashboard"},
         html::p{styles::dash_subtitle, "A live demo of revet — file-based, server-rendered C++23 web framework."}};
 }
 
-static auto dash_stats(int user_count, int counter_val) -> html::Node {
+auto dash_stats(int user_count, int counter_val) -> html::Node {
     return html::div{styles::dash_stats,
                      html::div{styles::dash_stat, html::div{styles::dash_stat_value, user_count},
                                html::div{styles::dash_stat_label, "Users in database"}},
@@ -31,7 +34,7 @@ static auto dash_stats(int user_count, int counter_val) -> html::Node {
                                html::div{styles::dash_stat_label, "Language standard"}}};
 }
 
-static auto counter_card(const web::Request& req, int val) -> html::Node {
+auto counter_card(const web::Request& req, int val) -> html::Node {
     return html::div{styles::card,
                      styles::counter_box,
                      html::h2{"State Cookie Counter"},
@@ -43,7 +46,7 @@ static auto counter_card(const web::Request& req, int val) -> html::Node {
                                 html::submit{styles::btn, "Increment"}}};
 }
 
-static auto get_started_card() -> html::Node {
+auto get_started_card() -> html::Node {
     return html::div{styles::card, html::h3{"Get Started"},
                      html::div{styles::terminal,
                                html::div{styles::terminal_header, html::div{styles::dot, styles::red},
@@ -53,8 +56,8 @@ static auto get_started_card() -> html::Node {
                                          "running  http://localhost:8080"}}};
 }
 
-static auto user_row(const User& u) -> html::Node {
-    const std::string initial = u.name.empty() ? "?" : std::string{u.name[0]};
+auto user_row(const User& u) -> html::Node {
+    const std::string initial = u.name.empty() ? "?" : std::string{u.name.at(0)};
     return html::a{
         styles::user_row,
         html::attr.href(urls::users__id_(u.id)),
@@ -64,17 +67,19 @@ static auto user_row(const User& u) -> html::Node {
         html::span{styles::user_row_arrow, "→"}};
 }
 
-static auto recent_users_section(const std::vector<User>& users) -> html::Node {
+auto recent_users_section(const std::vector<User>& users) -> html::Node {
     return html::div{html::div{styles::dash_section_header,
                                html::div{html::h2{styles::dash_section_title, "Recent Users"}, badge("live · sqlite")},
                                html::a{styles::btn, styles::btn_secondary, styles::btn_sm, html::attr.href(urls::users),
                                        "View all →"}},
                      html::div{styles::user_list, html::list(users | std::views::take(3), user_row)}};
 }
+} // namespace
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 
-static auto render_get(const web::Request& req, web::State<Counter> counter) {
+namespace {
+auto render_get(const web::Request& req, web::State<Counter> counter) {
     int val = counter ? counter->count : 0;
     log::info("GET / - counter={}", val);
 
@@ -92,12 +97,13 @@ static auto render_get(const web::Request& req, web::State<Counter> counter) {
     return layout_main(req, "Dashboard — {{name}}", content);
 }
 
-static auto render_post(const web::Request& req, web::State<Counter> counter) {
+auto render_post(const web::Request& req, web::State<Counter> counter) {
     int val = counter ? counter->count : 0;
-    int next = val + 1;
+    const int next = val + 1;
     log::info("POST / - increment {} → {}", val, next);
     if (htmx::is_request(req)) {
-        return web::to_response(html::div{k_counter, styles::counter_value, next}).state(Counter{next});
+        return web::to_response(html::div{k_counter, styles::counter_value, next}).state(Counter{.count = next});
     }
-    return web::redirect(urls::index).state(Counter{next});
+    return web::redirect(urls::index).state(Counter{.count = next});
 }
+} // namespace

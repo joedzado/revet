@@ -5,9 +5,12 @@
 #include <revet/htmx.hpp>
 #include <revet/web.hpp>
 
-static constexpr html::id USER_RESULTS("user-results");
+namespace {
+constexpr html::id USER_RESULTS("user-results");
 
-static auto render_get(const web::Request& req) -> web::Task<web::Response> {
+// revet keeps req alive until the handler finishes.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-reference-coroutine-parameters)
+auto render_get(const web::Request& req) -> web::Task<web::Response> {
     const auto q = req.query.get("q");
     const auto db = resources::users_db();
     const auto rows = co_await (q.empty() ? queries::users::all(db) : queries::users::search(db, {.q = q}));
@@ -17,7 +20,7 @@ static auto render_get(const web::Request& req) -> web::Task<web::Response> {
                                                                                " + q + "
                                                                                "."}}}
                            : html::list(rows, [](const auto& u) -> html::Node {
-                                 const std::string initial = u.name.empty() ? "?" : std::string{u.name[0]};
+                                 const std::string initial = u.name.empty() ? "?" : std::string{u.name.at(0)};
                                  return html::a{styles::user_row,
                                                 html::attr.href(urls::users__id_(u.id)),
                                                 html::div{styles::user_avatar, initial},
@@ -43,3 +46,4 @@ static auto render_get(const web::Request& req) -> web::Task<web::Response> {
     const auto content = html::div{styles::container, styles::page_content, list};
     co_return layout_main(req, "Search — {{name}}", content);
 }
+} // namespace
