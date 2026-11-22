@@ -17,7 +17,7 @@ namespace {
 
 // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 // Minimal SHA-256 (FIPS 180-4). Fixed-size blocks: every index is bounded by its loop. Only used for cache-busting
-// URLs, so it must match the hash the Python generator produced: hashlib.sha256(src).hexdigest()[:10].
+// URLs: the first 10 hex digits of SHA-256(src).
 auto sha256_hex(std::string_view data) -> std::string {
     static constexpr std::array<std::uint32_t, 64> K = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -86,7 +86,7 @@ struct AppScript {
     std::string src;
 };
 
-// Python \W → _, and a leading digit gets a leading underscore.
+// Non-word characters become _, and a leading digit gets a leading underscore.
 auto ident_of(const std::string& stem) -> std::string {
     std::string name = stem;
     for (char& c : name) {

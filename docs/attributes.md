@@ -1,6 +1,6 @@
 # Attribute reference
 
-revet uses C++23 attributes as markers for the codegen pipeline. The compiler silently ignores unknown attributes (warning suppressed via `-Wno-unknown-attributes`); the Python scanners pick them up at configure time.
+revet uses C++23 attributes as markers for the codegen pipeline. The compiler silently ignores unknown attributes (warning suppressed via `-Wno-unknown-attributes`); the codegen tool picks them up at build time.
 
 ## `[[revet::model]]`
 

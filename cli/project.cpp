@@ -264,7 +264,8 @@ auto project_conanfile(const Deps& deps) -> fs::path {
 }
 
 namespace {
-// Python's repr() of a str, as the hash below was defined with it.
+// A quoted string literal ('...' unless that needs escaping), the format deps_hash has always hashed, so
+// existing .revet_deps_hash markers stay valid.
 auto py_repr(std::string_view s) -> std::string {
     bool has_single = s.contains('\'');
     bool has_double = s.contains('"');

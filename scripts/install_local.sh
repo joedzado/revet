@@ -27,7 +27,7 @@ fi
 
 # ── tools ─────────────────────────────────────────────────────────────────────
 command -v cmake >/dev/null 2>&1 || err "cmake is required (>= 3.20). Run: bash $SRC_DIR/scripts/install_deps.sh"
-command -v clang++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || err "A C++23 compiler (clang++ >= 17 or g++ >= 13) is required."
+command -v clang++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || err "A C++23 compiler with <flat_map> (g++ >= 15, or clang++ >= 20 with libc++ >= 20 or libstdc++ >= 15) is required."
 command -v conan >/dev/null 2>&1 || err "conan is required (C++ packages). Run: bash $SRC_DIR/scripts/install_deps.sh"
 
 # ── build ─────────────────────────────────────────────────────────────────────

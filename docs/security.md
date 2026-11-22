@@ -22,8 +22,6 @@ Before pointing real traffic at a revet app, verify every item below.
 ```bash
 openssl rand -hex 32
 # or
-python3 -c 'import secrets; print(secrets.token_hex(32))'
-# or
 hexdump -n 32 -v -e '/1 "%02x"' /dev/urandom
 ```
 

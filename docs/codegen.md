@@ -28,7 +28,7 @@ Codegen turns `app/` and `revet.toml` into C++ headers in `build/generated/`. It
 | `gen_server` | `revet.toml` top-level `max_body`, `data_dir` | `server.hpp` | Sets `web::config` values at static init; env and flags still override |
 | `gen_scripts` | `app/scripts/*.js` | `scripts.hpp` | Embeds each script with a content-hashed URL; run by `gen_routes`, which serves it `immutable` |
 | `gen_i18n` | `app/locale/*.csv` | `i18n.hpp` | `i18n::<key>` strings per locale |
-| `gen_htmx` | `static/htmx.min.js`, `revet.toml [htmx].version` | `htmx_asset.hpp` | Bundled htmx as a `string_view`, served at `/_revet/htmx.js` |
+| `gen_htmx` | `vendor/htmx/<version>/htmx.min.js`, `revet.toml [htmx].version` | `htmx_asset.hpp` | Bundled htmx as a `string_view`, served at `/_revet/htmx.js` |
 | `gen_optimistic` | `static/optimistic.ts` | `optimistic_asset.hpp` | Optimistic-update runtime, compiled with `bun`; skipped if `bun` is missing |
 
 `gen_htmx` and `gen_optimistic` live in `gen_assets.cpp`.

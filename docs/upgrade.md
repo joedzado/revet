@@ -31,6 +31,17 @@ Nothing has to change: old apps build as they are. To take the new defaults:
 - **Asset routes send one `Content-Type`.** No action.
 - Inline JS kept in C++ raw strings can move to `app/scripts/<name>.js` and load with `scripts::<name>_tag()`.
 
+## 0.3 → 0.4
+
+The CLI and codegen are now C++; revet itself no longer needs Python (Conan still does). Apps build as they are. Things to know:
+
+- **`revet format` and `revet tidy` now change files.** Before, they changed nothing and still reported success. Run them on a clean working tree and review the diff.
+- **`revet tidy` uses the project's `.clang-tidy`.** New projects get the framework's, which includes the `modernize-*` checks. `revet upgrade` doesn't touch it; to adopt it, copy `~/.revet/current/.clang-tidy` into the project.
+- **`[[revet::export]]` accepts trailing return types** (`auto badge(html::Node) -> html::Node`), the form `revet tidy` rewrites to.
+- **State fields typed `std::int64_t`, `std::uint32_t` and the other `std::` numeric types are now packed into the cookie.** Before, they were silently dropped.
+- **CSS classes named after C++ keywords get a trailing underscore**: `.default` is `styles::default_`.
+- **An invalid `port` in `revet.toml`** (not 1-65535) stops the CLI with an error naming it.
+
 ## Cookie key behavior across upgrades
 
 The framework uses `REVET_COOKIE_KEY` for AEAD on state cookies and the CSRF cookie. Upgrades **do not** rotate this key — old cookies remain valid. The same key produces the same ciphertext format across framework versions.
@@ -56,6 +67,6 @@ revet clean && revet dev
 
 ## Downgrading
 
-Today the install script tracks `main` — there are no released versions to pin to (see [contributing.md → Release process](./contributing.md#release-process)). Downgrade is "git checkout an older revision of the framework, re-run `scripts/install.sh`."
+Today the install script tracks `main` — there are no released versions to pin to (see [contributing.md → Release process](./contributing.md#release-process)). Downgrade is "git checkout an older revision of the framework, re-run `scripts/install_local.sh`."
 
 When tagged releases exist, `install.sh --version vX.Y.Z` will be the supported path.

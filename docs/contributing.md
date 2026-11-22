@@ -14,7 +14,7 @@ bash scripts/install_deps.sh        # cmake, conan, ninja, sqlite and optional t
 Verify:
 
 ```bash
-revet --version          # → 0.1.5 (or whatever VERSION says)
+revet --version          # → whatever VERSION says
 ctest --test-dir build    # full suite — should be all green
 ```
 

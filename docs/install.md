@@ -4,7 +4,7 @@
 
 | Dependency | Why | Min version |
 |---|---|---|
-| **C++23 compiler** | All framework code is C++23. | clang 18 / gcc 14 / Apple clang from Xcode 16 |
+| **C++23 compiler** | All framework code is C++23. | gcc 15, or clang 20 with libc++ 20 / libstdc++ 15 (`<flat_map>`); macOS: Apple clang (tested with Xcode 27) |
 | **CMake** | Configure + build. | 3.20 |
 | **Ninja** (optional) | Faster builds. revet auto-picks it if installed. | any |
 | **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libcurl, Catch2 and app dependencies; needs Python, which pip or Homebrew brings. libsodium, simdjson, CTRE and FTXUI are vendored. | 2.21 (libcurl recipes need it) |
@@ -19,15 +19,11 @@ brew install cmake ninja conan sqlite postgresql
 conan profile detect
 ```
 
-Xcode CLT must be installed (`xcode-select --install`). If you're on an older Xcode that ships a pre-C++23 clang, install LLVM 19 explicitly:
+Xcode or its Command Line Tools must be installed (`xcode-select --install`); revet builds with Apple clang. If yours lacks `<flat_map>`, update Xcode. Homebrew LLVM lacks Apple's SDK setup and isn't supported.
 
-```bash
-brew install llvm
-export CC=$(brew --prefix llvm)/bin/clang
-export CXX=$(brew --prefix llvm)/bin/clang++
-```
+## Ubuntu 26.04
 
-## Debian / Ubuntu
+Its default `g++` (15) and `clang++` (21) both work. Debian 13 ships gcc 14 and clang 19, which lack `<flat_map>`.
 
 ```bash
 sudo apt-get update
@@ -35,14 +31,11 @@ sudo apt-get install -y \
     git curl ca-certificates \
     python3 python3-pip \
     cmake ninja-build \
-    clang-19 libc++-19-dev libc++abi-19-dev \
+    g++ \
     libcurl4-openssl-dev \
     libsqlite3-dev libpq-dev
 pip3 install --break-system-packages conan
 conan profile detect
-
-export CC=clang-19
-export CXX=clang++-19
 ```
 
 ## Arch / Fedora / others
@@ -87,8 +80,8 @@ rm -rf ~/.revet
 
 The framework owns nothing else outside those two paths. Conan's package cache (`~/.conan2/`) and your project build dirs are independent.
 
-## Why is `~/.revet/current/` root-owned?
+## Who owns `~/.revet/`?
 
-`install.sh` runs `scripts/install.sh` under `sudo` to drop the symlink into `/usr/local/bin/`, and the symlink + the install dir end up owned by root. This is fine for end users (read-only stable install, like Homebrew or Node).
+You do. The installer uses `sudo` only to link `/usr/local/bin/revet` when that directory isn't writable. Older installs could leave `~/.revet` root-owned; `scripts/install_local.sh` detects that and fixes the ownership.
 
 If you're hacking on the framework itself, you'll want to point at your source repo instead — see [contributing.md](./contributing.md).

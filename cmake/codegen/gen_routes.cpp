@@ -372,7 +372,7 @@ auto gen_routes(const Ctx& ctx) -> int {
                 param_args += "std::string_view " + params[i];
             }
             std::string fmt_route = replace_all<R"RE(:\w+)RE">(e.route, "{}");
-            // Python: args are url-encoded with sanitize::url_encode when building a URL.
+            // Args are url-encoded with sanitize::url_encode when building a URL.
             Lines wrapped;
             for (const auto& p : params) {
                 wrapped.push_back("sanitize::url_encode(" + p + ")");

@@ -41,15 +41,9 @@ The framework always installs Release-config packages (`-s build_type=Release`).
 
 ## Build error: `'concept' is not a class or namespace`, or similar C++23 errors
 
-revet requires a C++23-capable compiler. macOS users: Apple clang on Xcode 16+ works for most of the surface; for the rest, install LLVM 19 via Homebrew (`brew install llvm`) and:
+revet requires a C++23-capable compiler. macOS: revet builds with Apple clang (`/usr/bin/clang++`) from a current Xcode or its Command Line Tools (tested with Xcode 27); update them with `softwareupdate` or Xcode. Homebrew LLVM lacks Apple's SDK setup, so leave `CC`/`CXX` unset or pointed at `/usr/bin/clang`.
 
-```bash
-export CC=$(brew --prefix llvm)/bin/clang
-export CXX=$(brew --prefix llvm)/bin/clang++
-revet clean && revet build
-```
-
-Linux: clang 18+ or gcc 14+.
+Linux: gcc 15+, or clang 20+ with libc++ 20+ or libstdc++ 15+ (Ubuntu 26.04's defaults work).
 
 ## "Built target revet" but `./build/revet` exits immediately
 

@@ -85,7 +85,7 @@ The main difference: no JavaScript, no runtime, no Node. One binary. `revet buil
 curl -fsSL https://raw.githubusercontent.com/joedzado/revet/main/install.sh | bash
 ```
 
-This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), and Conan 2.
+This installs dependencies and the `revet` CLI. Requires CMake ≥ 3.20, g++ ≥ 15, or clang++ ≥ 20 with libc++ ≥ 20 or libstdc++ ≥ 15 (for `<flat_map>`), and Conan 2.
 
 > **Note for C++ developers:** revet uses CMake and Conan under the hood, but you won't touch `CMakeLists.txt` directly — the CLI manages the entire build. `revet new` scaffolds the project, `revet dev` builds and runs it, and `revet build` produces the release binary.
 
@@ -1153,14 +1153,14 @@ ctx.states;  // type-erased map backing State<T> / Flash<T>
 revet dev [--port 3000] [--asan] [--lldb] [--profile]
 ```
 
-- File watcher rebuilds on changes to `app/`, `styles/`, `cmake/`, `revet.toml`
+- File watcher rebuilds on any change in the project except `build/`, `profiles/`, dotfiles and SQLite files
 - Press `r` to rebuild, `t` to see routes, `d` to attach debugger, `q` to quit
 
 ### Code quality
 
 ```bash
-revet tidy      # clang-tidy with safety fixes
-revet format    # clang-format
+revet tidy      # clang-tidy --fix with the project's .clang-tidy (modernize included)
+revet format    # clang-format -i with the project's .clang-format
 revet clean     # remove build artifacts
 ```
 
@@ -1256,7 +1256,7 @@ All outputs land in `build/generated/`.
 
 ### Dependencies
 
-**Required:** CMake ≥ 3.20, clang++ ≥ 17 (or g++ ≥ 13), Conan 2 (libsodium, simdjson, CTRE and FTXUI are vendored)
+**Required:** CMake ≥ 3.20, g++ ≥ 15, or clang++ ≥ 20 with libc++ ≥ 20 or libstdc++ ≥ 15 (for `<flat_map>`), Conan 2 (libsodium, simdjson, CTRE and FTXUI are vendored)
 
 **Optional:** Ninja (faster builds), Catch2 3 (testing), SQLite 3, ccache, clang-tidy, clang-format
 

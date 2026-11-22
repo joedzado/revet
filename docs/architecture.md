@@ -33,7 +33,7 @@ A 10-minute tour of how a revet binary is put together and how a request flows t
                        build/revet           (single executable)
 ```
 
-The codegen scripts are independent — most can run in parallel. The only ordering is established by `#include` dependencies in the generated files (e.g. `apis.hpp` includes `models.hpp`).
+The generators are independent — most can run in parallel. The only ordering is established by `#include` dependencies in the generated files (e.g. `apis.hpp` includes `models.hpp`).
 
 ## Runtime architecture
 
