@@ -2,6 +2,7 @@
 
 #include "queries.hpp"
 
+#include <revet/auth/tokens.hpp>
 #include <revet/auth/users.hpp>
 #include <revet/csrf.hpp>
 #include <revet/log.hpp>
@@ -27,5 +28,6 @@ void site_init() {
     queries::users::sync_create_schema(db);
     queries::users::sync_seed(db);
     web::auth::create_schema(db);
+    web::auth::tokens::create_schema(db);
     log::info("Database ready.");
 }
