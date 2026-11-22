@@ -3,6 +3,7 @@
 [requires]
 catch2/3.16.1
 libcurl/8.23.0
+openssl/3.6.5
 
 [generators]
 CMakeDeps

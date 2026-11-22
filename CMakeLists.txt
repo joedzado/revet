@@ -49,13 +49,14 @@ install(TARGETS simdjson_vendor ARCHIVE DESTINATION lib)
 install(FILES ${REVET_SODIUM_PREFIX}/lib/libsodium.a DESTINATION lib)
 install(DIRECTORY ${REVET_SODIUM_PREFIX}/include/ DESTINATION include)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
+find_package(OpenSSL REQUIRED CONFIG)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 
 # ── Target: revet_core (Framework library) ──────────────────────────────────
-add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp)
+add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp src/webauthn.cpp)
 target_include_directories(revet_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB)
+target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB OpenSSL::Crypto)
 target_compile_options(revet_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 install(TARGETS revet_core ARCHIVE DESTINATION lib)  # prebuilt/lib: apps link it instead of compiling src/*.cpp
 

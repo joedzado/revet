@@ -96,9 +96,10 @@ set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
 # build/conan for host builds, build/<target>/conan for cross builds.
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/conan")
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED CONFIG)
 # zlib (websocket permessage-deflate, rails_encryption) arrives through CURL::libcurl.
 target_link_libraries(revet_core INTERFACE
-    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre)
+    libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre OpenSSL::Crypto)
 
 # ── Codegen & Build ──────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/app)

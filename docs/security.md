@@ -14,7 +14,7 @@ Before pointing real traffic at a revet app, verify every item below.
 - [ ] **`-Werror`** is on for production builds (`cmake -DREVET_STRICT=ON`). Catches the warnings that pile up in dev.
 - [ ] **Database file (SQLite)** is not in a directory served as static assets. `revet.toml` `path = "build/data/users.db"` — confirm `build/data/` is excluded from any reverse-proxy static fall-through.
 - [ ] **Error pages** don't leak internals. `web::on_error(status, handler)` lets you replace the default 500 body. Check no stack traces / SQL fragments leak.
-- [ ] **`THIRD_PARTY_LICENSES` ships with the binary.** Required by libcurl, simdjson, CTRE, libsodium, libpq when redistributing. See [deploy.md → Third-party license attribution](deploy.md#third-party-license-attribution).
+- [ ] **`THIRD_PARTY_LICENSES` ships with the binary.** Required by libcurl, simdjson, CTRE, libsodium, openssl, libpq when redistributing. See [deploy.md → Third-party license attribution](deploy.md#third-party-license-attribution).
 - [ ] **`REVET_TRUSTED_PROXIES` lists your reverse proxy** (e.g. `127.0.0.1`) when using `web::rate_limit`. If it is unset, every client behind the proxy shares the proxy's address and one bucket; if it is too broad, clients can forge `X-Forwarded-For` and dodge limits.
 - [ ] **Reverse proxy strips client-supplied `X-Forwarded-*` headers** and re-sets them itself. Otherwise a client can forge `X-Forwarded-For` and your logs/rate-limiter believe a fake IP.
 
