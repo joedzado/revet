@@ -93,7 +93,8 @@ endif()
 include(${FRAMEWORK_DIR}/cmake/vendor.cmake)
 # Conan installs Release packages; map Debug cmake builds to use them too
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
+# build/conan for host builds, build/<target>/conan for cross builds.
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/conan")
 find_package(CURL REQUIRED)
 # zlib (websocket permessage-deflate, rails_encryption) arrives through CURL::libcurl.
 target_link_libraries(revet_core INTERFACE
@@ -122,14 +123,31 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/app)
         if(_codegen_stale)
             message(STATUS "Building revet_codegen_tool (no prebuilt tool in ${FRAMEWORK_DIR}/prebuilt)")
             file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
-            # Apple clang needs the SDK passed explicitly when run outside the generator.
+            # The tool runs on the build host, so a cross build compiles it with a host compiler.
+            set(_codegen_cxx ${CMAKE_CXX_COMPILER})
             set(_sysroot_args "")
-            if(CMAKE_OSX_SYSROOT)
-                set(_sysroot_args -isysroot ${CMAKE_OSX_SYSROOT})
+            if(CMAKE_CROSSCOMPILING)
+                if(CMAKE_HOST_APPLE)
+                    set(_codegen_cxx /usr/bin/clang++)
+                else()
+                    find_program(_codegen_cxx NAMES c++ clang++ g++ NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+                endif()
+            endif()
+            # Apple clang needs the SDK passed explicitly when run outside the generator.
+            if(CMAKE_HOST_APPLE)
+                if(CMAKE_CROSSCOMPILING OR NOT CMAKE_OSX_SYSROOT)
+                    execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _host_sdk
+                                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                else()
+                    set(_host_sdk ${CMAKE_OSX_SYSROOT})
+                endif()
+                if(_host_sdk)
+                    set(_sysroot_args -isysroot ${_host_sdk})
+                endif()
             endif()
             set(_codegen_cpp ${CODEGEN_SOURCES})
             list(FILTER _codegen_cpp INCLUDE REGEX "\\.cpp$")
-            execute_process(COMMAND ${CMAKE_CXX_COMPILER} ${_sysroot_args} -std=c++23 -O0 -I${FRAMEWORK_DIR}/vendor/ctre/include ${_codegen_cpp} -o ${REVET_CODEGEN_BIN}
+            execute_process(COMMAND ${_codegen_cxx} ${_sysroot_args} -std=c++23 -O0 -I${FRAMEWORK_DIR}/vendor/ctre/include ${_codegen_cpp} -o ${REVET_CODEGEN_BIN}
                             RESULT_VARIABLE _codegen_build_rc)
             if(NOT _codegen_build_rc EQUAL 0)
                 message(FATAL_ERROR "revet_codegen_tool failed to build (${_codegen_build_rc})")

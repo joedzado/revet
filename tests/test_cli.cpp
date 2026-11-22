@@ -157,9 +157,11 @@ TEST_CASE("upsert_dep / remove_dep: quoted keys and [build.*] subsections") {
     std::string toml = "[build.dependencies]\n\"fmt\" = \"fmt/1\"\n[build.options]\nx = 1\n[server]\n";
     std::string up = upsert_dep(toml, "fmt", "fmt/2");
     CHECK(up == "[build.dependencies]\nfmt = \"fmt/2\"\n[build.options]\nx = 1\n[server]\n");
-    // A new entry goes before the next non-build section.
-    CHECK(upsert_dep(toml, "zlib", "zlib/1.3") ==
-          "[build.dependencies]\n\"fmt\" = \"fmt/1\"\n[build.options]\nx = 1\nzlib = \"zlib/1.3\"\n[server]\n");
+    // A new entry stays in [build.dependencies], where deps_from_toml reads it, even before a [build.*] table.
+    std::string added = upsert_dep(toml, "zlib", "zlib/1.3");
+    CHECK(added ==
+          "[build.dependencies]\n\"fmt\" = \"fmt/1\"\nzlib = \"zlib/1.3\"\n[build.options]\nx = 1\n[server]\n");
+    CHECK(find_dep(deps_from_toml(added), "zlib") != nullptr);
     auto [out, found] = remove_dep(toml, "fmt");
     CHECK(found);
     CHECK(out == "[build.dependencies]\n[build.options]\nx = 1\n[server]\n");

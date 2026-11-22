@@ -65,7 +65,15 @@ void stop_server(bool wait) {
 
 auto server_running() -> bool {
     pid_t pid = g_server;
-    return pid > 0 && waitpid(pid, nullptr, WNOHANG) == 0;
+    if (pid <= 0) {
+        return false;
+    }
+    if (waitpid(pid, nullptr, WNOHANG) == 0) {
+        return true;
+    }
+    // Exited and reaped (or not ours): forget the pid so nothing signals it after the OS reuses it.
+    g_server.compare_exchange_strong(pid, -1);
+    return false;
 }
 
 // Ctrl-C while the terminal is cooked (during a build) or a kill: take the server down too.
@@ -115,7 +123,8 @@ public:
 
 private:
     static auto skipped_dir(const std::string& name) -> bool {
-        return name == "build" || name == "__pycache__" || name[0] == '.'; // includes .git, .cache
+        return name == "build" || name == "profiles" || name == "__pycache__" ||
+               name[0] == '.'; // includes .git, .cache; profiles/ is samply output
     }
     static auto skipped_file(const fs::path& p) -> bool {
         std::string name = p.filename().string();

@@ -342,7 +342,10 @@ auto cmd_tidy() -> int {
     info("Running clang-tidy on " + std::to_string(files.size()) + " files...");
     std::vector<std::string> cmd = {tidy.string(), "-p", "build", "--fix", "--fix-errors"};
     cmd.insert(cmd.end(), files.begin(), files.end());
-    run_inherit(cmd);
+    if (int rc = run_inherit(cmd); rc != 0) {
+        err("clang-tidy failed (exit " + std::to_string(rc) + ")");
+        return 1;
+    }
     ok("Tidy complete");
     return 0;
 }
@@ -354,9 +357,12 @@ auto cmd_format() -> int {
         fail("No source files found to format");
     }
     info("Formatting " + std::to_string(files.size()) + " files...");
-    std::vector<std::string> cmd = {format.string(), "-i", "-j", std::to_string(cpu_count()), "--style=file"};
+    std::vector<std::string> cmd = {format.string(), "-i", "--style=file"};
     cmd.insert(cmd.end(), files.begin(), files.end());
-    run_inherit(cmd);
+    if (int rc = run_inherit(cmd); rc != 0) {
+        err("clang-format failed (exit " + std::to_string(rc) + ")");
+        return 1;
+    }
     ok("Format complete");
     return 0;
 }

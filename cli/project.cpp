@@ -9,6 +9,7 @@
 #include <ctre.hpp>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <system_error>
 #include <unistd.h>
 
 #include "cli.hpp"
@@ -68,7 +69,10 @@ auto toml_port(const fs::path& project) -> std::optional<int> {
         return std::nullopt;
     }
     int port = 0;
-    std::from_chars(v->data(), v->data() + v->size(), port); // the pattern guarantees digits
+    auto [end, ec] = std::from_chars(v->data(), v->data() + v->size(), port); // the pattern guarantees digits
+    if (ec != std::errc{} || port <= 0 || port > 65535) {
+        fail("invalid port in revet.toml: " + *v + " (expected 1-65535)");
+    }
     return port;
 }
 
@@ -152,7 +156,7 @@ auto upsert_dep(std::string_view content, std::string_view name, std::string_vie
         }
         if (section_start && !section_end) {
             std::string s = strip(lines[i]);
-            if (starts_with(s, "[") && !starts_with(s, "[build.")) {
+            if (starts_with(s, "[")) {
                 section_end = i;
                 break;
             }

@@ -39,6 +39,9 @@ command -v ninja >/dev/null 2>&1 && GEN=(-G Ninja)
 if [ "$OS" = Darwin ]; then
     export CC="${CC:-/usr/bin/clang}" CXX="${CXX:-/usr/bin/clang++}"
 fi
+# Framework deps (curl, catch2) from Conan, with the same "revet" profile the CLI uses.
+conan profile path revet >/dev/null 2>&1 || conan profile detect --name revet >/dev/null
+conan install . --output-folder="$BUILD_DIR/conan" --build=missing -s build_type=Release -pr:h=revet -pr:b=revet
 cmake "${GEN[@]}" -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD_DIR"
 
@@ -46,7 +49,7 @@ cmake --build "$BUILD_DIR"
 info "Installing revet to $PREFIX..."
 rm -rf "$PREFIX"
 mkdir -p "$PREFIX"
-for d in cmake cli src static template include vendor scripts CMakeLists.txt conanfile.txt .clang-format .clang-tidy LICENSE VERSION; do
+for d in cmake cli src static template include vendor scripts CMakeLists.txt conanfile.txt .clang-format .clang-tidy LICENSE THIRD_PARTY_LICENSES VERSION; do
     [ -e "$SRC_DIR/$d" ] || continue
     cp -R "$SRC_DIR/$d" "$PREFIX/$d"
 done

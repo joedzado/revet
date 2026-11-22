@@ -99,6 +99,7 @@ endif()
 add_test(NAME cli
     COMMAND ${CMAKE_COMMAND} -DREVET=$<TARGET_FILE:revet_cli> -DFRAMEWORK=${CMAKE_SOURCE_DIR}
             -DWORK=${CMAKE_BINARY_DIR}/cli_test -P ${CMAKE_SOURCE_DIR}/tests/cli/run.cmake)
+set_tests_properties(cli PROPERTIES TIMEOUT 120) # a step that wrongly starts `revet dev` must not hang the suite
 
 find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
