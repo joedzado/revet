@@ -224,3 +224,49 @@ The template ships a passkey sign-in page and a passkey management page, for web
 - The cookie holds the user id in `Session.username`. Read it with `web::State<Session>`.
 
 A browser and a native app can share one account: a passkey registered in either works in both, provided the native app's origin is listed (see Setting up the native apps).
+
+## Magic links (`<revet/auth/magic.hpp>`, `<revet/auth/magic_http.hpp>`, `<revet/mail.hpp>`)
+
+Sign in by email, with no password. The user types an address, gets a link, opens it, and is in; the first time, that also creates the account. It is the recovery path for passkeys (a user who lost every passkey asks for a link to their address), and it works for people on a device with no passkey at all.
+
+```cpp
+magic::config().base_url = "https://app.example.com";   // or REVET_BASE_URL (required, https)
+magic::create_schema(db);                               // after users::create_schema
+
+magic::request(db, "ann@example.com");                  // queues the mail
+auto done = magic::complete(db, token);                 // Completed{user_id, new_user, linked} or invalid_link
+```
+
+**Configuration** (environment): `REVET_BASE_URL` (the site's own address; links are built from this, never from the request's Host header), `REVET_APP_NAME` (in the mail), `REVET_MAGIC_TTL_SECONDS` (default 900), and the mail server: `REVET_SMTP_URL` (`smtps://host:465` or `smtp://host:587` with STARTTLS), `REVET_SMTP_USER`, `REVET_SMTP_PASS`, `REVET_MAIL_FROM` (`"My App <login@example.com>"`), optionally `REVET_SMTP_CA_FILE`.
+
+**JSON endpoints** (for native apps), in `magic_http.hpp`:
+
+| Route | Handler | Body | Returns |
+|---|---|---|---|
+| `POST /api/v1/auth/magic/request` | `request` | `{email}` | `{"ok":true}`; with an access token, the link adds the address to that account |
+| `POST /api/v1/auth/magic/verify` | `verify` | `{token, device?}` | `{user_id, new_user, tokens}`, or `{user_id, linked: true}` for an add-address link |
+
+The mail's link is `https://app.example.com/auth/magic?token=...`. Register that path as a universal link (iOS) and app link (Android): the Apple and Android association files this framework serves already list it (`app_link_paths`). The app takes `token` from the link and POSTs it to `verify`; on a device without the app the link opens the web page.
+
+**Browser pages** (template): the sign-in page has an "Email me a link" form; `/auth/magic` shows "Sign in as ann@example.com" with a button; the button posts to `/auth/magic/confirm`, which starts the cookie session. The account page lists email addresses and adds more.
+
+**How it is kept safe**
+- The token is 256 random bits; only its SHA-256 is stored. It works once and expires (15 minutes). Spending is a single atomic update, so two clicks cannot both win.
+- Opening the link only shows a page. The button's POST is what spends the token, so a mail scanner that fetches every link cannot use one up. The page sends `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
+- `request` answers the same for every valid address, whether or not it has an account and whether or not a mail was sent. A malformed address is a 400.
+- Mail is limited per client address, per recipient (3 in a burst, then one per 20 minutes), for the app as a whole (60 in a burst, then 30 a minute; `limits::magic_request()`), and per address per hour in the database (5, so it holds across restarts and processes).
+- An address is validated to a strict ASCII form before anything is built; nothing a user types can add a header or an SMTP command. Bodies are base64 so nothing in them is read as protocol.
+- Mail goes out from a background thread with retries (4 tries, pausing 2 s, 8 s, 32 s), so a slow mail server never holds up a request. Failures are logged with the recipient's domain only.
+- Plain `smtp://` without TLS is refused unless the server is on this machine or `REVET_SMTP_ALLOW_PLAINTEXT=1`. Certificates are verified. `REVET_SMTP_CA_FILE` (a private relay's CA) works where libcurl uses OpenSSL (Linux); on macOS libcurl uses SecureTransport and trusts only the system keychain, so install the CA there.
+- A signed-in user adding an address needs to click the link too, so nobody can add an address they cannot read. Adding an address never hands out a session.
+- In development with no mail server and a `http://localhost` base URL, the template prints the link to the log instead of sending. It never does that otherwise: a link in a log is a login for anyone who can read the log.
+
+**Before you launch:** set up SPF, DKIM and DMARC for the sender's domain (or use a mail provider that does), or sign-in mail lands in spam. Send a test to Gmail and iCloud. Check the sender address can receive replies or bounces.
+
+## Putting it together
+
+1. In `site_init.cpp`: `web::auth::create_schema`, `tokens::create_schema`, `passkeys::create_schema` (the template does this), and set the passkey config.
+2. Set the environment: `REVET_COOKIE_KEY` (64 hex), `REVET_RP_ID`, `REVET_WEBAUTHN_ORIGINS`, `REVET_TRUSTED_PROXIES` when behind a proxy, `REVET_FORCE_SECURE_COOKIES=1`.
+3. Keep the routes under `app/routes/api/v1/auth/` with their guards. Add `api_guards()` with `tokens::guard()` (or `limits::signed_in()`) to your own `/api` routes, and read the caller with `web::api::principal<web::auth::tokens::Principal>()`.
+4. Run `tokens::purge_ended` now and then (a startup call or a daily job) to forget finished sessions.
+5. Work through the [security checklist](security.md).
