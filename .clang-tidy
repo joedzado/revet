@@ -32,7 +32,7 @@ WarningsAsErrors: true
 # clang-tidy matches these against absolute paths. The exclusion keeps an app's `revet tidy` off the
 # installed framework (~/.revet), vendored code and generated files.
 HeaderFilterRegex: '.*/(src|include|app|cli|cmake/codegen|tests)/.*'
-ExcludeHeaderFilterRegex: '.*/(\.revet|vendor|build|_deps)/.*'
+ExcludeHeaderFilterRegex: '^/(usr|opt)/.*|.*/(\.revet|\.conan2|vendor|build|_deps)/.*'
 
 CheckOptions:
   # Map-like operator[] (insert or key lookup), not an index.
