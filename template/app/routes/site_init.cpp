@@ -2,6 +2,7 @@
 
 #include "queries.hpp"
 
+#include <revet/auth/users.hpp>
 #include <revet/csrf.hpp>
 #include <revet/log.hpp>
 #include <revet/web.hpp>
@@ -25,5 +26,6 @@ void site_init() {
     auto db = resources::users_db<db::Write>();
     queries::users::sync_create_schema(db);
     queries::users::sync_seed(db);
+    web::auth::create_schema(db);
     log::info("Database ready.");
 }

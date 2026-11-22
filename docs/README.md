@@ -24,5 +24,6 @@ Topical docs that don't fit in the project README's tour.
 - [codegen.md](codegen.md) — every generator in `cmake/codegen/`
 - [attributes.md](attributes.md) — `[[revet::*]]` markers
 - [api.md](api.md) — runtime types and helpers
+- [auth.md](auth.md) — users, identities, login
 
 For the tour + feature walkthrough, see the [project README](../README.md).
