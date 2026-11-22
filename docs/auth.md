@@ -117,3 +117,110 @@ Both return `std::expected<..., web::webauthn::Error>`; `error_name(e)` gives a 
 - **base64url.** `web::webauthn::base64url_encode` / `base64url_decode` use the unpadded form WebAuthn uses; decoding is strict.
 - **`web::cbor`.** `decode(bytes)` / `decode_prefix(bytes)` handle the CBOR subset WebAuthn uses and refuse the rest (tags, floats, indefinite lengths, duplicate map keys, more than 16 levels of nesting, invalid UTF-8, counts larger than the input) without allocating or recursing unboundedly.
 - **OpenSSL.** Signature checking uses OpenSSL (a Conan dependency, built from source the first time). The OpenSSL headers are included only from `src/webauthn.cpp`.
+
+## Passkeys (`<revet/auth/passkeys.hpp>`, `<revet/auth/passkeys_http.hpp>`, namespace `web::auth::passkeys`)
+
+Passwordless login for native apps. The OS keeps the private key (iCloud Keychain, Google Password Manager, a security key) and unlocks it with Face ID, a fingerprint or a PIN. The server keeps the public key and checks a signature. There is nothing to leak, phish or reset.
+
+```cpp
+// site_init.cpp, once
+auto& pk = web::auth::passkeys::config();
+pk.rp.rp_id = "app.example.com";                      // or REVET_RP_ID
+pk.rp.origins = {"https://app.example.com",           // or REVET_WEBAUTHN_ORIGINS (comma-separated)
+                 "android:apk-key-hash:<hash>"};
+pk.rp_name = "Example App";                                   // or REVET_RP_NAME
+pk.apple_app_ids = {"TEAMID.com.example.app"};
+pk.android_apps = {{.package_name = "com.example.app", .sha256_cert_fingerprints = {"AA:BB:..."}}};
+
+web::auth::create_schema(db);                          // users
+web::auth::tokens::create_schema(db);                  // sessions
+web::auth::passkeys::create_schema(db);                // passkeys and challenges
+```
+
+### The flow
+
+1. **Register.** The app calls `register_options`, hands the returned `options` to the OS (`ASAuthorizationPlatformPublicKeyCredentialProvider` on iOS, `CredentialManager.createCredential` on Android), then posts the answer to `register_finish`. Called without a token, this creates an account and returns a session. Called with `Authorization: Bearer <access token>`, it adds a passkey to that user.
+2. **Sign in.** The app calls `login_options`, hands `options` to the OS, which shows the user's passkeys for this site (no username to type), then posts the answer to `login_finish`. The response carries a session (see Tokens).
+
+### Endpoints
+
+Routes live in the template under `app/routes/api/v1/auth/`; each is one line calling a handler in `web::auth::passkeys::http`. Bodies are JSON; binary fields are base64url without padding.
+
+| Route | Handler | Body | Returns |
+|---|---|---|---|
+| `POST /api/v1/auth/passkey/register/options` | `register_options` | `{display_name?}` | `{challenge_id, options}` |
+| `POST /api/v1/auth/passkey/register/finish` | `register_finish` | `{challenge_id, client_data_json, attestation_object, label?, device?}` | `{user_id, credential_id, new_user, tokens?}` |
+| `POST /api/v1/auth/passkey/login/options` | `login_options` | `{}` | `{challenge_id, options}` |
+| `POST /api/v1/auth/passkey/login/finish` | `login_finish` | `{challenge_id, credential_id, client_data_json, authenticator_data, signature, user_handle?, device?}` | `{user_id, tokens}` |
+| `GET /api/v1/auth/passkeys` | `list` | | `{passkeys: [{credential_id, label, created_at, last_used_at, backup_eligible, backup_state}]}` |
+| `POST /api/v1/auth/passkeys/remove` | `remove` | `{credential_id}` | `{removed: true}` |
+
+`tokens` is `{access_token, refresh_token, access_expires_at, refresh_expires_at, session_id}`. `list` and `remove` sit behind `tokens::guard()`. Errors are `{"error": "<code>"}`: `bad_request`, `challenge_invalid` (start over), `credential_taken` (409), `verification_failed` with a `reason` (registration only), and `login_failed` (401) for every way a sign-in can be wrong, so the response does not say whether a credential exists. `remove` answers 409 `last_login_method` rather than lock the user out.
+
+### Library functions
+
+For use without the HTTP layer: `begin_registration`, `finish_registration`, `begin_login`, `finish_login`, `list_passkeys`, `remove_passkey`. They return `std::expected<..., Failure>` where `Failure::kind` is one of `bad_request`, `challenge_invalid`, `verification_failed` (with the `webauthn::Error` in `detail`), `unknown_credential`, `credential_taken`, `user_mismatch`, `no_such_user`.
+
+### What is stored
+
+- `auth_passkeys(credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, label, created_at, last_used_at)`. `user_id` cascades from `auth_users`, so `delete_user` removes a user's passkeys.
+- `auth_challenges(id, purpose, challenge, user_id, expires_at)`. A challenge lives 5 minutes (`challenge_ttl`), answers once, and only for the ceremony it was issued for (a login challenge cannot finish a registration). It is spent when the answer arrives, right or wrong. Expired rows are swept whenever a ceremony starts.
+- Each passkey is also an identity (`provider = "passkey"`, subject = credential id), so a user can pair passkeys with other sign-in methods and `unlink_identity` / `remove_passkey` both keep at least one way in.
+- The sign-in counter is updated with a compare-and-swap, so two logins racing on one credential cannot both succeed.
+
+### Setting up the native apps
+
+Both platforms check that your app and your domain vouch for each other.
+
+- **iOS.** Add the Associated Domains entitlement `webcredentials:app.example.com`. Set `apple_app_ids` to `<Team ID>.<bundle id>`; the server then answers `GET /.well-known/apple-app-site-association` with `{"webcredentials":{"apps":[...]}}`. Apple fetches it over HTTPS with no redirect.
+- **Android.** Set `android_apps` to the package name and the SHA-256 fingerprint of the signing certificate (debug and release keys differ; list both while testing). The server answers `GET /.well-known/assetlinks.json` with the `get_login_creds` relation. Add `android:apk-key-hash:<base64url of the same SHA-256>` to `origins`.
+- **Both.** The domain must be served over HTTPS. Behind Caddy or nginx, pass `/.well-known/` through to the app. `rp_id` is the bare domain, not the URL.
+- **Passkeys follow the domain.** Changing `rp_id` later orphans every registered passkey. Pick it once.
+
+### Not covered here
+
+- **Recovery** is magic links (next section): a user who added an email address gets back in with a mailed link, then registers a new passkey. A user who never added one and loses every passkey is locked out, so prompt people to add an address.
+- **Rate limiting.** The public endpoints (`register_*`, `login_*`) accept anonymous requests. Put `web::rate_limit::by_ip` in their `api_guards()` before exposing them.
+
+## Session endpoints (`<revet/auth/session_http.hpp>`)
+
+What keeps a native app signed in and lets the user leave. Same shape as the passkey handlers: each takes the request and a callable that opens a write handle.
+
+| Route | Handler | Body | Returns |
+|---|---|---|---|
+| `POST /api/v1/auth/refresh` | `refresh` | `{refresh_token}` | `{tokens}` |
+| `POST /api/v1/auth/logout` | `logout` | | `{ok: true}`; ends this device's session |
+| `POST /api/v1/auth/logout-all` | `logout_all` | | `{ok: true, signed_out: n}` |
+| `GET /api/v1/auth/devices` | `devices` | | `{devices: [{session_id, label, created_at, last_used_at, current}]}` |
+| `POST /api/v1/auth/account/delete` | `delete_account` | | `{ok: true}`; removes the user, identities, sessions and passkeys |
+
+`refresh` is public; the rest sit behind `tokens::guard()`. A refused refresh is always 401 with one of `invalid_refresh_token`, `session_expired`, `session_revoked`; the app should send the user to sign in again, and treat `session_revoked` as possible token theft. Send each refresh once and save the reply before using it (see the note on retries under Tokens). Account deletion is final and is what the App Store and Play Store require an app to offer.
+
+## Rate limits (`<revet/auth/limits.hpp>`, `<revet/rate_limit.hpp>`)
+
+Anything public that checks a secret or creates rows needs a ceiling. `web::auth::limits` gives two ready-made guard lists:
+
+```cpp
+static auto api_guards() -> std::vector<web::Middleware> { return web::auth::limits::anonymous(); }  // public routes
+static auto api_guards() -> std::vector<web::Middleware> { return web::auth::limits::signed_in(); }  // token guard, then per user
+```
+
+| Limit | Applies to | Default |
+|---|---|---|
+| per client address | every anonymous route, one shared bucket | 20 requests, then 1 per 3 s |
+| per credential or session | the `credential_id` or `refresh_token` named in the JSON body, across addresses | 10 requests, then 1 per 30 s |
+| per user | signed-in routes | 60 requests, then 1 per second |
+
+Refused requests get `429` with `Retry-After`. Change the numbers with `web::auth::limits::config()` at startup. Limits live in process memory, so they reset on restart and are not shared between processes. Behind a reverse proxy set `REVET_TRUSTED_PROXIES` (see [api.md](api.md#rate-limiting-revetrate_limithpp-namespace-webrate_limit)) or every visitor counts as the proxy.
+
+## Browser pages (template)
+
+The template ships a passkey sign-in page and a passkey management page, for web users and as a working example.
+
+- **`/login`**: "Sign in with a passkey", and "Create an account with a passkey" with a name field. Replaces the demo username/password form.
+- **`/account/passkeys`**: lists the user's passkeys, with Add and Remove. Redirects to `/login` when signed out. Add and Remove swap the list in place with htmx.
+- **`app/scripts/passkey.js`**: about 110 lines, no libraries; it only converts between base64url and the `ArrayBuffer`s `navigator.credentials` wants, and posts the results.
+- **Cookie routes** under `/passkey/` (`login/options`, `login/finish`, `register/options`, `register/finish`) mirror the JSON API but start a cookie session instead of returning tokens. They are ordinary routes, so the global CSRF check applies; the page passes its token in `data-csrf`.
+- The cookie holds the user id in `Session.username`. Read it with `web::State<Session>`.
+
+A browser and a native app can share one account: a passkey registered in either works in both, provided the native app's origin is listed (see Setting up the native apps).

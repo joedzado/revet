@@ -6,6 +6,7 @@ Before pointing real traffic at a revet app, verify every item below.
 
 - [ ] **`REVET_COOKIE_KEY` is set** to a 64-char hex string (32 bytes of entropy). Without it the framework falls back to a key derived from `hostname()` — fine for dev, catastrophic in prod (any process on the same host can forge cookies).
 - [ ] **`web::config::secure_cookies(true)`** is called at startup *or* `REVET_FORCE_SECURE_COOKIES=1` is in the env. Off by default for localhost dev; the `Secure` attribute is required when serving over HTTPS.
+- [ ] **`REVET_RP_ID` and `REVET_WEBAUTHN_ORIGINS` match the public hostname** when using passkeys.
 - [ ] **CSRF middleware is registered** (`web::use(web::csrf::middleware)`) for any app that mutates server state. State-changing methods (POST/PUT/PATCH/DELETE) without a valid token return 403.
 - [ ] **API endpoints have `api_guards()`** returning at least one auth guard. Without it `/api/*` routes are public.
 - [ ] **`bearer_static` (or `bearer` with `secure_eq`)** is used for token compares. Never `tok == "secret"` — that's a timing oracle.
@@ -42,7 +43,7 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 
 | Class | Status | Notes |
 |---|---|---|
-| CSRF | yes | AEAD-sealed cookie + raw token in form/header. Defeats subdomain cookie injection. |
+| CSRF | yes | AEAD-sealed cookie + raw token in form/header. Defeats subdomain cookie injection. `/api/*` is exempt: authenticate it with a header token, never a cookie. |
 | XSS via HTML DSL | yes | All text rendered via `html::*` is HTML-escaped by default. Use `html::raw(...)` only for trusted strings. |
 | SQL injection | yes | Generated queries (`gen_queries`) emit parameterized SQL exclusively. `db::sqlite::Handle::query/exec` only takes bound params. |
 | Timing oracles on token compare | yes | `web::crypto::secure_eq` uses `sodium_memcmp`. CSRF + `bearer_static` use it. Custom auth must too. |
