@@ -13,7 +13,7 @@ TEST_CASE("Custom Error Handler Registry", "[web]") {
         });
 
         REQUIRE(web::error_handlers().contains(404));
-        web::Request req;
+        const web::Request req;
         auto resp = web::error_handlers().at(404)(req);
         REQUIRE(resp.body == "CUSTOM NOT FOUND");
         REQUIRE(resp.status == web::status::not_found);
@@ -27,7 +27,7 @@ TEST_CASE("Custom Error Handler Registry", "[web]") {
         });
 
         REQUIRE(web::error_handlers().contains(500));
-        web::Request req;
+        const web::Request req;
         auto resp = web::error_handlers().at(500)(req);
         REQUIRE(resp.body == "CUSTOM ERROR");
         REQUIRE(resp.status == web::status::internal_error);

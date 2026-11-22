@@ -31,7 +31,7 @@ auto llvm_tool(const std::string& tool, const std::string& linux_pkg) -> fs::pat
     if (fs::exists(brew)) {
         return brew;
     }
-    std::string os = os_name();
+    const std::string os = os_name();
     if (os == "Darwin") {
         fail(tool + " not found. Install with: brew install llvm");
     }
@@ -67,12 +67,12 @@ auto cmake_version() -> std::optional<std::string> {
     if (!r.started || r.rc != 0) {
         return std::nullopt;
     }
-    auto m = ctre::search<R"RE(cmake version (\d+)\.(\d+)[\d.]*)RE">(r.out);
+    const auto m = ctre::search<R"RE(cmake version (\d+)\.(\d+)[\d.]*)RE">(r.out);
     if (!m) {
         return "found";
     }
-    int major = std::stoi(m.get<1>().to_string());
-    int minor = std::stoi(m.get<2>().to_string());
+    const int major = std::stoi(m.get<1>().to_string());
+    const int minor = std::stoi(m.get<2>().to_string());
     if (major < 3 || (major == 3 && minor < 20)) {
         return std::nullopt;
     }
@@ -96,7 +96,7 @@ auto missing_critical_tools() -> std::vector<std::string> {
     if (!which("cmake")) {
         missing.emplace_back("cmake");
     }
-    std::string cxx = cxx_compiler();
+    const std::string cxx = cxx_compiler();
     if (cxx.empty() || !which(cxx)) {
         missing.emplace_back("c++");
     }
@@ -112,10 +112,10 @@ auto cmd_add(std::string_view raw_spec) -> int {
     std::string spec = strip(raw_spec);
     std::string name;
     std::optional<std::string> ref;
-    if (size_t at = spec.find('@'); at != std::string::npos) {
+    if (const size_t at = spec.find('@'); at != std::string::npos) {
         name = strip(spec.substr(0, at));
         ref = name + "/" + strip(spec.substr(at + 1));
-    } else if (spec.contains('/') && spec[0] != '/') {
+    } else if (spec.contains('/') && spec.at(0) != '/') {
         name = strip(spec.substr(0, spec.find('/')));
         ref = spec;
     } else {
@@ -135,7 +135,7 @@ auto cmd_add(std::string_view raw_spec) -> int {
     }
 
     std::string content = read_toml();
-    Deps existing = deps_from_toml(content);
+    const Deps existing = deps_from_toml(content);
     if (const std::string* cur = find_dep(existing, name); cur != nullptr && *cur == *ref) {
         ok(*ref + " already in dependencies");
         return 0;
@@ -144,15 +144,15 @@ auto cmd_add(std::string_view raw_spec) -> int {
     write_toml(content);
 
     // The next build re-runs Conan; fetch now when there is already a build tree.
-    fs::path conan_dir = fs::path(k_build_dir) / "conan";
+    const fs::path conan_dir = fs::path(k_build_dir) / "conan";
     remove_quietly(conan_dir / ".revet_deps_hash");
     if (fs::exists(conan_dir) && which("conan")) {
         info("Fetching " + *ref + "…");
-        Deps deps = deps_from_toml(content);
-        fs::path conanfile = project_conanfile(deps);
-        auto prof = conan_profile().value_or("default");
-        Result r = run({"conan", "install", conanfile.string(), "--output-folder=" + conan_dir.string(),
-                        "--build=missing", "-s", "build_type=Release", "-pr:h=" + prof, "-pr:b=" + prof});
+        const Deps deps = deps_from_toml(content);
+        const fs::path conanfile = project_conanfile(deps);
+        const auto prof = conan_profile().value_or("default");
+        const Result r = run({"conan", "install", conanfile.string(), "--output-folder=" + conan_dir.string(),
+                              "--build=missing", "-s", "build_type=Release", "-pr:h=" + prof, "-pr:b=" + prof});
         if (r.rc != 0) {
             dim("  (conan fetch failed — will retry on next build)");
         } else {
@@ -180,10 +180,10 @@ auto cmd_remove(std::string_view name) -> int {
 
 auto cmd_lock() -> int {
     require_conan();
-    fs::path conanfile = project_conanfile(deps_from_toml(read_toml()));
+    const fs::path conanfile = project_conanfile(deps_from_toml(read_toml()));
     info("Regenerating revet.lock…");
-    auto prof = conan_profile().value_or("default");
-    Result r = run(
+    const auto prof = conan_profile().value_or("default");
+    const Result r = run(
         {"conan", "lock", "create", conanfile.string(), "--lockfile-out=revet.lock", "-pr:h=" + prof, "-pr:b=" + prof});
     if (r.rc != 0) {
         err("Failed to generate lockfile:");
@@ -198,12 +198,12 @@ auto cmd_lock() -> int {
 // ── Projects ────────────────────────────────────────────────────────────────
 
 auto cmd_new(std::string_view name_view, bool empty) -> int {
-    std::string name(name_view);
+    const std::string name(name_view);
     const fs::path& fw = framework_dir();
     if (!fs::exists(fw / "template")) {
         fail("framework not installed — run `./install.sh` from the revet repo first");
     }
-    fs::path dest = fs::current_path() / name;
+    const fs::path dest = fs::current_path() / name;
     if (fs::exists(dest)) {
         fail("'" + name + "' already exists");
     }
@@ -217,13 +217,13 @@ auto cmd_new(std::string_view name_view, bool empty) -> int {
     }
 
     // Template files, {{name}} filled in. CMakeLists.txt is generated at build time.
-    fs::path tmpl = fw / "template";
-    auto wanted = [&](const fs::path& rel) -> bool {
+    const fs::path tmpl = fw / "template";
+    const auto wanted = [&](const fs::path& rel) -> bool {
         return rel.filename() != "CMakeLists.txt" &&
                !(empty && (*rel.begin() == "app" || rel.filename() == "models.hpp"));
     };
     for (const auto& file : files_under(tmpl)) {
-        if (fs::path rel = file.lexically_relative(tmpl); wanted(rel)) {
+        if (const fs::path rel = file.lexically_relative(tmpl); wanted(rel)) {
             write_file(dest / rel, replace_all(read_file(file).value_or(""), "{{name}}", name));
         }
     }
@@ -249,9 +249,9 @@ auto cmd_new(std::string_view name_view, bool empty) -> int {
 
     for (const auto& cmd : std::vector<std::vector<std::string>>{
              {"git", "init"}, {"git", "add", "."}, {"git", "commit", "-m", "Initial commit from revet template"}}) {
-        Result r = run(cmd, dest);
+        const Result r = run(cmd, dest);
         if (r.rc != 0) {
-            fail(cmd[0] + " " + cmd[1] + " failed in " + dest.string() + ": " + strip(r.err));
+            fail(cmd.at(0) + " " + cmd.at(1) + " failed in " + dest.string() + ": " + strip(r.err));
         }
     }
 
@@ -308,7 +308,7 @@ auto strip_pch(std::string db) -> std::string {
             break;
         }
         end += k_ext.size();
-        if (end < db.size() && db[end] == ' ') {
+        if (end < db.size() && db.at(end) == ' ') {
             ++end;
         }
         db.erase(at, end - at);
@@ -317,12 +317,12 @@ auto strip_pch(std::string db) -> std::string {
 }
 
 auto cmd_tidy() -> int {
-    fs::path tidy = llvm_tool("clang-tidy", "clang-tools");
+    const fs::path tidy = llvm_tool("clang-tidy", "clang-tools");
     auto db = read_file(fs::path(k_build_dir) / "compile_commands.json");
     if (!db) {
         fail("build/compile_commands.json not found — run `revet build` first");
     }
-    fs::path tidy_db = fs::path(k_build_dir) / "tidy";
+    const fs::path tidy_db = fs::path(k_build_dir) / "tidy";
     fs::create_directories(tidy_db);
     write_file(tidy_db / "compile_commands.json", strip_pch(*db));
     // Route files include "json_models.hpp", which codegen strips when it inlines them; point it at models.hpp.
@@ -335,7 +335,7 @@ auto cmd_tidy() -> int {
     std::vector<std::string> cmd = {tidy.string(), "-p", tidy_db.string(),
                                     "--extra-arg=-I" + fs::absolute(tidy_db).string(), "--fix"};
     cmd.insert(cmd.end(), files.begin(), files.end());
-    if (int rc = run_inherit(cmd); rc != 0) {
+    if (const int rc = run_inherit(cmd); rc != 0) {
         err("clang-tidy failed (exit " + std::to_string(rc) + ")");
         return 1;
     }
@@ -344,7 +344,7 @@ auto cmd_tidy() -> int {
 }
 
 auto cmd_format() -> int {
-    fs::path format = llvm_tool("clang-format", "clang-format");
+    const fs::path format = llvm_tool("clang-format", "clang-format");
     auto files = project_sources({".cpp", ".hpp"});
     if (files.empty()) {
         fail("No source files found to format");
@@ -352,7 +352,7 @@ auto cmd_format() -> int {
     info("Formatting " + std::to_string(files.size()) + " files...");
     std::vector<std::string> cmd = {format.string(), "-i", "--style=file"};
     cmd.insert(cmd.end(), files.begin(), files.end());
-    if (int rc = run_inherit(cmd); rc != 0) {
+    if (const int rc = run_inherit(cmd); rc != 0) {
         err("clang-format failed (exit " + std::to_string(rc) + ")");
         return 1;
     }
@@ -369,14 +369,14 @@ auto cmd_doctor() -> int {
         std::optional<std::string> version; // nullopt: missing
     };
     auto version_of = [](const std::vector<std::string>& cmd, auto pattern_fn) -> std::optional<std::string> {
-        Result r = run(cmd, {}, 5);
+        const Result r = run(cmd, {}, 5);
         if (!r.started) {
             return std::nullopt;
         }
         return pattern_fn(r.out + r.err);
     };
     auto first_number = [](const std::string& text) -> std::optional<std::string> {
-        if (auto m = ctre::search<R"RE((\d+\.\d+(?:\.\d+)*))RE">(text)) {
+        if (const auto m = ctre::search<R"RE((\d+\.\d+(?:\.\d+)*))RE">(text)) {
             return m.get<1>().to_string();
         }
         return "found";
@@ -388,9 +388,9 @@ auto cmd_doctor() -> int {
     std::string cxx = cxx_compiler();
     std::optional<std::string> cxx_ok;
     if (!cxx.empty() && which(cxx)) {
-        fs::path src = fs::temp_directory_path() / "revet-doctor-cxx23.cpp";
+        const fs::path src = fs::temp_directory_path() / "revet-doctor-cxx23.cpp";
         write_file(src, "#include <utility>\nauto f(auto x) { return x; }\nint main() { return f(0); }\n");
-        Result r = run({cxx, "-std=c++23", "-c", src.string(), "-o", "/dev/null"}, {}, 20);
+        const Result r = run({cxx, "-std=c++23", "-c", src.string(), "-o", "/dev/null"}, {}, 20);
         remove_quietly(src);
         cxx_ok = r.rc == 0 ? std::optional<std::string>(cxx) : std::nullopt;
     }
@@ -419,13 +419,13 @@ auto cmd_doctor() -> int {
 
     info("");
     rule("Dependency Check");
-    auto missing = [](bool critical) -> auto {
+    const auto missing = [](bool critical) -> auto {
         return [critical](const Check& c) -> bool { return !c.version && c.critical == critical; };
     };
-    auto critical_missing = std::ranges::count_if(checks, missing(true));
-    auto optional_missing = std::ranges::count_if(checks, missing(false));
+    const auto critical_missing = std::ranges::count_if(checks, missing(true));
+    const auto optional_missing = std::ranges::count_if(checks, missing(false));
     for (const auto& c : checks) {
-        bool found = c.version.has_value();
+        const bool found = c.version.has_value();
         std::string line = std::string(found ? "✓ " : "✗ ") + c.name;
         line.resize(std::max<size_t>(line.size(), 17), ' ');
         line += c.why;

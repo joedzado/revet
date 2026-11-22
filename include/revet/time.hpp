@@ -71,10 +71,10 @@ inline auto today_iso() -> std::string {
 
 // Parses "YYYY-MM-DD" (anything after the date, like "T12:00:00Z", is ignored). Rejects 2026-02-30.
 inline auto parse_date(std::string_view s) -> std::optional<std::chrono::year_month_day> {
-    if (s.size() < 10 || s[4] != '-' || s[7] != '-') {
+    if (s.size() < 10 || s.at(4) != '-' || s.at(7) != '-') {
         return std::nullopt;
     }
-    auto digits = [&](size_t pos, size_t n) -> std::optional<int> {
+    const auto digits = [&](size_t pos, size_t n) -> std::optional<int> {
         const auto field = s.substr(pos, n);
         if (!std::ranges::all_of(field, [](char c) -> bool { return c >= '0' && c <= '9'; })) {
             return std::nullopt;

@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "../c_api.hpp"
 #include "common.hpp"
 
 namespace db::sqlite {
@@ -59,7 +60,7 @@ inline void bind_arg(sqlite3_stmt* stmt, int idx, T&& arg) {
         const std::string s = arg.to_string(); // revet::Decimal and similar
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     } else {
-        std::string s{std::forward<T>(arg)};
+        const std::string s{std::forward<T>(arg)};
         sqlite3_bind_text(stmt, idx, s.c_str(), -1, SQLITE_TRANSIENT);
     }
 }
@@ -92,7 +93,7 @@ public:
             int rc = sqlite3_open_v2(path_str.c_str(), &c, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
             if (rc != SQLITE_OK) {
                 const char* errmsg = c ? sqlite3_errmsg(c) : "unknown";
-                std::string full_error =
+                const std::string full_error =
                     std::format("db::sqlite: cannot open {} (errno={}, msg={})", path_str, rc, errmsg);
                 if (c) {
                     sqlite3_close(c);
@@ -125,7 +126,7 @@ public:
     }
     void release(sqlite3* c) {
         {
-            std::scoped_lock lock(mu_);
+            const std::scoped_lock lock(mu_);
             conns_.push_back(c);
         }
         cv_.notify_one();
@@ -146,7 +147,7 @@ private:
 template<typename Intent = Read>
 class Handle {
 public:
-    Handle(Pool& pool) : pool_(pool), conn_(pool.acquire()) {
+    explicit Handle(Pool& pool) : pool_(pool), conn_(pool.acquire()) {
         if constexpr (std::is_same_v<Intent, Write>) {
             write_lock_.emplace(pool.write_mutex());
         }
@@ -170,16 +171,15 @@ public:
             conn_, text.c_str(),
             [](void* data, int cols, char** vals, char**) -> int {
                 auto& res = *static_cast<Result*>(data);
-                Row row;
-                for (auto i : std::views::iota(0, cols)) {
-                    row.emplace_back(vals[i] ? vals[i] : "");
-                }
-                res.push_back(std::move(row));
+                res.push_back(
+                    std::span(vals, static_cast<size_t>(cols)) |
+                    std::views::transform([](const char* v) -> std::string { return v != nullptr ? v : ""; }) |
+                    std::ranges::to<Row>());
                 return 0;
             },
             &result, &err);
         if (err) {
-            std::string msg(err);
+            const std::string msg(err);
             sqlite3_free(err);
             throw std::runtime_error(msg);
         }
@@ -212,10 +212,10 @@ public:
     template<typename T, typename... Args>
     auto scalar(std::string_view sql, Args&&... args) -> std::optional<T> {
         auto raw = query_nullable(sql, std::forward<Args>(args)...);
-        if (raw.empty() || raw[0].empty() || !raw[0][0]) {
+        if (raw.empty() || raw.at(0).empty() || !raw.at(0).at(0)) {
             return std::nullopt;
         }
-        return db::detail::convert<T>(raw[0][0], 0);
+        return db::detail::convert<T>(raw.at(0).at(0), 0);
     }
 
     // Write — only available on Handle<Write>
@@ -264,10 +264,10 @@ private:
         sqlite3_stmt* stmt = nullptr;
         // Passing the length: string_view does not guarantee a terminating NUL.
         if (sqlite3_prepare_v2(conn_, sql.data(), static_cast<int>(sql.size()), &stmt, nullptr) != SQLITE_OK) {
-            std::string err = sqlite3_errmsg(conn_);
+            const std::string err = sqlite3_errmsg(conn_);
             throw std::runtime_error("db::sqlite: prepare failed: " + err + " (SQL: " + std::string(sql) + ")");
         }
-        int idx = 1;
+        int idx = 1; // NOLINT(misc-const-correctness): incremented by the pack expansion
         (bind_arg(stmt, idx++, std::forward<Args>(args)), ...);
         const int cols = sqlite3_column_count(stmt);
         std::vector<RowT> result;
@@ -275,8 +275,8 @@ private:
         while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
             RowT row;
             row.reserve(static_cast<size_t>(cols));
-            for (auto i : std::views::iota(0, cols)) {
-                const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+            for (const auto i : std::views::iota(0, cols)) {
+                const auto* txt = web::c_api::c_str(sqlite3_column_text(stmt, i));
                 if constexpr (std::is_same_v<RowT, NullableRow>) {
                     row.emplace_back(txt ? std::optional<std::string>(txt) : std::nullopt);
                 } else {
@@ -289,7 +289,7 @@ private:
             // Don't surface errmsg before finalize — errmsg is a pointer to
             // memory owned by the connection and finalize may invalidate it
             // on some sqlite builds. Snapshot the message first.
-            std::string err = sqlite3_errmsg(conn_);
+            const std::string err = sqlite3_errmsg(conn_);
             sqlite3_finalize(stmt);
             throw std::runtime_error("db::sqlite: step failed: " + err + " (SQL: " + std::string(sql) + ")");
         }
@@ -350,7 +350,7 @@ auto backup(Handle<Intent>& h, const BackupOptions& o) -> std::optional<std::fil
     fs::create_directories(o.dir);
     const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
     const std::string stamp = o.daily ? std::format("{:%Y-%m-%d}", now) : std::format("{:%Y%m%d-%H%M%S}", now);
-    const fs::path file = o.dir / std::format("{}-{}.db", o.prefix, stamp);
+    fs::path file = o.dir / std::format("{}-{}.db", o.prefix, stamp);
     if (fs::exists(file)) {
         if (o.daily) {
             return std::nullopt;

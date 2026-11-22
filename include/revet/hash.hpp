@@ -13,6 +13,8 @@ namespace web::hash {
 
 using Sha1Digest = std::array<std::uint8_t, 20>;
 
+// Digest rounds (RFC 3174, RFC 1321): fixed-size blocks, every index bounded by its loop.
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,bugprone-signed-bitwise,hicpp-signed-bitwise)
 inline auto sha1(std::string_view message) -> Sha1Digest {
     std::array<std::uint32_t, 5> h = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
     std::string m(message);
@@ -170,6 +172,8 @@ inline auto md5_hex(std::string_view text) -> std::string {
     }
     return out;
 }
+
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 template<std::size_t N>
 inline auto hex(const std::array<std::uint8_t, N>& bytes) -> std::string {

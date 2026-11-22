@@ -9,7 +9,7 @@
 static auto make_socketpair() -> std::pair<int, int> {
     std::array<int, 2> fds{};
     REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
-    return {fds[0], fds[1]};
+    return {fds.at(0), fds.at(1)};
 }
 
 static auto read_all(int fd, int timeout_ms = 200) -> std::string {
@@ -20,7 +20,7 @@ static auto read_all(int fd, int timeout_ms = 200) -> std::string {
     };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     while (true) {
-        ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
+        const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
         if (n <= 0) {
             break;
         }
@@ -31,7 +31,7 @@ static auto read_all(int fd, int timeout_ms = 200) -> std::string {
 
 TEST_CASE("SSEWriter::send emits correct event format") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("hello world");
     ::shutdown(writer_fd, SHUT_WR);
@@ -45,15 +45,15 @@ TEST_CASE("SSEWriter::send emits correct event format") {
 
 TEST_CASE("SSEWriter::send includes event and id fields") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("payload", "update", "42");
     ::shutdown(writer_fd, SHUT_WR);
 
-    auto got = read_all(reader_fd);
-    REQUIRE(got.find("id: 42\n") != std::string::npos);
-    REQUIRE(got.find("event: update\n") != std::string::npos);
-    REQUIRE(got.find("data: payload\n") != std::string::npos);
+    const auto got = read_all(reader_fd);
+    REQUIRE(got.contains("id: 42\n"));
+    REQUIRE(got.contains("event: update\n"));
+    REQUIRE(got.contains("data: payload\n"));
 
     ::close(writer_fd);
     ::close(reader_fd);
@@ -61,14 +61,14 @@ TEST_CASE("SSEWriter::send includes event and id fields") {
 
 TEST_CASE("SSEWriter::send splits multi-line data") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.send("line1\nline2");
     ::shutdown(writer_fd, SHUT_WR);
 
-    auto got = read_all(reader_fd);
-    REQUIRE(got.find("data: line1\n") != std::string::npos);
-    REQUIRE(got.find("data: line2\n") != std::string::npos);
+    const auto got = read_all(reader_fd);
+    REQUIRE(got.contains("data: line1\n"));
+    REQUIRE(got.contains("data: line2\n"));
 
     ::close(writer_fd);
     ::close(reader_fd);
@@ -76,7 +76,7 @@ TEST_CASE("SSEWriter::send splits multi-line data") {
 
 TEST_CASE("SSEWriter::comment emits SSE comment") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
 
     sse.comment("keepalive");
     ::shutdown(writer_fd, SHUT_WR);
@@ -90,7 +90,7 @@ TEST_CASE("SSEWriter::comment emits SSE comment") {
 
 TEST_CASE("SSEWriter::alive returns true on open socket") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
     REQUIRE(sse.alive());
     ::close(writer_fd);
     ::close(reader_fd);
@@ -98,7 +98,7 @@ TEST_CASE("SSEWriter::alive returns true on open socket") {
 
 TEST_CASE("SSEWriter::alive returns false after peer closes") {
     auto [writer_fd, reader_fd] = make_socketpair();
-    web::SSEWriter sse{.fd = writer_fd};
+    const web::SSEWriter sse{.fd = writer_fd};
     ::close(reader_fd);
     // Give OS time to propagate FIN
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -137,10 +137,10 @@ TEST_CASE("Route with sse handler sends SSE headers and streams") {
     it->sse(req, writer);
     ::shutdown(server_fd, SHUT_WR);
 
-    auto got = read_all(client_fd);
-    REQUIRE(got.find("Content-Type: text/event-stream") != std::string::npos);
-    REQUIRE(got.find("event: update\n") != std::string::npos);
-    REQUIRE(got.find("data: tick\n") != std::string::npos);
+    const auto got = read_all(client_fd);
+    REQUIRE(got.contains("Content-Type: text/event-stream"));
+    REQUIRE(got.contains("event: update\n"));
+    REQUIRE(got.contains("data: tick\n"));
 
     ::close(server_fd);
     ::close(client_fd);

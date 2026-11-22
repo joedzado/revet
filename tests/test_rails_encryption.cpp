@@ -47,7 +47,7 @@ auto str(simdjson::dom::element e, const char* key) -> std::string {
 
 auto vectors(simdjson::dom::element root, const char* key) -> std::vector<Vector> {
     std::vector<Vector> out;
-    for (simdjson::dom::element v : simdjson::dom::array(root[key])) {
+    for (const simdjson::dom::element v : simdjson::dom::array(root[key])) {
         out.push_back({.name = str(v, "name"), .plain = str(v, "plain"), .cipher = str(v, "cipher")});
     }
     return out;
@@ -83,7 +83,7 @@ auto hex(const std::array<unsigned char, Encryption::kKeyBytes>& key) -> std::st
 // Flips one payload character, keeping the base64 valid.
 auto tamper(std::string message) -> std::string {
     const auto start = message.find(R"("p":")") + 5;
-    message[start] = message[start] == 'A' ? 'B' : 'A';
+    message.at(start) = message.at(start) == 'A' ? 'B' : 'A';
     return message;
 }
 
@@ -150,8 +150,8 @@ TEST_CASE("rails encryption: primary round-trips with a fresh IV each time", "[r
 TEST_CASE("rails encryption: compression follows the Rails threshold", "[rails]") {
     const auto& f = fixture();
     const Encryption enc(f.config);
-    CHECK(enc.encrypt(std::string(140, 'a'), Scheme::Primary).find(R"("c":true)") == std::string::npos);
-    CHECK(enc.encrypt(std::string(141, 'a'), Scheme::Primary).find(R"("c":true)") != std::string::npos);
+    CHECK(!enc.encrypt(std::string(140, 'a'), Scheme::Primary).contains(R"("c":true)"));
+    CHECK(enc.encrypt(std::string(141, 'a'), Scheme::Primary).contains(R"("c":true)"));
 }
 
 TEST_CASE("rails encryption: reads jsonb shapes", "[rails]") {
@@ -213,7 +213,7 @@ TEST_CASE("rails encryption: errors never contain the input", "[rails]") {
         (void)enc.decrypt(secret, Scheme::Primary);
         FAIL("expected a throw");
     } catch (const EncryptionError& e) {
-        CHECK(std::string(e.what()).find(secret) == std::string::npos);
+        CHECK(!std::string(e.what()).contains(secret));
     }
 }
 

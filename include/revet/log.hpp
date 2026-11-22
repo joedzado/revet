@@ -61,7 +61,7 @@ inline void write_impl(Level lvl, std::string_view tag, std::string_view msg) {
     }
 
     std::string output = std::format("[{}] {} [{}] {}", timestamp(), level_name(lvl), tag, msg);
-    std::scoped_lock lock(log_mutex);
+    const std::scoped_lock lock(log_mutex);
     std::println(stderr, "{}", output);
 }
 } // namespace detail
@@ -88,7 +88,7 @@ inline void init_from_env() {
         {"warn", Level::WARN},
         {"error", Level::ERROR},
     };
-    if (auto it = table.find(std::string_view(env_level)); it != table.end()) {
+    if (const auto it = table.find(std::string_view(env_level)); it != table.end()) {
         set_level(it->second);
     }
 }
@@ -134,47 +134,47 @@ inline void error(std::string_view msg) {
 
 // ── Logging API: Explicit Tag with simple message ────────────────────────────────
 
-template<std::string_view const& Tag>
+template<const std::string_view& Tag>
 inline void debug(std::string_view msg) {
     detail::write_impl(Level::DEBUG, Tag, msg);
 }
 
-template<std::string_view const& Tag>
+template<const std::string_view& Tag>
 inline void info(std::string_view msg) {
     detail::write_impl(Level::INFO, Tag, msg);
 }
 
-template<std::string_view const& Tag>
+template<const std::string_view& Tag>
 inline void warn(std::string_view msg) {
     detail::write_impl(Level::WARN, Tag, msg);
 }
 
-template<std::string_view const& Tag>
+template<const std::string_view& Tag>
 inline void error(std::string_view msg) {
     detail::write_impl(Level::ERROR, Tag, msg);
 }
 
 // ── Logging API: Explicit Tag with formatting ──────────────────────────────────
 
-template<std::string_view const& Tag, typename... Args>
+template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0) // Require at least one arg to avoid ambiguity with simple string_view version
 inline void debug(std::format_string<Args...> fmt, Args&&... args) {
     detail::write_impl(Level::DEBUG, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
-template<std::string_view const& Tag, typename... Args>
+template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void info(std::format_string<Args...> fmt, Args&&... args) {
     detail::write_impl(Level::INFO, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
-template<std::string_view const& Tag, typename... Args>
+template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void warn(std::format_string<Args...> fmt, Args&&... args) {
     detail::write_impl(Level::WARN, Tag, std::format(fmt, std::forward<Args>(args)...));
 }
 
-template<std::string_view const& Tag, typename... Args>
+template<const std::string_view& Tag, typename... Args>
     requires(sizeof...(Args) > 0)
 inline void error(std::format_string<Args...> fmt, Args&&... args) {
     detail::write_impl(Level::ERROR, Tag, std::format(fmt, std::forward<Args>(args)...));

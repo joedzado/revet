@@ -49,11 +49,11 @@ auto items_of(const Node& table) -> std::vector<Pair> {
 
 auto gen_resources(const Ctx& ctx) -> int {
     fs::path out = setup(ctx, "resources.hpp");
-    fs::path toml = ctx.proj / "revet.toml";
+    const fs::path toml = ctx.proj / "revet.toml";
     fs::path backends_out = ctx.proj / "build" / "generated" / "db_backends.cmake";
     const std::string paths_block = tmpl(ctx, "resources_paths_block.tmpl");
 
-    auto exit_empty = [&](const std::string& msg) -> int {
+    const auto exit_empty = [&](const std::string& msg) -> int {
         write_file(out, "// Auto-generated — do not edit\n#pragma once\n\n" + paths_block + "\n\n" + msg + "\n");
         write_file(backends_out, "set(REVET_DB_BACKENDS)\n");
         return 0;
@@ -63,7 +63,7 @@ auto gen_resources(const Ctx& ctx) -> int {
         return exit_empty("// no revet.toml");
     }
 
-    Node data = load_toml(ctx);
+    const Node data = load_toml(ctx);
     long long thread_count = 4;
     if (const Node* tc = data.find("thread_count")) {
         thread_count = py_int(*tc);
@@ -113,7 +113,7 @@ auto gen_resources(const Ctx& ctx) -> int {
     };
 
     // The first resource marked default, else the first one.
-    auto dflt_it = std::ranges::find_if(resources, &Resource::is_default);
+    const auto dflt_it = std::ranges::find_if(resources, &Resource::is_default);
     const Resource& dflt_res = dflt_it == resources.end() ? resources.front() : *dflt_it;
     std::string dflt = dflt_res.name;
     std::string dflt_ns = ns_for(dflt_res.type);
@@ -153,7 +153,7 @@ auto gen_resources(const Ctx& ctx) -> int {
     lines.emplace_back("");
     write_lines(out, lines);
 
-    std::string list = join(backends | std::ranges::to<Lines>(), " ");
+    const std::string list = join(backends | std::ranges::to<Lines>(), " ");
     write_file(backends_out, "# Auto-generated — do not edit\nset(REVET_DB_BACKENDS " + list + ")\n");
     return 0;
 }
@@ -161,8 +161,8 @@ auto gen_resources(const Ctx& ctx) -> int {
 // ── uploads ─────────────────────────────────────────────────────────────────
 
 auto gen_uploads(const Ctx& ctx) -> int {
-    fs::path out = setup(ctx, "uploads.hpp");
-    fs::path toml = ctx.proj / "revet.toml";
+    const fs::path out = setup(ctx, "uploads.hpp");
+    const fs::path toml = ctx.proj / "revet.toml";
     const std::string empty = "#pragma once\n// no [uploads.*] in revet.toml\nnamespace uploads {}\n";
 
     if (!file_exists(toml)) {
@@ -170,7 +170,7 @@ auto gen_uploads(const Ctx& ctx) -> int {
         return 0;
     }
 
-    Node data = load_toml(ctx);
+    const Node data = load_toml(ctx);
     struct Bucket {
         std::string name;
         std::string incoming;
@@ -195,7 +195,7 @@ auto gen_uploads(const Ctx& ctx) -> int {
     for (const auto& b : dirs) {
         for (const auto& [rel, mode] :
              std::vector<std::pair<std::string, mode_t>>{{b.incoming, 0700}, {b.validated, 0750}}) {
-            fs::path p = ctx.proj / rel;
+            const fs::path p = ctx.proj / rel;
             fs::create_directories(p);
             ::chmod(p.c_str(), mode);
         }
@@ -218,8 +218,8 @@ auto gen_uploads(const Ctx& ctx) -> int {
 // ── dependencies ────────────────────────────────────────────────────────────
 
 auto gen_dependencies(const Ctx& ctx) -> int {
-    fs::path toml = ctx.proj / "revet.toml";
-    fs::path out = setup(ctx, "dependencies.cmake");
+    const fs::path toml = ctx.proj / "revet.toml";
+    const fs::path out = setup(ctx, "dependencies.cmake");
     const std::string dep_t = tmpl(ctx, "dependencies_dep.tmpl");
 
     // Line-based on purpose: matches the original parser's behaviour exactly.
@@ -227,24 +227,25 @@ auto gen_dependencies(const Ctx& ctx) -> int {
     Lines lines = file_exists(toml)
                       ? splitlines(read_text(toml)) | std::views::transform(strip) | std::ranges::to<Lines>()
                       : Lines{};
-    auto start = std::ranges::find_if(
+    const auto start = std::ranges::find_if(
         lines, [](const std::string& l) -> bool { return starts_with(l, "[build.dependencies]"); });
     if (start != lines.end()) {
-        auto section = std::ranges::subrange(std::next(start), lines.end()) |
-                       std::views::take_while([](const std::string& l) -> bool { return !starts_with(l, "["); });
+        const auto section = std::ranges::subrange(std::next(start), lines.end()) |
+                             std::views::take_while([](const std::string& l) -> bool { return !starts_with(l, "["); });
         for (const auto& stripped : section) {
             std::string key;
             std::string ref;
-            if (auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(stripped)) {
+            if (const auto m = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=\s*"([^"]+)")RE">(stripped)) {
                 key = m.get<1>().to_string();
                 ref = m.get<2>().to_string();
-            } else if (auto b = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=)RE">(stripped)) {
+            } else if (const auto b = ctre::starts_with<R"RE(["']?([A-Za-z0-9_\-]+)["']?\s*=)RE">(stripped)) {
                 key = b.get<1>().to_string();
                 ref = key;
             } else {
                 continue;
             }
-            if (auto it = std::ranges::find(deps, key, &std::pair<std::string, std::string>::first); it != deps.end()) {
+            if (const auto it = std::ranges::find(deps, key, &std::pair<std::string, std::string>::first);
+                it != deps.end()) {
                 it->second = ref;
             } else {
                 deps.emplace_back(key, ref);
@@ -256,15 +257,15 @@ auto gen_dependencies(const Ctx& ctx) -> int {
     // '<CMakeName>-release-<arch>-data.cmake' sets '<conan_name>_PACKAGE_FOLDER_RELEASE'.
     // Example: conan package 'libwebp' ships CMake package 'WebP'.
     std::map<std::string, std::string> cmake_names;
-    fs::path conan_dir = ctx.proj / "build" / "conan";
+    const fs::path conan_dir = ctx.proj / "build" / "conan";
     if (fs::is_directory(conan_dir)) {
         for (const auto& f : glob(conan_dir, "-data.cmake")) {
-            std::string name = f.filename().string();
+            const std::string name = f.filename().string();
             if (starts_with(name, "module-") || !name.contains("-release-")) {
                 continue;
             }
             std::string text = read_text(f);
-            if (auto m = ctre::search<R"RE(set\((\w+)_PACKAGE_FOLDER_RELEASE)RE">(text)) {
+            if (const auto m = ctre::search<R"RE(set\((\w+)_PACKAGE_FOLDER_RELEASE)RE">(text)) {
                 cmake_names[m.get<1>().to_string()] = name.substr(0, name.find("-release-"));
             }
         }
@@ -273,9 +274,9 @@ auto gen_dependencies(const Ctx& ctx) -> int {
     Lines cmake = {"# Generated by revet-codegen — do not edit"};
     for (const auto& [key, ref] : deps) {
         (void)key;
-        size_t slash = ref.find('/');
+        const size_t slash = ref.find('/');
         std::string pkg = slash == std::string::npos ? ref : ref.substr(0, slash);
-        auto it = cmake_names.find(pkg);
+        const auto it = cmake_names.find(pkg);
         std::string cmake_name = it == cmake_names.end() ? pkg : it->second;
         cmake.push_back(subst(dep_t, {{"pkg_name", pkg}, {"cmake_name", cmake_name}}));
         // Conan's root target can be empty with the libraries on its components; forward them when present.
@@ -292,7 +293,7 @@ auto gen_dependencies(const Ctx& ctx) -> int {
 // ── toggles ─────────────────────────────────────────────────────────────────
 
 auto gen_toggles(const Ctx& ctx) -> int {
-    fs::path out = setup(ctx, "toggles.hpp");
+    const fs::path out = setup(ctx, "toggles.hpp");
 
     struct Toggle {
         std::string name;
@@ -300,7 +301,7 @@ auto gen_toggles(const Ctx& ctx) -> int {
     };
     std::vector<Toggle> toggles;
     for (const auto& f : glob(ctx.proj / "app" / "states", ".hpp")) {
-        std::string content = read_text(f);
+        const std::string content = read_text(f);
         std::ranges::transform(
             find_toggles(std::string_view(content)), std::back_inserter(toggles), [](const auto& m) -> Toggle {
                 return {.name = m.template get<3>().to_string(), .default_on = m.template get<2>().to_view() == "true"};
@@ -313,10 +314,10 @@ auto gen_toggles(const Ctx& ctx) -> int {
     }
 
     const std::string fn_t = tmpl(ctx, "toggles_fn.tmpl");
-    auto fns = toggles | std::views::transform([&](const Toggle& t) -> std::string {
-                   return subst(fn_t, {{"name", t.name}, {"default_str", t.default_on ? "true" : "false"}});
-               }) |
-               std::ranges::to<Lines>();
+    const auto fns = toggles | std::views::transform([&](const Toggle& t) -> std::string {
+                         return subst(fn_t, {{"name", t.name}, {"default_str", t.default_on ? "true" : "false"}});
+                     }) |
+                     std::ranges::to<Lines>();
     const std::string header_t = tmpl_whole(ctx, "toggles_header.tmpl");
     write_file(out, subst(header_t, {{"functions", join(fns, "\n\n")}}));
     return 0;

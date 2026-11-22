@@ -47,13 +47,14 @@ auto convert(const std::optional<std::string>& cell, size_t col) -> T {
             return !(s.empty() || s == "0" || s == "f" || s == "false");
         } else if constexpr (std::is_arithmetic_v<T>) {
             T out{};
-            const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
-            if (ec != std::errc{} || ptr != s.data() + s.size()) {
+            const auto [ptr, ec] = std::from_chars(s.data(), std::to_address(s.end()), out);
+            if (ec != std::errc{} || ptr != std::to_address(s.end())) {
                 // SQLite may print an integer-valued REAL as "3.0".
                 if constexpr (std::is_integral_v<T>) {
                     double d = 0;
-                    const auto [p2, e2] = std::from_chars(s.data(), s.data() + s.size(), d);
-                    if (e2 == std::errc{} && p2 == s.data() + s.size() && d == static_cast<double>(static_cast<T>(d))) {
+                    const auto [p2, e2] = std::from_chars(s.data(), std::to_address(s.end()), d);
+                    if (e2 == std::errc{} && p2 == std::to_address(s.end()) &&
+                        d == static_cast<double>(static_cast<T>(d))) {
                         return static_cast<T>(d);
                     }
                 }
@@ -77,7 +78,7 @@ auto typed_row(const RowT& row, std::index_sequence<I...>) -> std::tuple<Cols...
         throw std::runtime_error(
             std::format("db: query returned {} columns, expected {}", row.size(), sizeof...(Cols)));
     }
-    return std::tuple<Cols...>{convert<Cols>(std::optional<std::string>(row[I]), I)...};
+    return std::tuple<Cols...>{convert<Cols>(std::optional<std::string>(row.at(I)), I)...};
 }
 } // namespace detail
 

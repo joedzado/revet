@@ -17,7 +17,7 @@
 namespace revet::codegen {
 namespace {
 
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 // Minimal SHA-256 (FIPS 180-4). Fixed-size blocks: every index is bounded by its loop. Only used for cache-busting
 // URLs: the first 10 hex digits of SHA-256(src).
 auto sha256_hex(std::string_view data) -> std::string {
@@ -43,7 +43,7 @@ auto sha256_hex(std::string_view data) -> std::string {
         msg.push_back(static_cast<char>((bit_len >> (i * 8)) & 0xffU));
     }
 
-    auto rotr = [](std::uint32_t x, unsigned n) -> std::uint32_t { return (x >> n) | (x << (32 - n)); };
+    const auto rotr = [](std::uint32_t x, unsigned n) -> std::uint32_t { return (x >> n) | (x << (32 - n)); };
     for (std::size_t off = 0; off < msg.size(); off += 64) {
         std::array<std::uint32_t, 64> w{};
         for (std::size_t i = 0; i < 16; ++i) {
@@ -80,7 +80,7 @@ auto sha256_hex(std::string_view data) -> std::string {
     }
     return out;
 }
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 struct AppScript {
     std::string ident; // C++ identifier
@@ -93,22 +93,22 @@ auto ident_of(const std::string& stem) -> std::string {
     std::string name = stem;
     std::ranges::replace_if(
         name, [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '_'; }, '_');
-    if (!name.empty() && (std::isdigit(static_cast<unsigned char>(name[0])) != 0)) {
+    if (!name.empty() && (std::isdigit(static_cast<unsigned char>(name.at(0))) != 0)) {
         name = "_" + name;
     }
     return name;
 }
 
 auto scan_scripts(const Ctx& ctx) -> std::vector<AppScript> {
-    fs::path dir = ctx.proj / "app" / "scripts";
+    const fs::path dir = ctx.proj / "app" / "scripts";
     if (!fs::is_directory(dir)) {
         return {};
     }
     std::vector<fs::path> files = glob(dir, ".js"); // sorted by path, so by file name
     return files | std::views::filter([](const fs::path& f) -> bool { return f.extension() == ".js"; }) |
            std::views::transform([](const fs::path& f) -> AppScript {
-               std::string src = read_text(f);
-               std::string stem = f.stem().string();
+               const std::string src = read_text(f);
+               const std::string stem = f.stem().string();
                return {.ident = ident_of(stem),
                        .url = cat("/_app/", stem, ".", sha256_hex(src).substr(0, 10), ".js"),
                        .src = src};
@@ -127,7 +127,7 @@ auto app_script_routes(const Ctx& ctx) -> std::vector<std::pair<std::string, std
 }
 
 auto gen_scripts(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "scripts.hpp");
+    const fs::path out_path = setup(ctx, "scripts.hpp");
     Lines lines = file_header({"#include <revet/html.hpp>", "#include <string_view>"});
     lines.emplace_back("namespace scripts {");
     std::ranges::copy(

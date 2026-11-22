@@ -4,7 +4,7 @@
 // Example test showing how to test API queries with mocks
 
 TEST_CASE("API queries with mock client") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stub a successful response
     http::Response success_resp;
@@ -16,22 +16,22 @@ TEST_CASE("API queries with mock client") {
     http::global::set_client(mock);
 
     // Simulate an API call (in real code, this would be co_await github_com::user("alice"))
-    auto resp = mock->execute("GET", "https://api.github.com/users/alice", {}, "");
+    const auto resp = mock->execute("GET", "https://api.github.com/users/alice", {}, "");
 
     // Assert response
     REQUIRE(resp.status_code == 200);
-    REQUIRE(resp.body.find("Alice") != std::string::npos);
+    REQUIRE(resp.body.contains("Alice"));
 
     // Check call history
     REQUIRE(mock->history().size() == 1);
-    REQUIRE(mock->history()[0].method == "GET");
-    REQUIRE(mock->history()[0].url == "https://api.github.com/users/alice");
+    REQUIRE(mock->history().at(0).method == "GET");
+    REQUIRE(mock->history().at(0).url == "https://api.github.com/users/alice");
 
     mock->clear();
 }
 
 TEST_CASE("API queries with error responses") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stub an error response
     http::Response error_resp;
@@ -41,7 +41,7 @@ TEST_CASE("API queries with error responses") {
 
     http::global::set_client(mock);
 
-    auto resp = mock->execute("GET", "https://api.github.com/users/nonexistent", {}, "");
+    const auto resp = mock->execute("GET", "https://api.github.com/users/nonexistent", {}, "");
 
     REQUIRE(resp.status_code == 404);
     REQUIRE(!resp); // operator bool returns false for non-2xx
@@ -50,7 +50,7 @@ TEST_CASE("API queries with error responses") {
 }
 
 TEST_CASE("Multiple API calls in sequence") {
-    auto mock = std::make_shared<http::MockClient>();
+    const auto mock = std::make_shared<http::MockClient>();
 
     // Stub multiple responses
     http::Response user_resp;
@@ -66,16 +66,16 @@ TEST_CASE("Multiple API calls in sequence") {
     http::global::set_client(mock);
 
     // Simulate sequential API calls
-    auto r1 = mock->execute("GET", "https://api.github.com/users/alice", {}, "");
-    auto r2 = mock->execute("GET", "https://api.github.com/users/alice/repos", {}, "");
+    const auto r1 = mock->execute("GET", "https://api.github.com/users/alice", {}, "");
+    const auto r2 = mock->execute("GET", "https://api.github.com/users/alice/repos", {}, "");
 
     REQUIRE(r1.status_code == 200);
     REQUIRE(r2.status_code == 200);
 
     // Verify call history
     REQUIRE(mock->history().size() == 2);
-    REQUIRE(mock->history()[0].url == "https://api.github.com/users/alice");
-    REQUIRE(mock->history()[1].url == "https://api.github.com/users/alice/repos");
+    REQUIRE(mock->history().at(0).url == "https://api.github.com/users/alice");
+    REQUIRE(mock->history().at(1).url == "https://api.github.com/users/alice/repos");
 
     mock->clear();
 }

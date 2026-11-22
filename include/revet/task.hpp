@@ -122,7 +122,7 @@ public:
             }
             void await_resume() noexcept {}
             auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<> {
-                auto& p = h.promise();
+                const auto& p = h.promise();
                 if (p.continuation) {
                     return p.continuation;
                 }

@@ -16,16 +16,16 @@ constexpr std::string_view k_toml = "name = \"x\"\n\n[build.dependencies]\nfmt =
 TEST_CASE("deps_from_toml reads [build.dependencies] in order") {
     Deps d = deps_from_toml(k_toml);
     REQUIRE(d.size() == 2);
-    CHECK(d[0] == std::pair<std::string, std::string>{"fmt", "fmt/10.1.0"});
-    CHECK(d[1] == std::pair<std::string, std::string>{"zlib", "zlib/1.3"});
+    CHECK(d.at(0) == std::pair<std::string, std::string>{"fmt", "fmt/10.1.0"});
+    CHECK(d.at(1) == std::pair<std::string, std::string>{"zlib", "zlib/1.3"});
     CHECK(deps_from_toml("name = \"x\"\n").empty());
     // A bare `name =` uses the name as the reference.
-    CHECK(deps_from_toml("[build.dependencies]\nboost =\n")[0].second == "boost");
+    CHECK(deps_from_toml("[build.dependencies]\nboost =\n").at(0).second == "boost");
 }
 
 TEST_CASE("deps_hash: stable, order-independent, changes with the deps") {
-    Deps a = {{"fmt", "fmt/1"}, {"zlib", "zlib/1.3"}};
-    Deps b = {{"zlib", "zlib/1.3"}, {"fmt", "fmt/1"}};
+    const Deps a = {{"fmt", "fmt/1"}, {"zlib", "zlib/1.3"}};
+    const Deps b = {{"zlib", "zlib/1.3"}, {"fmt", "fmt/1"}};
     CHECK(deps_hash(a).size() == 8);
     CHECK(deps_hash(a) == deps_hash(b));
     CHECK(deps_hash(a) != deps_hash({{"fmt", "fmt/2"}, {"zlib", "zlib/1.3"}}));
@@ -34,7 +34,7 @@ TEST_CASE("deps_hash: stable, order-independent, changes with the deps") {
 
 TEST_CASE("upsert_dep replaces, appends or creates the section") {
     CHECK(upsert_dep(k_toml, "fmt", "fmt/11.0.0").contains("fmt = \"fmt/11.0.0\"\n\"zlib\""));
-    std::string added = upsert_dep(k_toml, "newdep", "newdep/1.0");
+    const std::string added = upsert_dep(k_toml, "newdep", "newdep/1.0");
     CHECK(added.contains("spdlog\n\nnewdep = \"newdep/1.0\"\n[htmx]"));
     CHECK(upsert_dep("name = \"x\"", "fmt", "fmt/1") == "name = \"x\"\n\n[build.dependencies]\nfmt = \"fmt/1\"\n");
     // No trailing newline on the last dependency: the new one still gets its own line.
@@ -53,7 +53,7 @@ TEST_CASE("remove_dep removes only inside [build.dependencies]") {
 }
 
 TEST_CASE("conan list output: refs and newest-first order") {
-    std::string list =
+    const std::string list =
         "conancenter\n  fmt\n    fmt/9.1.0\n    fmt/10.0.0\n    fmt/10.2.1\n  fmtlog\n    fmtlog/2.2.1\n";
     auto refs = conan_refs(list, "fmt");
     sort_refs_newest_first(refs);
@@ -63,15 +63,16 @@ TEST_CASE("conan list output: refs and newest-first order") {
 }
 
 TEST_CASE("parse_routes lists methods, async ones included") {
-    std::string src = "    {\n        web::Route r; r.path = \"/a\";\n        r.get = [](const web::Request& req) {};\n"
-                      "        r.async_post = [](const web::Request& req) {};\n        out.push_back(r);\n    }\n"
-                      "    {\n        web::Route r; r.path = \"/s\";\n        r.sse = [](auto&, auto&) {};\n        "
-                      "out.push_back(r);\n    }\n";
+    const std::string src =
+        "    {\n        web::Route r; r.path = \"/a\";\n        r.get = [](const web::Request& req) {};\n"
+        "        r.async_post = [](const web::Request& req) {};\n        out.push_back(r);\n    }\n"
+        "    {\n        web::Route r; r.path = \"/s\";\n        r.sse = [](auto&, auto&) {};\n        "
+        "out.push_back(r);\n    }\n";
     auto routes = parse_routes(src);
     REQUIRE(routes.size() == 2);
-    CHECK(routes[0].path == "/a");
-    CHECK(routes[0].methods == std::vector<std::string>{"GET", "POST"});
-    CHECK(routes[1].methods == std::vector<std::string>{"SSE"});
+    CHECK(routes.at(0).path == "/a");
+    CHECK(routes.at(0).methods == std::vector<std::string>{"GET", "POST"});
+    CHECK(routes.at(1).methods == std::vector<std::string>{"SSE"});
 }
 
 TEST_CASE("hashes") {
@@ -120,7 +121,7 @@ TEST_CASE("strip, starts_with, split_lines_keepends") {
 }
 
 TEST_CASE("read_file / write_file round-trip and create parents") {
-    TempCwd t;
+    const TempCwd t;
     write_file("a/b/c.txt", std::string("x\0y", 3));
     CHECK(read_file("a/b/c.txt") == std::string("x\0y", 3));
     write_file("a/b/c.txt", "short");
@@ -129,7 +130,7 @@ TEST_CASE("read_file / write_file round-trip and create parents") {
 }
 
 TEST_CASE("toml_port and project_binary_name") {
-    TempCwd t;
+    const TempCwd t;
     CHECK_FALSE(toml_port(t.dir).has_value());
     CHECK(project_binary_name(t.dir) == "revet");
     write_file("revet.toml", "name = \"x\"\n[server]\n  port = 9090\nbinary = \"my-app_2\"\n");
@@ -147,15 +148,15 @@ TEST_CASE("deps_from_toml: quoting, duplicates, comments, end of section") {
                             "with-dash = \"with-dash/0.1\"\n"
                             "[server]\nport = \"8080\"\n");
     REQUIRE(d.size() == 2);
-    CHECK(d[0] == std::pair<std::string, std::string>{"fmt", "fmt/2"}); // later entry wins, first position kept
-    CHECK(d[1].first == "with-dash");
+    CHECK(d.at(0) == std::pair<std::string, std::string>{"fmt", "fmt/2"}); // later entry wins, first position kept
+    CHECK(d.at(1).first == "with-dash");
     CHECK(find_dep(d, "fmt") != nullptr);
     CHECK(*find_dep(d, "with-dash") == "with-dash/0.1");
     CHECK(find_dep(d, "port") == nullptr);
 }
 
 TEST_CASE("upsert_dep / remove_dep: quoted keys and [build.*] subsections") {
-    std::string toml = "[build.dependencies]\n\"fmt\" = \"fmt/1\"\n[build.options]\nx = 1\n[server]\n";
+    const std::string toml = "[build.dependencies]\n\"fmt\" = \"fmt/1\"\n[build.options]\nx = 1\n[server]\n";
     std::string up = upsert_dep(toml, "fmt", "fmt/2");
     CHECK(up == "[build.dependencies]\nfmt = \"fmt/2\"\n[build.options]\nx = 1\n[server]\n");
     // A new entry stays in [build.dependencies], where deps_from_toml reads it, even before a [build.*] table.
@@ -183,21 +184,21 @@ TEST_CASE("framework requirements feed the conanfile and the deps hash") {
     REQUIRE_FALSE(reqs.empty());
     CHECK(std::ranges::all_of(reqs, [](const std::string& r) -> bool { return r.contains('/'); }));
 
-    TempCwd t;
+    const TempCwd t;
     CHECK(project_conanfile({}) == framework_dir() / "conanfile.txt");
-    std::string first = reqs[0].substr(0, reqs[0].find('/'));
-    fs::path p = project_conanfile({{"fmt", "fmt/10.2.1"}, {first, first + "/0.0.1"}});
+    std::string first = reqs.at(0).substr(0, reqs.at(0).find('/'));
+    const fs::path p = project_conanfile({{"fmt", "fmt/10.2.1"}, {first, first + "/0.0.1"}});
     const std::string content = read_file(p).value_or("");
-    CHECK(content.starts_with("[requires]\n" + reqs[0] + "\n"));
+    CHECK(content.starts_with("[requires]\n" + reqs.at(0) + "\n"));
     CHECK(content.contains("fmt/10.2.1\n"));
     CHECK_FALSE(content.contains(first + "/0.0.1")); // framework's version wins
     CHECK(content.ends_with("[generators]\nCMakeDeps\nCMakeToolchain\n"));
 }
 
 TEST_CASE("conan_needs_update follows the toolchain and the hash marker") {
-    TempCwd t;
-    Deps deps = {{"fmt", "fmt/1"}};
-    fs::path conan = "build/conan";
+    const TempCwd t;
+    const Deps deps = {{"fmt", "fmt/1"}};
+    const fs::path conan = "build/conan";
     CHECK(conan_needs_update(deps, conan));
     write_file(conan / "conan_toolchain.cmake", "");
     CHECK(conan_needs_update(deps, conan));
@@ -211,14 +212,15 @@ TEST_CASE("conan_needs_update follows the toolchain and the hash marker") {
 }
 
 TEST_CASE("parse_routes: all methods, skips blocks without a path") {
-    std::string src = "    {\n        web::Route r; r.path = \"/x/{id}\";\n        r.put = f; r.del = f; r.async_patch "
-                      "= f; r.ws = f;\n"
-                      "        out.push_back(r);\n    }\n"
-                      "    {\n        web::Route r;\n        r.get = f;\n        out.push_back(r);\n    }\n";
+    const std::string src =
+        "    {\n        web::Route r; r.path = \"/x/{id}\";\n        r.put = f; r.del = f; r.async_patch "
+        "= f; r.ws = f;\n"
+        "        out.push_back(r);\n    }\n"
+        "    {\n        web::Route r;\n        r.get = f;\n        out.push_back(r);\n    }\n";
     auto routes = parse_routes(src);
     REQUIRE(routes.size() == 1);
-    CHECK(routes[0].path == "/x/{id}");
-    CHECK(routes[0].methods == std::vector<std::string>{"PUT", "DEL", "PATCH", "WS"});
+    CHECK(routes.at(0).path == "/x/{id}");
+    CHECK(routes.at(0).methods == std::vector<std::string>{"PUT", "DEL", "PATCH", "WS"});
     CHECK(parse_routes("").empty());
 }
 
@@ -229,13 +231,13 @@ TEST_CASE("run captures output, exit status, timeouts and missing programs") {
     CHECK(r.out == "out");
     CHECK(r.err == "err");
 
-    TempCwd t;
+    const TempCwd t;
     CHECK(run({"/bin/pwd"}, t.dir).out.contains(t.dir.filename().string()));
 
-    Result slow = run({"/bin/sleep", "5"}, {}, 1);
+    const Result slow = run({"/bin/sleep", "5"}, {}, 1);
     CHECK(slow.rc == -1);
 
-    Result missing = run({"revet-no-such-program"});
+    const Result missing = run({"revet-no-such-program"});
     CHECK_FALSE(missing.started);
     CHECK(missing.rc == -1);
 
@@ -257,7 +259,7 @@ TEST_CASE("framework_dir and version") {
 }
 
 TEST_CASE("strip_pch drops precompiled-header flags only") {
-    std::string db =
+    const std::string db =
         R"("command": "c++ -Wall -Xclang -include-pch -Xclang /b/cmake_pch.hxx.pch -Xclang -include -Xclang /b/cmake_pch.hxx -c a.cpp")";
     CHECK(strip_pch(db) == R"("command": "c++ -Wall -Xclang -include -Xclang /b/cmake_pch.hxx -c a.cpp")");
     CHECK(strip_pch("c++ -c a.cpp") == "c++ -c a.cpp");

@@ -16,10 +16,12 @@ template<std::size_t N>
 struct msg_str {
     std::array<char, N> data{};
     // A string literal binds only to a C array reference.
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, messages are template arguments and text
     constexpr msg_str(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
         std::copy_n(s, N, data.begin());
     }
     constexpr operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return {data.data(), N - 1};
     }
 };
@@ -88,7 +90,7 @@ struct Field {
     std::string_view name;
     std::tuple<Rules...> rules;
 
-    constexpr Field(std::string_view n, Rules... rs) : name(n), rules(rs...) {}
+    explicit constexpr Field(std::string_view n, Rules... rs) : name(n), rules(rs...) {}
 
     void validate(std::string_view val, std::vector<Error>& out) const {
         std::apply([&val, &out, this](const auto&... rule) -> auto { (check_rule(rule, val, out), ...); }, rules);

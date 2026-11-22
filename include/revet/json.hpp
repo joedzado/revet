@@ -41,8 +41,10 @@ public:
     auto at(size_t index) -> Value;
 
     // Type conversions
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, json values convert to the type they are read into
     operator std::string();
     operator std::string_view();
+    // into
     operator int32_t();
     operator int64_t();
     operator uint32_t();
@@ -54,6 +56,7 @@ public:
     // Optional conversions
     template<typename T>
     operator std::optional<T>() {
+        // into
         try {
             if (is_null()) {
                 return std::nullopt;
@@ -68,6 +71,8 @@ public:
     // Array conversion
     template<typename T>
     operator std::vector<T>() {
+        // NOLINTEND(*-explicit-constructor)
+        // into
         std::vector<T> result;
         auto elems = get_array_elements();
         std::ranges::transform(elems, std::back_inserter(result), [](auto& e) -> auto { return static_cast<T>(e); });

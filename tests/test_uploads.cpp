@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <revet/c_api.hpp>
 #include <revet/upload.hpp>
 #include <revet/web.hpp>
 #include <span>
@@ -30,7 +31,7 @@ struct TempDir {
 
 static void write_bytes(const std::filesystem::path& p, std::span<const unsigned char> data) {
     std::ofstream f(p, std::ios::binary);
-    f.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    f << web::c_api::chars(std::span<const unsigned char>(data));
 }
 
 static constexpr std::array<unsigned char, 3> JPEG_MAGIC = {0xFF, 0xD8, 0xFF};
@@ -51,7 +52,7 @@ static auto build_multipart(std::string_view boundary, std::string_view field, s
     body += "Content-Type: ";
     body += ct;
     body += "\r\n\r\n";
-    body.append(reinterpret_cast<const char*>(data.data()), data.size());
+    body.append(web::c_api::chars(std::span<const unsigned char>(data)));
     body += "\r\n--";
     body += boundary;
     body += "--\r\n";
@@ -76,55 +77,55 @@ static auto build_text_part(std::string_view boundary, std::string_view field, s
 // ── parse_multipart ───────────────────────────────────────────────────────────
 
 TEST_CASE("parse_multipart — single file part written to disk", "[uploads]") {
-    TempDir incoming;
+    const TempDir incoming;
     web::ParamMap form;
 
     const auto body = build_multipart("boundary123", "avatar", "photo.jpg", "image/jpeg", JPEG_MAGIC);
     auto files = web::detail::parse_multipart(body, "boundary123", incoming.path, form);
 
     REQUIRE(files.size() == 1);
-    CHECK(files[0].field_name == "avatar");
-    CHECK(files[0].filename == "photo.jpg");
-    CHECK(files[0].content_type == "image/jpeg");
-    CHECK(std::filesystem::exists(files[0].path));
-    CHECK(std::filesystem::file_size(files[0].path) == JPEG_MAGIC.size());
+    CHECK(files.at(0).field_name == "avatar");
+    CHECK(files.at(0).filename == "photo.jpg");
+    CHECK(files.at(0).content_type == "image/jpeg");
+    CHECK(std::filesystem::exists(files.at(0).path));
+    CHECK(std::filesystem::file_size(files.at(0).path) == JPEG_MAGIC.size());
 }
 
 TEST_CASE("parse_multipart — magic bytes detected after write", "[uploads]") {
-    TempDir incoming;
+    const TempDir incoming;
     web::ParamMap form;
 
     const auto body = build_multipart("b", "f", "img.png", "image/png", PNG_MAGIC);
     auto files = web::detail::parse_multipart(body, "b", incoming.path, form);
 
     REQUIRE(files.size() == 1);
-    CHECK(files[0].detected_type == web::FileType::png);
+    CHECK(files.at(0).detected_type == web::FileType::png);
 }
 
 TEST_CASE("parse_multipart — unknown magic type detected correctly", "[uploads]") {
-    TempDir incoming;
+    const TempDir incoming;
     web::ParamMap form;
 
     const auto body = build_multipart("b", "f", "data.bin", "application/octet-stream", TEXT_BYTES);
     auto files = web::detail::parse_multipart(body, "b", incoming.path, form);
 
     REQUIRE(files.size() == 1);
-    CHECK(files[0].detected_type == web::FileType::unknown);
+    CHECK(files.at(0).detected_type == web::FileType::unknown);
 }
 
 TEST_CASE("parse_multipart — text field goes to form, not files", "[uploads]") {
-    TempDir incoming;
+    const TempDir incoming;
     web::ParamMap form;
 
     const auto body = build_text_part("b", "description", "hello world");
-    auto files = web::detail::parse_multipart(body, "b", incoming.path, form);
+    const auto files = web::detail::parse_multipart(body, "b", incoming.path, form);
 
     CHECK(files.empty());
     CHECK(form.get("description") == "hello world");
 }
 
 TEST_CASE("parse_multipart — part count capped at 32", "[uploads]") {
-    TempDir incoming;
+    const TempDir incoming;
     web::ParamMap form;
 
     std::string body;
@@ -136,12 +137,12 @@ TEST_CASE("parse_multipart — part count capped at 32", "[uploads]") {
         body += std::to_string(i);
         body += ".jpg\"\r\n";
         body += "Content-Type: image/jpeg\r\n\r\n";
-        body.append(reinterpret_cast<const char*>(JPEG_MAGIC.data()), JPEG_MAGIC.size());
+        body.append(web::c_api::chars(std::span<const unsigned char>(JPEG_MAGIC)));
         body += "\r\n";
     }
     body += "--bound--\r\n";
 
-    auto files = web::detail::parse_multipart(body, "bound", incoming.path, form);
+    const auto files = web::detail::parse_multipart(body, "bound", incoming.path, form);
     CHECK(files.size() <= 32);
 }
 
@@ -185,15 +186,16 @@ static void set_context_file(const std::filesystem::path& p, std::string_view fi
 }
 
 TEST_CASE("uploads::allow — valid jpeg passes and moves to validated_dir", "[uploads]") {
-    TempDir incoming, validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                                std::filesystem::perms::group_exec);
+    const TempDir incoming;
+    const TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                            std::filesystem::perms::group_exec);
 
-    auto src = incoming.path / "img.jpg";
+    const auto src = incoming.path / "img.jpg";
     write_bytes(src, JPEG_MAGIC);
     set_context_file(src, "avatar", "img.jpg");
 
     bool handler_called = false;
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
         .types = {web::FileType::jpeg},
@@ -212,14 +214,15 @@ TEST_CASE("uploads::allow — valid jpeg passes and moves to validated_dir", "[u
 }
 
 TEST_CASE("uploads::allow — wrong type returns 422 and removes file", "[uploads]") {
-    TempDir incoming, validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                                std::filesystem::perms::group_exec);
+    const TempDir incoming;
+    const TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                            std::filesystem::perms::group_exec);
 
-    auto src = incoming.path / "data.bin";
+    const auto src = incoming.path / "data.bin";
     write_bytes(src, TEXT_BYTES);
     set_context_file(src, "f", "data.bin");
 
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
         .types = {web::FileType::jpeg},
@@ -233,14 +236,15 @@ TEST_CASE("uploads::allow — wrong type returns 422 and removes file", "[upload
 }
 
 TEST_CASE("uploads::allow — max_size validator rejects oversized file", "[uploads]") {
-    TempDir incoming, validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                                std::filesystem::perms::group_exec);
+    const TempDir incoming;
+    const TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                            std::filesystem::perms::group_exec);
 
-    auto src = incoming.path / "big.jpg";
+    const auto src = incoming.path / "big.jpg";
     write_bytes(src, JPEG_MAGIC);
     set_context_file(src, "f", "big.jpg");
 
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
         .validators = {uploads::max_size(1)}, // 1 byte max; JPEG_MAGIC is 3 bytes
@@ -253,15 +257,16 @@ TEST_CASE("uploads::allow — max_size validator rejects oversized file", "[uplo
 }
 
 TEST_CASE("uploads::allow — custom validator receives mutable file ref", "[uploads]") {
-    TempDir incoming, validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                                std::filesystem::perms::group_exec);
+    const TempDir incoming;
+    const TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                            std::filesystem::perms::group_exec);
 
-    auto src = incoming.path / "img.jpg";
+    const auto src = incoming.path / "img.jpg";
     write_bytes(src, JPEG_MAGIC);
     set_context_file(src, "f", "img.jpg");
 
     web::FileType seen = web::FileType::unknown;
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
         .validators = {[&seen](web::UploadedFile& f) -> bool {
@@ -275,18 +280,18 @@ TEST_CASE("uploads::allow — custom validator receives mutable file ref", "[upl
 }
 
 TEST_CASE("uploads::allow — jail escape rejected with 500", "[uploads]") {
-    TempDir incoming;
-    TempDir project_root; // project root is a separate temp dir
+    const TempDir incoming;
+    const TempDir project_root; // project root is a separate temp dir
 
     // validated_dir is OUTSIDE project_root — should be rejected
-    TempDir outside_dir(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                        std::filesystem::perms::group_exec);
+    const TempDir outside_dir(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                              std::filesystem::perms::group_exec);
 
-    auto src = incoming.path / "img.jpg";
+    const auto src = incoming.path / "img.jpg";
     write_bytes(src, JPEG_MAGIC);
     set_context_file(src, "f", "img.jpg");
 
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = outside_dir.path,
         .project_root = project_root.path, // outside_dir is not under project_root
         .check_magic = false,
@@ -297,14 +302,14 @@ TEST_CASE("uploads::allow — jail escape rejected with 500", "[uploads]") {
 }
 
 TEST_CASE("uploads::allow — world-readable validated_dir rejected with 500", "[uploads]") {
-    TempDir incoming;
-    TempDir world_readable(std::filesystem::perms::all); // 777
+    const TempDir incoming;
+    const TempDir world_readable(std::filesystem::perms::all); // 777
 
-    auto src = incoming.path / "img.jpg";
+    const auto src = incoming.path / "img.jpg";
     write_bytes(src, JPEG_MAGIC);
     set_context_file(src, "f", "img.jpg");
 
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = world_readable.path,
         .project_root = world_readable.path.parent_path(),
         .check_magic = false,
@@ -315,13 +320,13 @@ TEST_CASE("uploads::allow — world-readable validated_dir rejected with 500", "
 }
 
 TEST_CASE("uploads::allow — no files skips validation and calls next", "[uploads]") {
-    TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
-                      std::filesystem::perms::group_exec);
+    const TempDir validated(std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+                            std::filesystem::perms::group_exec);
 
     web::Context::current().files.clear();
 
     bool called = false;
-    auto guard = uploads::allow({
+    const auto guard = uploads::allow({
         .validated_dir = validated.path,
         .project_root = validated.path.parent_path(),
     });

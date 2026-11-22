@@ -22,6 +22,7 @@
 #include <optional>
 #include <print>
 #include <ranges>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -29,6 +30,7 @@
 #include <typeindex>
 #include <vector>
 
+#include "c_api.hpp"
 #include "crypto.hpp"
 #include "css_utils.hpp"
 #include "task.hpp"
@@ -159,10 +161,10 @@ inline auto parse_binds(std::string_view text) -> std::vector<std::string> {
 } // namespace detail
 
 // Parses an integer CLI value in [lo, hi]; exits with a message on anything else.
-inline auto parse_arg(std::string_view flag, const char* value, long long lo, long long hi) -> long long {
+inline auto parse_arg(std::string_view flag, std::string_view value, long long lo, long long hi) -> long long {
     long long out = 0;
-    const char* end = value + std::strlen(value);
-    const auto [ptr, ec] = std::from_chars(value, end, out);
+    const char* end = std::to_address(value.end());
+    const auto [ptr, ec] = std::from_chars(std::to_address(value.begin()), end, out);
     if (ec != std::errc{} || ptr != end || out < lo || out > hi) {
         std::println(stderr, "{}: expected an integer in [{}, {}], got '{}'", flag, lo, hi, value);
         std::exit(2);
@@ -170,7 +172,7 @@ inline auto parse_arg(std::string_view flag, const char* value, long long lo, lo
     return out;
 }
 
-inline void init(int argc, char** argv) {
+inline void init(int argc, char* const* argv) {
     auto& cfg = detail::server_config();
     constexpr long long k_max_threads = 4096;
     constexpr long long k_max_port = 65535;
@@ -185,20 +187,22 @@ inline void init(int argc, char** argv) {
             config::max_body_bytes(*n);
         }
     }
-    for (int i = 1; i < argc; ++i) {
-        std::string_view arg(argv[i]);
-        if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            cfg.port = static_cast<int>(parse_arg(arg, argv[++i], 1, k_max_port));
-        } else if (arg == "--bind" && i + 1 < argc) {
-            cfg.binds = detail::parse_binds(argv[++i]);
-        } else if (arg == "--request-threads" && i + 1 < argc) {
-            cfg.request_threads = static_cast<int>(parse_arg(arg, argv[++i], 0, k_max_threads));
-        } else if (arg == "--io-threads" && i + 1 < argc) {
-            cfg.io_threads = static_cast<int>(parse_arg(arg, argv[++i], 0, k_max_threads));
-        } else if (arg == "--data-dir" && i + 1 < argc) {
-            config::data_dir(argv[++i]);
-        } else if (arg == "--max-body" && i + 1 < argc) {
-            if (auto n = detail::parse_size(argv[++i])) {
+    const auto args = std::span(argv, static_cast<size_t>(argc)) | std::ranges::to<std::vector<std::string_view>>();
+    for (size_t i = 1; i < args.size(); ++i) {
+        const std::string_view arg = args.at(i);
+        const bool has_value = i + 1 < args.size();
+        if ((arg == "--port" || arg == "-p") && has_value) {
+            cfg.port = static_cast<int>(parse_arg(arg, args.at(++i), 1, k_max_port));
+        } else if (arg == "--bind" && has_value) {
+            cfg.binds = detail::parse_binds(args.at(++i));
+        } else if (arg == "--request-threads" && has_value) {
+            cfg.request_threads = static_cast<int>(parse_arg(arg, args.at(++i), 0, k_max_threads));
+        } else if (arg == "--io-threads" && has_value) {
+            cfg.io_threads = static_cast<int>(parse_arg(arg, args.at(++i), 0, k_max_threads));
+        } else if (arg == "--data-dir" && has_value) {
+            config::data_dir(args.at(++i));
+        } else if (arg == "--max-body" && has_value) {
+            if (auto n = detail::parse_size(args.at(++i))) {
                 config::max_body_bytes(*n);
             }
         }
@@ -212,10 +216,12 @@ struct Status {
     int code;
     std::string_view text;
 
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, statuses and paths are used directly as values
     constexpr operator int() const {
         return code;
     }
     constexpr operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return text;
     }
     [[nodiscard]] auto to_string() const {
@@ -299,6 +305,7 @@ struct ParamMap {
         if (it == data.end()) {
             return std::nullopt;
         }
+        // NOLINTNEXTLINE(misc-const-correctness): the numeric branch strips a leading '+'
         std::string_view v = ws::detail::trim(it->second, " \t");
         if (v.empty()) {
             return std::nullopt;
@@ -316,8 +323,8 @@ struct ParamMap {
                 v.remove_prefix(1);
             }
             T out{};
-            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), out);
-            if (ec != std::errc{} || ptr != v.data() + v.size()) {
+            const auto [ptr, ec] = std::from_chars(std::to_address(v.begin()), std::to_address(v.end()), out);
+            if (ec != std::errc{} || ptr != std::to_address(v.end())) {
                 return std::nullopt;
             }
             if constexpr (std::is_floating_point_v<T>) {
@@ -384,9 +391,11 @@ constexpr auto to_string(Method m) -> std::string_view {
 struct Url {
     std::string path;
     Url() = default;
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, statuses and paths are used directly as values
     Url(const char* p) : path(p) {}
     Url(std::string p) : path(std::move(p)) {}
     operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return path;
     }
 };
@@ -573,7 +582,7 @@ inline auto mime_for(std::string_view path) -> std::string_view {
 }
 
 inline auto resolve_path(std::string_view path) -> std::filesystem::path {
-    auto& root = public_root();
+    const auto& root = public_root();
     return root.empty() ? std::filesystem::path(path) : root / path;
 }
 
@@ -590,38 +599,38 @@ inline auto read_file(const std::filesystem::path& full_path, std::string_view c
 inline auto read_magic(const std::filesystem::path& p) -> std::array<unsigned char, 12> {
     std::array<unsigned char, 12> buf{};
     if (std::ifstream f{p, std::ios::binary}; f) {
-        f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
+        f.read(c_api::chars(std::span<unsigned char>(buf)), static_cast<std::streamsize>(buf.size()));
     }
     return buf;
 }
 
 inline auto detect_type(const std::filesystem::path& p) -> FileType {
     const auto b = read_magic(p);
-    if (b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) {
+    if (b.at(0) == 0xFF && b.at(1) == 0xD8 && b.at(2) == 0xFF) {
         return FileType::jpeg;
     }
-    if (b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G' && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A &&
-        b[7] == 0x0A) {
+    if (b.at(0) == 0x89 && b.at(1) == 'P' && b.at(2) == 'N' && b.at(3) == 'G' && b.at(4) == 0x0D && b.at(5) == 0x0A &&
+        b.at(6) == 0x1A && b.at(7) == 0x0A) {
         return FileType::png;
     }
-    if (b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8') {
+    if (b.at(0) == 'G' && b.at(1) == 'I' && b.at(2) == 'F' && b.at(3) == '8') {
         return FileType::gif;
     }
-    if (b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' &&
-        b[11] == 'P') {
+    if (b.at(0) == 'R' && b.at(1) == 'I' && b.at(2) == 'F' && b.at(3) == 'F' && b.at(8) == 'W' && b.at(9) == 'E' &&
+        b.at(10) == 'B' && b.at(11) == 'P') {
         return FileType::webp;
     }
-    if (b[0] == '%' && b[1] == 'P' && b[2] == 'D' && b[3] == 'F') {
+    if (b.at(0) == '%' && b.at(1) == 'P' && b.at(2) == 'D' && b.at(3) == 'F') {
         return FileType::pdf;
     }
-    if (b[0] == 'P' && b[1] == 'K' && b[2] == 0x03 && b[3] == 0x04) {
+    if (b.at(0) == 'P' && b.at(1) == 'K' && b.at(2) == 0x03 && b.at(3) == 0x04) {
         return FileType::zip;
     }
     return FileType::unknown;
 }
 
 inline auto sanitize_filename(std::string_view name) -> std::string {
-    if (auto p = name.find_last_of("/\\"); p != std::string_view::npos) {
+    if (const auto p = name.find_last_of("/\\"); p != std::string_view::npos) {
         name = name.substr(p + 1);
     }
     // Control characters dropped.
@@ -630,7 +639,7 @@ inline auto sanitize_filename(std::string_view name) -> std::string {
                           return u >= 0x20 && u != 0x7F;
                       }) |
                       std::ranges::to<std::string>();
-    if (auto start = out.find_first_not_of('.'); start == std::string::npos) {
+    if (const auto start = out.find_first_not_of('.'); start == std::string::npos) {
         return "upload";
     } else if (start > 0) {
         out = out.substr(start);
@@ -675,7 +684,7 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
         std::string field_name, filename, content_type;
 
         while (true) {
-            size_t eol = body.find("\r\n", pos);
+            const size_t eol = body.find("\r\n", pos);
             if (eol == std::string_view::npos) {
                 return files;
             }
@@ -684,10 +693,10 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
                 break;
             }
 
-            std::string_view hdr = body.substr(pos, eol - pos);
+            const std::string_view hdr = body.substr(pos, eol - pos);
             pos = eol + 2;
 
-            auto colon = hdr.find(':');
+            const auto colon = hdr.find(':');
             if (colon == std::string_view::npos) {
                 continue;
             }
@@ -696,20 +705,20 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
             std::string hval(hdr.substr(colon + 1));
             std::ranges::transform(hname, hname.begin(),
                                    [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
-            if (auto f = hval.find_first_not_of(" \t"); f != std::string::npos) {
+            if (const auto f = hval.find_first_not_of(" \t"); f != std::string::npos) {
                 hval = hval.substr(f);
             }
 
             if (hname == "content-disposition") {
                 if (auto n = hval.find("name=\""); n != std::string::npos) {
                     n += 6;
-                    if (auto e = hval.find('"', n); e != std::string::npos) {
+                    if (const auto e = hval.find('"', n); e != std::string::npos) {
                         field_name = hval.substr(n, e - n);
                     }
                 }
                 if (auto f = hval.find("filename=\""); f != std::string::npos) {
                     f += 10;
-                    if (auto e = hval.find('"', f); e != std::string::npos) {
+                    if (const auto e = hval.find('"', f); e != std::string::npos) {
                         filename = sanitize_filename(hval.substr(f, e - f));
                     }
                 }
@@ -718,12 +727,12 @@ inline auto parse_multipart(std::string_view body, std::string_view boundary, co
             }
         }
 
-        size_t data_end = body.find(part_sep, pos);
+        const size_t data_end = body.find(part_sep, pos);
         if (data_end == std::string_view::npos) {
             break;
         }
 
-        std::string_view data = body.substr(pos, data_end - pos);
+        const std::string_view data = body.substr(pos, data_end - pos);
         pos = data_end + part_sep.size();
         ++part_count;
 
@@ -812,7 +821,7 @@ inline auto to_response(T&& val) -> Response {
 }
 
 inline auto match_route(std::string_view pattern, std::string_view path, ParamMap& out) -> bool {
-    auto split = [](std::string_view s) -> std::vector<std::string_view> {
+    const auto split = [](std::string_view s) -> std::vector<std::string_view> {
         return s | std::views::split('/') |
                std::views::transform([](auto part) -> std::string_view { return std::string_view(part); }) |
                std::ranges::to<std::vector<std::string_view>>();
@@ -823,7 +832,7 @@ inline auto match_route(std::string_view pattern, std::string_view path, ParamMa
         return false;
     }
     auto is_param = [](const auto& ps) -> bool { return std::get<0>(ps).starts_with(':'); };
-    auto pairs = std::views::zip(pat, seg);
+    const auto pairs = std::views::zip(pat, seg);
     if (!std::ranges::all_of(
             pairs, [&](const auto& ps) -> bool { return is_param(ps) || std::get<0>(ps) == std::get<1>(ps); })) {
         return false;
@@ -841,7 +850,7 @@ inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decod
     // key=value pairs; a later duplicate key wins.
     for (auto part : s | std::views::split(pair_sep)) {
         const std::string_view pair(part);
-        if (size_t const sep = pair.find('='); sep != std::string_view::npos) {
+        if (const size_t sep = pair.find('='); sep != std::string_view::npos) {
             const auto key = ws::detail::trim(pair.substr(0, sep), " \t\r\n");
             const std::string val(ws::detail::trim(pair.substr(sep + 1), " \t\r\n"));
             if (!key.empty()) {
@@ -859,8 +868,8 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     raw.reserve(4096);
     {
         std::array<char, 4096> hbuf{};
-        while (raw.find("\r\n\r\n") == std::string::npos) {
-            ssize_t n = recv(fd, hbuf.data(), hbuf.size(), 0);
+        while (!raw.contains("\r\n\r\n")) {
+            const ssize_t n = recv(fd, hbuf.data(), hbuf.size(), 0);
             if (n <= 0) {
                 break;
             }
@@ -870,7 +879,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
             }
         }
     }
-    if (raw.empty() || raw.find("\r\n\r\n") == std::string::npos) {
+    if (raw.empty() || !raw.contains("\r\n\r\n")) {
         return {};
     }
     if (leftover != nullptr) {
@@ -879,19 +888,19 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
         }
     }
 
-    std::string_view const req_str(raw);
-    size_t const first_line_end = req_str.find("\r\n");
+    const std::string_view req_str(raw);
+    const size_t first_line_end = req_str.find("\r\n");
     if (first_line_end == std::string_view::npos) {
         return {};
     }
-    std::string_view const first_line = req_str.substr(0, first_line_end);
+    const std::string_view first_line = req_str.substr(0, first_line_end);
 
     Request req;
-    size_t const m_end = first_line.find(' ');
+    const size_t m_end = first_line.find(' ');
     if (m_end == std::string_view::npos) {
         return {};
     }
-    std::string_view const m_str = first_line.substr(0, m_end);
+    const std::string_view m_str = first_line.substr(0, m_end);
 
     if (m_str == "GET") {
         req.method = Method::GET;
@@ -909,15 +918,15 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
         req.method = Method::OPTIONS;
     }
 
-    size_t const p_end = first_line.find(' ', m_end + 1);
+    const size_t p_end = first_line.find(' ', m_end + 1);
     if (p_end == std::string_view::npos) {
         return {};
     }
-    std::string_view const full_path = first_line.substr(m_end + 1, p_end - (m_end + 1));
+    const std::string_view full_path = first_line.substr(m_end + 1, p_end - (m_end + 1));
     req.http_version = std::string(first_line.substr(p_end + 1));
     req.http_version.erase(req.http_version.find_last_not_of(" \t") + 1); // npos + 1 == 0: all blanks
 
-    if (size_t const q_idx = full_path.find('?'); q_idx != std::string_view::npos) {
+    if (const size_t q_idx = full_path.find('?'); q_idx != std::string_view::npos) {
         req.path = Url(std::string(full_path.substr(0, q_idx)));
         req.query = parse_params(full_path.substr(q_idx + 1), '&');
     } else {
@@ -931,23 +940,23 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     bool content_length_bad = false;
     bool saw_transfer_encoding = false;
     bool duplicate_routing_header = false;
-    auto routing_header = [](std::string_view key) -> bool {
+    const auto routing_header = [](std::string_view key) -> bool {
         return key == "host" || key == "origin" || key == "upgrade" || key == "connection" ||
                key == "sec-websocket-key" || key == "sec-websocket-version";
     };
     while (true) {
-        size_t const line_end = req_str.find("\r\n", head_start);
+        const size_t line_end = req_str.find("\r\n", head_start);
         if (line_end == std::string_view::npos || line_end == head_start) {
             break;
         }
 
-        std::string_view const line = req_str.substr(head_start, line_end - head_start);
+        const std::string_view line = req_str.substr(head_start, line_end - head_start);
         // A folded line can hide a second Host or Content-Length. This server does not unfold.
         if (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
             return {};
         }
-        if (size_t const sep = line.find(':'); sep != std::string_view::npos) {
-            std::string key(ws::detail::trim(line.substr(0, sep), " \t\r\n"));
+        if (const size_t sep = line.find(':'); sep != std::string_view::npos) {
+            const std::string key(ws::detail::trim(line.substr(0, sep), " \t\r\n"));
             std::string val(ws::detail::trim(line.substr(sep + 1), " \t\r\n"));
 
             std::string lkey = key;
@@ -966,7 +975,7 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
                 ++content_length_count;
                 unsigned long long n = 0;
                 const char* const begin = val.data();
-                const char* const end = val.data() + val.size();
+                const char* const end = std::to_address(val.end());
                 const auto [ptr, ec] = std::from_chars(begin, end, n);
                 // Trailing junk ("5abc", "5 0") is a length two parsers can disagree on.
                 if (ec == std::errc::result_out_of_range && ptr == end) {
@@ -998,13 +1007,13 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     // Body for the methods that carry one
     if (req.method == Method::POST || req.method == Method::PUT || req.method == Method::PATCH ||
         req.method == Method::DEL) {
-        size_t const header_end = req_str.find("\r\n\r\n");
+        const size_t header_end = req_str.find("\r\n\r\n");
         if (header_end != std::string_view::npos) {
             std::string body(req_str.substr(header_end + 4));
             {
                 std::array<char, 4096> bbuf{};
                 while (body.size() < content_length) {
-                    ssize_t n = recv(fd, bbuf.data(), bbuf.size(), 0);
+                    const ssize_t n = recv(fd, bbuf.data(), bbuf.size(), 0);
                     if (n <= 0) {
                         break;
                     }
@@ -1018,11 +1027,11 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
             const auto ct = req.headers.get("content-type");
             const std::string_view mp_prefix = "multipart/form-data";
             if (ct.starts_with(mp_prefix)) {
-                std::string_view ctv(ct);
-                auto bp = ctv.find("boundary=");
+                const std::string_view ctv(ct);
+                const auto bp = ctv.find("boundary=");
                 if (bp != std::string_view::npos) {
                     std::string_view boundary = ctv.substr(bp + 9);
-                    if (auto semi = boundary.find(';'); semi != std::string_view::npos) {
+                    if (const auto semi = boundary.find(';'); semi != std::string_view::npos) {
                         boundary = boundary.substr(0, semi);
                     }
                     auto& ctx = Context::current();
@@ -1041,14 +1050,13 @@ inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
     return req;
 }
 
-inline void send_all(int fd, const char* data, size_t len) {
-    while (len > 0) {
-        ssize_t sent = ::send(fd, data, len, 0);
+inline void send_all(int fd, std::string_view data) {
+    while (!data.empty()) {
+        const ssize_t sent = ::send(fd, data.data(), data.size(), 0);
         if (sent <= 0) {
             break;
         }
-        data += sent;
-        len -= static_cast<size_t>(sent);
+        data.remove_prefix(static_cast<size_t>(sent));
     }
 }
 
@@ -1086,8 +1094,8 @@ inline void send_response(int fd, const Response& resp) {
         }
     }
     head += "\r\n";
-    send_all(fd, head.data(), head.size());
-    send_all(fd, resp.body.data(), resp.body.size());
+    send_all(fd, head);
+    send_all(fd, resp.body);
 }
 
 struct SSEWriter {
@@ -1125,7 +1133,7 @@ struct SSEWriter {
 
     [[nodiscard]] auto alive() const -> bool {
         char buf;
-        ssize_t r = ::recv(fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
+        const ssize_t r = ::recv(fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
         return r > 0 || (r < 0 && errno == EAGAIN);
     }
 };
@@ -1225,7 +1233,7 @@ inline auto dispatch(const Request& req, const Handler& handler,
     size_t idx = 0;
     Next next = [&idx, &pipeline, &handler, &req, &next]() -> Response {
         if (idx < pipeline.size()) {
-            return (*pipeline[idx++])(req, next);
+            return (*pipeline.at(idx++))(req, next);
         }
         return handler(req);
     };
@@ -1235,7 +1243,7 @@ inline auto dispatch(const Request& req, const Handler& handler,
 namespace detail {
 
 inline auto internal_error_response(const Request& req) -> Response {
-    if (auto handler = detail::error_handler_for(status::internal_error)) {
+    if (const auto handler = detail::error_handler_for(status::internal_error)) {
         return handler(req);
     }
     auto resp = to_response(std::string("500 Internal Server Error"));
@@ -1324,7 +1332,7 @@ inline auto open_listener(const std::string& address, int port) -> std::expected
     }
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 || ::listen(fd, SOMAXCONN) < 0) {
+    if (bind(fd, c_api::sockaddr_of(addr), sizeof(addr)) < 0 || ::listen(fd, SOMAXCONN) < 0) {
         const std::string reason = std::strerror(errno);
         close(fd);
         return std::unexpected(std::format("can't listen on {}:{}: {}", address.empty() ? "*" : address, port, reason));
@@ -1395,7 +1403,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
 
     if (req.body_too_large) {
         Response resp;
-        if (auto handler = detail::error_handler_for(status::payload_too_large)) {
+        if (const auto handler = detail::error_handler_for(status::payload_too_large)) {
             resp = handler(req);
         } else {
             resp = to_response(std::string("413 Payload Too Large"));
@@ -1406,12 +1414,12 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         return;
     }
 
-    auto it = std::ranges::find_if(
+    const auto it = std::ranges::find_if(
         all_routes, [&req](const Route& r) -> bool { return match_route(r.path, req.path.path, req.params); });
 
     if (it == all_routes.end()) {
         Response resp;
-        if (auto handler = detail::error_handler_for(status::not_found)) {
+        if (const auto handler = detail::error_handler_for(status::not_found)) {
             resp = handler(req);
         } else {
             resp = to_response(std::string("404 Not Found"));
@@ -1470,7 +1478,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                     return;
                 }
                 // Conn owns fd from here: it closes when the last reference drops.
-                auto conn = ws::Conn::make(client_fd, std::move(slot));
+                const auto conn = ws::Conn::make(client_fd, std::move(slot));
                 conn->prime(std::move(leftover));
                 const auto deflate = ws::negotiate_deflate(req.headers.get("sec-websocket-extensions"));
                 const std::string extensions =
@@ -1485,7 +1493,8 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
                                 ws::accept_key(req.headers.get("sec-websocket-key")), extensions);
                 size_t sent = 0;
                 while (sent < handshake.size()) {
-                    const ssize_t n = ::send(client_fd, handshake.data() + sent, handshake.size() - sent, 0);
+                    const ssize_t n =
+                        ::send(client_fd, std::string_view(handshake).substr(sent).data(), handshake.size() - sent, 0);
                     if (n < 0 && errno == EINTR) {
                         continue;
                     }
@@ -1579,7 +1588,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         } else if (req.method == Method::PATCH && it->patch) {
             resp = dispatch(req, it->patch, it->guards);
         } else {
-            if (auto handler = detail::error_handler_for(status::method_not_allowed)) {
+            if (const auto handler = detail::error_handler_for(status::method_not_allowed)) {
                 resp = handler(req);
             } else {
                 resp = to_response(std::string("405 Method Not Allowed"));
@@ -1588,7 +1597,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
         }
     } catch (const std::exception& e) {
         std::println(stderr, "Error handling request: {}", e.what());
-        if (auto handler = detail::error_handler_for(status::internal_error)) {
+        if (const auto handler = detail::error_handler_for(status::internal_error)) {
             resp = handler(req);
         } else {
             resp = to_response(std::string("500 Internal Server Error"));
@@ -1641,9 +1650,11 @@ inline void listen(const std::vector<Route>& all_routes) {
         if (poll(listeners.data(), static_cast<nfds_t>(listeners.size()), -1) <= 0) {
             continue;
         }
-        for (const auto& listener :
-             listeners | std::views::filter([](const pollfd& l) -> bool { return (l.revents & POLLIN) != 0; })) {
-            int const client_fd = accept(listener.fd, nullptr, nullptr);
+        for (const auto& listener : listeners | std::views::filter([](const pollfd& l) -> bool {
+                                        // POSIX poll flags are int.
+                                        return (l.revents & POLLIN) != 0; // NOLINT(*-signed-bitwise)
+                                    })) {
+            const int client_fd = accept(listener.fd, nullptr, nullptr);
             if (client_fd < 0) {
                 continue;
             }

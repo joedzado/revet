@@ -41,9 +41,9 @@ static auto require_session(const web::Request& req, web::Next next) -> web::Res
 // ── guard runs before handler ─────────────────────────────────────────────────
 
 TEST_CASE("auth guard — blocks unauthenticated request", "[guards]") {
-    web::Route route{.path = "/secret",
-                     .get = [](const web::Request&) -> web::Response { return web::to_response("secret"); },
-                     .guards = {require_session}};
+    const web::Route route{.path = "/secret",
+                           .get = [](const web::Request&) -> web::Response { return web::to_response("secret"); },
+                           .guards = {require_session}};
 
     auto resp = run(route, make_req(web::Method::GET, "/secret"));
     REQUIRE(resp.status == 401);
@@ -51,9 +51,9 @@ TEST_CASE("auth guard — blocks unauthenticated request", "[guards]") {
 }
 
 TEST_CASE("auth guard — allows authenticated request", "[guards]") {
-    web::Route route{.path = "/secret",
-                     .get = [](const web::Request&) -> web::Response { return web::to_response("secret"); },
-                     .guards = {require_session}};
+    const web::Route route{.path = "/secret",
+                           .get = [](const web::Request&) -> web::Response { return web::to_response("secret"); },
+                           .guards = {require_session}};
 
     auto resp = run(route, make_authed_req("/secret"));
     REQUIRE(resp.status == 200);
@@ -63,7 +63,7 @@ TEST_CASE("auth guard — allows authenticated request", "[guards]") {
 // ── unguarded route unaffected ────────────────────────────────────────────────
 
 TEST_CASE("route without guards — always passes through", "[guards]") {
-    web::Route route{
+    const web::Route route{
         .path = "/public",
         .get = [](const web::Request&) -> web::Response { return web::to_response("open"); },
     };
@@ -76,10 +76,10 @@ TEST_CASE("route without guards — always passes through", "[guards]") {
 // ── guard isolation — guard on one route doesn't affect another ───────────────
 
 TEST_CASE("auth guard — scoped to route, does not bleed to other routes", "[guards]") {
-    web::Route guarded{.path = "/admin",
-                       .get = [](const web::Request&) -> web::Response { return web::to_response("admin"); },
-                       .guards = {require_session}};
-    web::Route open{
+    const web::Route guarded{.path = "/admin",
+                             .get = [](const web::Request&) -> web::Response { return web::to_response("admin"); },
+                             .guards = {require_session}};
+    const web::Route open{
         .path = "/",
         .get = [](const web::Request&) -> web::Response { return web::to_response("home"); },
     };
@@ -106,12 +106,12 @@ TEST_CASE("multiple guards — run in registration order", "[guards]") {
         return next();
     };
 
-    web::Route route{.path = "/",
-                     .get = [&](const web::Request&) -> web::Response {
-                         order.emplace_back("h");
-                         return web::to_response("ok");
-                     },
-                     .guards = {g1, g2}};
+    const web::Route route{.path = "/",
+                           .get = [&](const web::Request&) -> web::Response {
+                               order.emplace_back("h");
+                               return web::to_response("ok");
+                           },
+                           .guards = {g1, g2}};
 
     run(route, make_req(web::Method::GET, "/"));
     REQUIRE(order == std::vector<std::string>{"g1", "g2", "h"});
@@ -131,12 +131,12 @@ TEST_CASE("guard short-circuit — stops chain, skips handler", "[guards]") {
         return next();
     };
 
-    web::Route route{.path = "/",
-                     .get = [&](const web::Request&) -> web::Response {
-                         handler_called = true;
-                         return web::to_response("ok");
-                     },
-                     .guards = {block, spy}};
+    const web::Route route{.path = "/",
+                           .get = [&](const web::Request&) -> web::Response {
+                               handler_called = true;
+                               return web::to_response("ok");
+                           },
+                           .guards = {block, spy}};
 
     auto resp = run(route, make_req(web::Method::GET, "/"));
     REQUIRE(resp.status == 403);
@@ -155,15 +155,15 @@ TEST_CASE("guards run before global middleware in dispatch order", "[guards]") {
         return next();
     });
 
-    web::Route route{.path = "/",
-                     .get = [&](const web::Request&) -> web::Response {
-                         order.emplace_back("h");
-                         return web::to_response("ok");
-                     },
-                     .guards = {[&](const web::Request&, web::Next next) -> web::Response {
-                         order.emplace_back("guard");
-                         return next();
-                     }}};
+    const web::Route route{.path = "/",
+                           .get = [&](const web::Request&) -> web::Response {
+                               order.emplace_back("h");
+                               return web::to_response("ok");
+                           },
+                           .guards = {[&](const web::Request&, web::Next next) -> web::Response {
+                               order.emplace_back("guard");
+                               return next();
+                           }}};
 
     run(route, make_req(web::Method::GET, "/"));
     web::clear_middlewares();
@@ -174,9 +174,9 @@ TEST_CASE("guards run before global middleware in dispatch order", "[guards]") {
 // ── POST requests also guarded ────────────────────────────────────────────────
 
 TEST_CASE("auth guard — applies to POST handlers too", "[guards]") {
-    web::Route route{.path = "/submit",
-                     .post = [](const web::Request&) -> web::Response { return web::to_response("submitted"); },
-                     .guards = {require_session}};
+    const web::Route route{.path = "/submit",
+                           .post = [](const web::Request&) -> web::Response { return web::to_response("submitted"); },
+                           .guards = {require_session}};
 
     auto blocked = run(route, make_req(web::Method::POST, "/submit"));
     REQUIRE(blocked.status == 401);
@@ -217,7 +217,7 @@ TEST_CASE("bearer_static: rejects missing Authorization header", "[auth]") {
     route.get = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
     route.guards = {web::api::bearer_static("supersecret")};
 
-    web::Request req = make_req(web::Method::GET, "/secret");
+    const web::Request req = make_req(web::Method::GET, "/secret");
     REQUIRE(run(route, req).status == 401);
 }
 
@@ -230,7 +230,7 @@ TEST_CASE("bearer_static: empty expected token fails closed", "[auth][security]"
     route.guards = {web::api::bearer_static("")};
 
     SECTION("no header") {
-        web::Request req = make_req(web::Method::GET, "/secret");
+        const web::Request req = make_req(web::Method::GET, "/secret");
         REQUIRE(run(route, req).status == 401);
     }
     SECTION("empty bearer") {

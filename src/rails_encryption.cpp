@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <optional>
+#include <revet/c_api.hpp>
 #include <revet/rails_encryption.hpp>
 #include <simdjson.h>
 #include <sodium.h>
@@ -13,7 +14,7 @@ constexpr std::size_t kCompressAbove = 140; // Encryptor::THRESHOLD_TO_JUSTIFY_C
 constexpr std::size_t kMaxInflated = 256UL * 1024 * 1024;
 
 auto bytes(std::string_view s) -> const unsigned char* {
-    return reinterpret_cast<const unsigned char*>(s.data());
+    return web::c_api::uchars(s);
 }
 
 auto base64_encode(std::string_view in) -> std::string {
@@ -27,9 +28,9 @@ auto base64_decode(std::string_view in) -> std::string {
     std::string out(in.size() / 4 * 3 + 3, '\0');
     std::size_t len = 0;
     const char* end = nullptr;
-    if (sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), in.data(), in.size(), nullptr, &len,
-                          &end, sodium_base64_VARIANT_ORIGINAL) != 0 ||
-        end != in.data() + in.size()) {
+    if (sodium_base642bin(web::c_api::uchars(out), out.size(), in.data(), in.size(), nullptr, &len, &end,
+                          sodium_base64_VARIANT_ORIGINAL) != 0 ||
+        end != std::to_address(in.end())) {
         throw EncryptionError("rails encryption: invalid base64");
     }
     out.resize(len);
@@ -39,7 +40,7 @@ auto base64_decode(std::string_view in) -> std::string {
 auto deflate_text(std::string_view in) -> std::string {
     uLongf len = compressBound(static_cast<uLong>(in.size()));
     std::string out(len, '\0');
-    if (compress(reinterpret_cast<Bytef*>(out.data()), &len, bytes(in), static_cast<uLong>(in.size())) != Z_OK) {
+    if (compress(web::c_api::uchars(out), &len, bytes(in), static_cast<uLong>(in.size())) != Z_OK) {
         throw EncryptionError("rails encryption: compress failed");
     }
     out.resize(len);
@@ -51,14 +52,14 @@ auto inflate_text(std::string_view in) -> std::string {
     if (inflateInit(&zs) != Z_OK) {
         throw EncryptionError("rails encryption: inflate init failed");
     }
-    zs.next_in = const_cast<Bytef*>(bytes(in));
+    zs.next_in = web::c_api::zlib_input(in);
     zs.avail_in = static_cast<uInt>(in.size());
 
     std::string out;
     std::array<char, 64 * 1024> buf{};
     int rc = Z_OK;
     while (rc != Z_STREAM_END) {
-        zs.next_out = reinterpret_cast<Bytef*>(buf.data());
+        zs.next_out = web::c_api::uchars(buf);
         zs.avail_out = static_cast<uInt>(buf.size());
         rc = inflate(&zs, Z_NO_FLUSH);
         if (rc != Z_OK && rc != Z_STREAM_END) {
@@ -179,7 +180,7 @@ auto Encryption::derive_key(std::string_view password,
     hmac(first, u.data());
     std::array<unsigned char, kKeyBytes> key = u;
     for (int round = 1; round < kPbkdf2Rounds; ++round) {
-        const std::string_view previous(reinterpret_cast<const char*>(u.data()), u.size());
+        const std::string_view previous = web::c_api::chars(std::span<const unsigned char>(u));
         std::array<unsigned char, kKeyBytes> next{};
         hmac(previous, next.data());
         u = next;
@@ -228,9 +229,9 @@ auto Encryption::decrypt(std::string_view message, Scheme scheme) const -> std::
     }
 
     std::string plain(parsed->payload.size(), '\0');
-    if (crypto_aead_aes256gcm_decrypt_detached(reinterpret_cast<unsigned char*>(plain.data()), nullptr,
-                                               bytes(parsed->payload), parsed->payload.size(), bytes(parsed->auth_tag),
-                                               nullptr, 0, bytes(parsed->iv), key_for(scheme).data()) != 0) {
+    if (crypto_aead_aes256gcm_decrypt_detached(web::c_api::uchars(plain), nullptr, bytes(parsed->payload),
+                                               parsed->payload.size(), bytes(parsed->auth_tag), nullptr, 0,
+                                               bytes(parsed->iv), key_for(scheme).data()) != 0) {
         throw EncryptionError("rails encryption: decryption failed");
     }
     return parsed->compressed ? inflate_text(plain) : plain;
@@ -265,15 +266,12 @@ auto Encryption::encrypt(std::string_view plaintext, Scheme scheme) const -> std
     std::string cipher(text.size(), '\0');
     std::array<unsigned char, crypto_aead_aes256gcm_ABYTES> tag{};
     unsigned long long tag_len = 0;
-    if (crypto_aead_aes256gcm_encrypt_detached(reinterpret_cast<unsigned char*>(cipher.data()), tag.data(), &tag_len,
-                                               bytes(text), text.size(), nullptr, 0, nullptr, iv.data(),
-                                               key.data()) != 0) {
+    if (crypto_aead_aes256gcm_encrypt_detached(web::c_api::uchars(cipher), tag.data(), &tag_len, bytes(text),
+                                               text.size(), nullptr, 0, nullptr, iv.data(), key.data()) != 0) {
         throw EncryptionError("rails encryption: encryption failed");
     }
 
-    const auto view = [](const auto& a) -> auto {
-        return std::string_view(reinterpret_cast<const char*>(a.data()), a.size());
-    };
+    const auto view = [](const auto& a) -> auto { return web::c_api::chars(std::span<const unsigned char>(a)); };
     // Base64 needs no JSON escaping. Field order matches Rails' JSON.dump.
     std::string out = R"({"p":")" + base64_encode(cipher) + R"(","h":{"iv":")" + base64_encode(view(iv)) +
                       R"(","at":")" + base64_encode(view(tag)) + '"';

@@ -6,7 +6,7 @@
 #include <vector>
 
 static auto dispatch_and_read(const std::vector<web::Route>& all_routes, web::Request req) -> std::string {
-    auto route = std::ranges::find_if(
+    const auto route = std::ranges::find_if(
         all_routes, [&](const web::Route& r) -> bool { return web::match_route(r.path, req.path.path, req.params); });
     if (route == all_routes.end()) {
         return "404";

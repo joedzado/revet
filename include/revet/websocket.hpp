@@ -22,6 +22,7 @@
 #include <utility>
 #include <zlib.h>
 
+#include "c_api.hpp"
 #include "hash.hpp"
 
 // RFC 6455 WebSocket: handshake, frame codec, and a server-side connection.
@@ -100,7 +101,7 @@ private:
 inline auto utf8_valid(std::string_view s) -> bool {
     size_t i = 0;
     while (i < s.size()) {
-        const auto lead = static_cast<uint8_t>(s[i]);
+        const auto lead = static_cast<uint8_t>(s.at(i));
         if (lead < 0x80) {
             ++i;
             continue;
@@ -127,11 +128,11 @@ inline auto utf8_valid(std::string_view s) -> bool {
             return false;
         }
         for (size_t k = 1; k <= extra; ++k) {
-            const auto cont = static_cast<uint8_t>(s[i + k]);
+            const auto cont = static_cast<uint8_t>(s.at(i + k));
             if ((cont & 0xC0) != 0x80) {
                 return false;
             }
-            cp = (cp << 6) | (cont & 0x3F);
+            cp = (cp << 6U) | (cont & 0x3FU);
         }
         if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
             return false;
@@ -144,7 +145,7 @@ inline auto utf8_valid(std::string_view s) -> bool {
 // Length of the trailing, possibly incomplete UTF-8 sequence in s; bytes before it can be validated now.
 inline auto utf8_cut(std::string_view s) -> size_t {
     for (size_t back = 1; back <= 3 && back <= s.size(); ++back) {
-        const auto b = static_cast<uint8_t>(s[s.size() - back]);
+        const auto b = static_cast<uint8_t>(s.at(s.size() - back));
         if ((b & 0xC0) == 0x80) {
             continue;
         }
@@ -167,7 +168,7 @@ inline auto utf8_tail_ok(std::string_view tail) -> bool {
     if (tail.empty()) {
         return true;
     }
-    const auto lead = static_cast<uint8_t>(tail[0]);
+    const auto lead = static_cast<uint8_t>(tail.at(0));
     uint8_t lo2 = 0x80;
     uint8_t hi2 = 0xBF;
     if (lead >= 0xC2 && lead <= 0xDF) {
@@ -225,7 +226,7 @@ inline auto valid_key(std::string_view key) -> bool {
 inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true, bool rsv1 = false) -> std::string {
     std::string out;
     out.reserve(payload.size() + 10);
-    out += static_cast<char>((fin ? 0x80 : 0x00) | (rsv1 ? 0x40 : 0x00) | static_cast<uint8_t>(op));
+    out += static_cast<char>((fin ? 0x80U : 0x00U) | (rsv1 ? 0x40U : 0x00U) | static_cast<uint8_t>(op));
     const size_t n = payload.size();
     if (n < 126) {
         out += static_cast<char>(n);
@@ -236,7 +237,7 @@ inline auto encode_frame(Opcode op, std::string_view payload, bool fin = true, b
     } else {
         out += static_cast<char>(127);
         for (int i = 7; i >= 0; --i) {
-            out += static_cast<char>((static_cast<uint64_t>(n) >> (i * 8)) & 0xFF);
+            out += static_cast<char>((static_cast<uint64_t>(n) >> (static_cast<unsigned>(i) * 8U)) & 0xFFU);
         }
     }
     out += payload;
@@ -479,7 +480,7 @@ public:
 
         // Runs compressed bytes through the inflater. Z_SYNC_FLUSH only at the end of a message.
         auto inflate_into = [&](std::string_view input, int flush) -> void {
-            zin_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(input.data()));
+            zin_.next_in = c_api::zlib_input(input);
             zin_.avail_in = static_cast<uInt>(input.size());
             std::array<unsigned char, 16384> out{};
             do {
@@ -489,7 +490,7 @@ public:
                 if (rc == Z_NEED_DICT || rc == Z_DATA_ERROR || rc == Z_MEM_ERROR || rc == Z_STREAM_ERROR) {
                     fail(CloseCode::InvalidData, "invalid permessage-deflate data");
                 }
-                absorb(std::string_view(reinterpret_cast<const char*>(out.data()), out.size() - zin_.avail_out));
+                absorb(c_api::chars(std::span<const unsigned char>(out)).substr(0, out.size() - zin_.avail_out));
             } while (zin_.avail_out == 0);
         };
 
@@ -595,7 +596,7 @@ public:
     void close(CloseCode code = CloseCode::Normal) {
         const auto raw = static_cast<uint16_t>(code);
         const std::string payload{static_cast<char>(raw >> 8), static_cast<char>(raw & 0xFF)};
-        std::scoped_lock lock(write_mu_);
+        const std::scoped_lock lock(write_mu_);
         if (!open_.exchange(false)) {
             return;
         }
@@ -629,8 +630,8 @@ private:
         if (payload.size() == 1) {
             fail(CloseCode::Protocol, "close payload of one byte");
         }
-        const auto code =
-            static_cast<uint16_t>((static_cast<uint8_t>(payload[0]) << 8) | static_cast<uint8_t>(payload[1]));
+        const auto code = static_cast<uint16_t>((static_cast<unsigned>(static_cast<uint8_t>(payload.at(0))) << 8U) |
+                                                static_cast<unsigned>(static_cast<uint8_t>(payload.at(1))));
         if (!detail::close_code_valid(code)) {
             fail(CloseCode::Protocol, "invalid close code");
         }
@@ -676,7 +677,7 @@ private:
     auto read_exact(char* buf, size_t n, IoStatus& st) -> bool {
         size_t got = 0;
         while (got < n) {
-            const size_t r = read_some(buf + got, n - got, st);
+            const size_t r = read_some(std::span(buf, n).subspan(got).data(), n - got, st);
             if (r == 0) {
                 if (got > 0 && st == IoStatus::Timeout) {
                     st = IoStatus::Closed;
@@ -694,8 +695,8 @@ private:
         if (!read_exact(head.data(), head.size(), st)) {
             return std::nullopt;
         }
-        const auto b0 = static_cast<uint8_t>(head[0]);
-        const auto b1 = static_cast<uint8_t>(head[1]);
+        const auto b0 = static_cast<uint8_t>(head.at(0));
+        const auto b1 = static_cast<uint8_t>(head.at(1));
         if ((b0 & 0x30) != 0) {
             fail(CloseCode::Protocol, "reserved bits set");
         }
@@ -724,7 +725,7 @@ private:
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame<Header>(st);
             }
-            len = (static_cast<uint64_t>(static_cast<uint8_t>(ext[0])) << 8) | static_cast<uint8_t>(ext[1]);
+            len = (static_cast<uint64_t>(static_cast<uint8_t>(ext.at(0))) << 8) | static_cast<uint8_t>(ext.at(1));
             if (len < 126) {
                 fail(CloseCode::Protocol, "non-minimal payload length");
             }
@@ -733,7 +734,7 @@ private:
             if (!read_exact(ext.data(), ext.size(), st)) {
                 return fail_mid_frame<Header>(st);
             }
-            if ((static_cast<uint8_t>(ext[0]) & 0x80) != 0) {
+            if ((static_cast<uint8_t>(ext.at(0)) & 0x80) != 0) {
                 fail(CloseCode::Protocol, "payload length high bit set");
             }
             len = std::ranges::fold_left(ext, uint64_t{0}, [](uint64_t acc, char c) -> uint64_t {
@@ -773,7 +774,8 @@ private:
                 return false;
             }
             for (size_t i = 0; i < got; ++i) {
-                buf[i] = static_cast<char>(buf[i] ^ h.mask[(done + i) % 4]);
+                buf.at(i) = static_cast<char>(static_cast<unsigned>(static_cast<uint8_t>(buf.at(i))) ^
+                                              static_cast<unsigned>(static_cast<uint8_t>(h.mask.at((done + i) % 4))));
             }
             on_bytes(std::string_view(buf.data(), got));
             done += got;
@@ -800,7 +802,7 @@ private:
     }
 
     auto write(Opcode op, std::string_view payload) -> bool {
-        std::scoped_lock lock(write_mu_);
+        const std::scoped_lock lock(write_mu_);
         if (!open_.load()) {
             return false;
         }
@@ -815,7 +817,7 @@ private:
         if (server_no_ctx_) {
             deflateReset(&zout_);
         }
-        zout_.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(in.data()));
+        zout_.next_in = c_api::zlib_input(in);
         zout_.avail_in = static_cast<uInt>(in.size());
         std::string out;
         std::array<unsigned char, 16384> buf{};
@@ -823,7 +825,7 @@ private:
             zout_.next_out = buf.data();
             zout_.avail_out = static_cast<uInt>(buf.size());
             deflate(&zout_, Z_SYNC_FLUSH);
-            out.append(reinterpret_cast<const char*>(buf.data()), buf.size() - zout_.avail_out);
+            out.append(c_api::chars(std::span<const unsigned char>(buf)).substr(0, buf.size() - zout_.avail_out));
         } while (zout_.avail_out == 0);
         constexpr std::string_view kTail("\0\0\xff\xff", 4);
         if (out.size() >= kTail.size() && out.ends_with(kTail)) {
@@ -836,7 +838,7 @@ private:
     auto send_all(const std::string& bytes) -> bool {
         size_t sent = 0;
         while (sent < bytes.size()) {
-            const ssize_t r = ::send(fd_, bytes.data() + sent, bytes.size() - sent, 0);
+            const ssize_t r = ::send(fd_, std::string_view(bytes).substr(sent).data(), bytes.size() - sent, 0);
             if (r < 0 && errno == EINTR) {
                 continue;
             }

@@ -12,7 +12,7 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
     }
 
     SECTION("empty string") {
-        std::string ct = web::crypto::encrypt("");
+        const std::string ct = web::crypto::encrypt("");
         REQUIRE(web::crypto::decrypt(ct) == "");
     }
 
@@ -26,7 +26,7 @@ TEST_CASE("crypto encrypt/decrypt round-trip with explicit key", "[crypto]") {
 
     SECTION("tampered ciphertext returns empty") {
         std::string ct = web::crypto::encrypt("secret");
-        ct[ct.size() / 2] ^= 0xFF;
+        ct.at(ct.size() / 2) = static_cast<char>(~static_cast<unsigned char>(ct.at(ct.size() / 2)));
         REQUIRE(web::crypto::decrypt(ct) == "");
     }
 
@@ -42,7 +42,7 @@ TEST_CASE("crypto get_key rejects wrong-length key", "[crypto]") {
 
 TEST_CASE("crypto hostname fallback still round-trips", "[crypto]") {
     unsetenv("REVET_COOKIE_KEY");
-    std::string ct = web::crypto::encrypt("fallback test");
+    const std::string ct = web::crypto::encrypt("fallback test");
     REQUIRE(web::crypto::decrypt(ct) == "fallback test");
 }
 

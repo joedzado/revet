@@ -19,7 +19,9 @@ struct mod {
     constexpr void operator()(html::css_props& p) const {
         p.*Field = v;
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, tokens are passed directly as css values
     constexpr operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return v;
     }
 };
@@ -438,14 +440,14 @@ template<typename... Mods>
 inline auto flex(Mods... mods) -> html::css_class {
     html::css_props p{.display = "flex"};
     (mods(p), ...);
-    return {p};
+    return html::css_class{p};
 }
 
 template<typename... Mods>
 inline auto grid(Mods... mods) -> html::css_class {
     html::css_props p{.display = "grid"};
     (mods(p), ...);
-    return {p};
+    return html::css_class{p};
 }
 
 // No display preset — apply mods to a blank css_props.
@@ -453,7 +455,7 @@ template<typename... Mods>
 inline auto make(Mods... mods) -> html::css_class {
     html::css_props p{};
     (mods(p), ...);
-    return {p};
+    return html::css_class{p};
 }
 
 } // namespace css

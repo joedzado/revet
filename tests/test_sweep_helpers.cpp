@@ -66,11 +66,11 @@ TEST_CASE("html_doc sets lang; standard_head has the basics", "[html]") {
     const auto doc = html::html_doc{html::lang("en"), html::standard_head({.title = "A <b>", .theme_color = "#111"}),
                                     html::body{"x"}};
     CHECK(doc.str.starts_with(R"(<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">)"));
-    CHECK(doc.str.find("<title>A &lt;b&gt;</title>") != std::string::npos);
-    CHECK(doc.str.find(R"(<meta name="theme-color" content="#111">)") != std::string::npos);
-    CHECK(doc.str.find("/_revet/htmx.js") != std::string::npos);
-    CHECK(doc.str.find("<style>") != std::string::npos);
-    CHECK(doc.str.find("optimistic.js") == std::string::npos);
+    CHECK(doc.str.contains("<title>A &lt;b&gt;</title>"));
+    CHECK(doc.str.contains(R"(<meta name="theme-color" content="#111">)"));
+    CHECK(doc.str.contains("/_revet/htmx.js"));
+    CHECK(doc.str.contains("<style>"));
+    CHECK(!doc.str.contains("optimistic.js"));
     CHECK(html::html_doc{html::head{}, html::body{}}.str.starts_with("<!DOCTYPE html><html><head>"));
 }
 
@@ -195,7 +195,7 @@ TEST_CASE("time::parse_date and iso_date", "[time]") {
 // ── error pages ───────────────────────────────────────────────────────────────
 
 TEST_CASE("error_page without and with a renderer", "[web]") {
-    web::Request req;
+    const web::Request req;
     auto plain = web::bad_request(req, "A transaction needs a name.");
     CHECK(plain.status.code == 400);
     CHECK(plain.body == "A transaction needs a name.");
@@ -296,7 +296,7 @@ TEST_CASE("db::typed converts columns", "[db]") {
     const std::vector<std::vector<Opt>> raw{{Opt{"a"}, Opt{"2.5"}, std::nullopt, Opt{"3.0"}, Opt{"t"}}};
     auto rows = db::typed<std::string, double, std::optional<int>, int64_t, bool>(raw);
     REQUIRE(rows.size() == 1);
-    auto [name, x, maybe, n, flag] = rows[0];
+    auto [name, x, maybe, n, flag] = rows.at(0);
     CHECK(name == "a");
     CHECK(x == 2.5);
     CHECK_FALSE(maybe);

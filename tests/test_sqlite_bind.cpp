@@ -45,10 +45,10 @@ TEST_CASE("bind_arg binds numeric types natively (not as TEXT)") {
     auto r = db::sqlite::Handle<>(fx.pool);
     auto type_of = r.query("SELECT typeof(i), typeof(big), typeof(d), typeof(s) FROM t");
     REQUIRE(type_of.size() == 1);
-    REQUIRE(type_of[0][0] == "integer");
-    REQUIRE(type_of[0][1] == "integer");
-    REQUIRE(type_of[0][2] == "real");
-    REQUIRE(type_of[0][3] == "text");
+    REQUIRE(type_of.at(0).at(0) == "integer");
+    REQUIRE(type_of.at(0).at(1) == "integer");
+    REQUIRE(type_of.at(0).at(2) == "real");
+    REQUIRE(type_of.at(0).at(3) == "text");
 }
 
 TEST_CASE("bind_arg with double param preserves numeric comparison semantics") {
@@ -61,7 +61,7 @@ TEST_CASE("bind_arg with double param preserves numeric comparison semantics") {
     auto r = db::sqlite::Handle<>(fx.pool);
     auto rows = r.query("SELECT s FROM t WHERE d >= ? ORDER BY d", 5.0);
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "b");
+    REQUIRE(rows.at(0).at(0) == "b");
 }
 
 TEST_CASE("bind_arg still accepts string args") {
@@ -74,7 +74,7 @@ TEST_CASE("bind_arg still accepts string args") {
     auto r = db::sqlite::Handle<>(fx.pool);
     auto rows = r.query("SELECT i FROM t WHERE s = ?", std::string("needle"));
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "1");
+    REQUIRE(rows.at(0).at(0) == "1");
 }
 
 // Named params: simulate generated code — struct + positional ? binding
@@ -90,12 +90,12 @@ TEST_CASE("named params: positional ? binding matches named intent") {
         int min_i;
         std::string name;
     };
-    FindParams p{.min_i = 10, .name = "alice"};
+    const FindParams p{.min_i = 10, .name = "alice"};
 
     auto r = db::sqlite::Handle<>(fx.pool);
     auto rows = r.query("SELECT s FROM t WHERE i >= ? AND s = ?", p.min_i, p.name);
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "alice");
+    REQUIRE(rows.at(0).at(0) == "alice");
 }
 
 TEST_CASE("named params: repeated param passed multiple times") {
@@ -108,11 +108,11 @@ TEST_CASE("named params: repeated param passed multiple times") {
     struct SearchParams {
         int v;
     };
-    SearchParams p{.v = 5};
+    const SearchParams p{.v = 5};
 
     // :v appears twice in SQL → p.v, p.v as positional args
     auto r = db::sqlite::Handle<>(fx.pool);
     auto rows = r.query("SELECT i FROM t WHERE i = ? OR i = ?", p.v, p.v);
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "5");
+    REQUIRE(rows.at(0).at(0) == "5");
 }

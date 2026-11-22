@@ -14,9 +14,9 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
     all_routes.push_back(
         {.path = "/", .get = [](const auto&) -> web::Response { return web::to_response("ThreadSafe"); }, .post = {}});
 
-    auto const handle_req = [&](int fd) -> void {
-        auto const req = web::parse_request(fd);
-        auto route = std::ranges::find(all_routes, req.path.path, &web::Route::path);
+    const auto handle_req = [&](int fd) -> void {
+        const auto req = web::parse_request(fd);
+        const auto route = std::ranges::find(all_routes, req.path.path, &web::Route::path);
         web::send_response(
             fd, route != all_routes.end()
                     ? route->get(req)
@@ -42,10 +42,10 @@ TEST_CASE("Multithreaded request handling", "[threading]") {
                 handle_req(fds[0] /* NOLINT */);
 
                 std::array<char, 1024> buf{};
-                ssize_t const n = recv(fds[1] /* NOLINT */, buf.data(), buf.size(), 0);
-                std::string const res(buf.data(), static_cast<size_t>(n));
+                const ssize_t n = recv(fds[1] /* NOLINT */, buf.data(), buf.size(), 0);
+                const std::string res(buf.data(), static_cast<size_t>(n));
 
-                if (res.find("ThreadSafe") != std::string::npos) {
+                if (res.contains("ThreadSafe")) {
                     ++successes;
                 }
 

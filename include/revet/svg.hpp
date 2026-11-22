@@ -11,7 +11,10 @@ struct leaf : html::Node {
         : html::Node{html::raw_tag{}, std::format("<{}{}/>", Tag.value.data(), html::detail::split(c).first)} {}
 
     template<typename... Args>
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the svg DSL builds nodes and attributes from plain
+    // values
     leaf(Args&&... args) : leaf({html::Node(std::forward<Args>(args))...}) {}
+    // NOLINTEND(*-explicit-constructor)
 };
 
 // ── Attribute helpers ─────────────────────────────────────────────────────────
@@ -213,7 +216,10 @@ public:
     [[nodiscard]] auto str() const -> const std::string& {
         return d_;
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the svg DSL builds nodes and attributes from plain
+    // values
     operator html::attr_value() const {
+        // NOLINTEND(*-explicit-constructor)
         return html::attr_value{d_};
     }
 
@@ -221,7 +227,7 @@ private:
     auto cmd(char c, std::initializer_list<double> args) -> path_data& {
         d_ += c;
         bool first = true;
-        for (double a : args) {
+        for (const double a : args) {
             if (!first) {
                 d_ += ',';
             }

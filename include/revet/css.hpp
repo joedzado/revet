@@ -37,7 +37,7 @@ struct css_props {
 
     [[nodiscard]] auto to_string() const -> std::string {
         std::string s;
-        auto emit = [&](std::string_view prop, std::string_view val) -> void {
+        const auto emit = [&](std::string_view prop, std::string_view val) -> void {
             if (!val.empty()) {
                 s += prop;
                 s += ':';
@@ -163,8 +163,8 @@ struct css_class {
     std::string name;
     std::vector<std::pair<std::string, std::string>> pseudo;
 
-    css_class(std::string_view raw) : rules(raw), name(detail::make_class_name(raw)) {}
-    css_class(const css_props& p) : rules(p.to_string()), name(detail::make_class_name(rules)) {}
+    explicit css_class(std::string_view raw) : rules(raw), name(detail::make_class_name(raw)) {}
+    explicit css_class(const css_props& p) : rules(p.to_string()), name(detail::make_class_name(rules)) {}
 
     [[nodiscard]] auto hover(const css_props& p) const -> css_class {
         return _pseudo(":hover", p.to_string());
@@ -185,6 +185,7 @@ struct css_class {
         return c;
     }
 
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, classes are passed directly as html nodes
     operator Node() const {
         detail::style_registry[name] = rules;
         for (const auto& [sel, r] : pseudo) {
@@ -214,6 +215,7 @@ struct named_class {
     }
 
     operator Node() const {
+        // NOLINTEND(*-explicit-constructor)
         return Node{raw_tag{}, std::format(" .{}", css_name)};
     }
 };
@@ -270,10 +272,10 @@ struct html_doc : Node {
                                        : std::format("<!DOCTYPE html><html lang=\"{}\">", sanitize::html_escape(lang));
         out += inner;
         out += "</html>";
-        auto pos = out.find(STYLES_SENTINEL);
+        const auto pos = out.find(STYLES_SENTINEL);
         if (pos != std::string::npos) {
             out.replace(pos, STYLES_SENTINEL.size(), css);
-        } else if (size_t head = out.find("<head>"); head != std::string::npos) {
+        } else if (const size_t head = out.find("<head>"); head != std::string::npos) {
             out.insert(head + 6, css);
         } else {
             out.insert(0, css);

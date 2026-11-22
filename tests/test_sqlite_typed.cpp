@@ -25,10 +25,10 @@ TEST_CASE("query_as and scalar return typed values", "[sqlite]") {
 
     auto rows = h.query_as<std::string, std::optional<double>, int>("select name, amount, n from t order by name");
     REQUIRE(rows.size() == 2);
-    CHECK(std::get<0>(rows[0]) == "a");
-    CHECK(std::get<1>(rows[0]) == 1.5);
-    CHECK_FALSE(std::get<1>(rows[1]));
-    CHECK(std::get<2>(rows[1]) == 3);
+    CHECK(std::get<0>(rows.at(0)) == "a");
+    CHECK(std::get<1>(rows.at(0)) == 1.5);
+    CHECK_FALSE(std::get<1>(rows.at(1)));
+    CHECK(std::get<2>(rows.at(1)) == 3);
 
     CHECK(h.scalar<int64_t>("select count(*) from t") == 2);
     CHECK(h.scalar<int64_t>("select n from t where name = ?", "zzz") == std::nullopt);

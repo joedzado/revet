@@ -45,11 +45,11 @@ auto parse_csv(const std::string& text) -> std::vector<std::vector<std::string>>
     std::string field;
     bool in_quotes = false;
     bool row_has_data = false;
-    auto end_field = [&] -> void {
+    const auto end_field = [&] -> void {
         row.push_back(field);
         field.clear();
     };
-    auto end_row = [&] -> void {
+    const auto end_row = [&] -> void {
         if (row_has_data) {
             rows.push_back(row);
         }
@@ -57,10 +57,10 @@ auto parse_csv(const std::string& text) -> std::vector<std::vector<std::string>>
         row_has_data = false;
     };
     for (size_t i = 0; i < text.size(); ++i) {
-        char c = text[i];
+        const char c = text.at(i);
         if (in_quotes) {
             if (c == '"') {
-                if (i + 1 < text.size() && text[i + 1] == '"') {
+                if (i + 1 < text.size() && text.at(i + 1) == '"') {
                     field += '"';
                     ++i;
                 } else {
@@ -107,8 +107,8 @@ auto iso_639_1() -> const std::set<std::string>& {
 } // namespace
 
 auto gen_styles(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "styles.hpp");
-    fs::path styles_dir = ctx.proj / "app" / "styles";
+    const fs::path out_path = setup(ctx, "styles.hpp");
+    const fs::path styles_dir = ctx.proj / "app" / "styles";
     if (!file_exists(styles_dir)) {
         throw GenError("gen_styles: styles directory not found: " + styles_dir.string());
     }
@@ -125,7 +125,7 @@ auto gen_styles(const Ctx& ctx) -> int {
     std::map<std::string, std::string> defined_ids; // cpp name → css name
 
     for (const auto& css_file : glob(styles_dir, ".css")) {
-        std::string content = read_text(css_file);
+        const std::string content = read_text(css_file);
         all_css.push_back(content);
 
         // Selectors on lines that end with a comma carry over to the block's '{' line.
@@ -136,8 +136,8 @@ auto gen_styles(const Ctx& ctx) -> int {
                 pending.clear();
                 continue;
             }
-            bool has_open = stripped.contains('{');
-            bool ends_comma = stripped.back() == ',';
+            const bool has_open = stripped.contains('{');
+            const bool ends_comma = stripped.back() == ',';
             if (!has_open && !ends_comma) {
                 pending.clear();
                 continue;
@@ -196,8 +196,8 @@ auto gen_styles(const Ctx& ctx) -> int {
 }
 
 auto gen_i18n(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "i18n.hpp");
-    fs::path csv_path = ctx.proj / "app" / "locale" / "strings.csv";
+    const fs::path out_path = setup(ctx, "i18n.hpp");
+    const fs::path csv_path = ctx.proj / "app" / "locale" / "strings.csv";
 
     if (!file_exists(csv_path)) {
         write_file(out_path, "#pragma once\n\nnamespace i18n {}\n");
@@ -220,8 +220,9 @@ auto gen_i18n(const Ctx& ctx) -> int {
                    }) |
                    std::ranges::to<std::vector<Record>>();
 
-    auto bad = locales | std::views::filter([](const std::string& l) -> bool { return !iso_639_1().contains(l); }) |
-               std::ranges::to<Lines>();
+    const auto bad = locales |
+                     std::views::filter([](const std::string& l) -> bool { return !iso_639_1().contains(l); }) |
+                     std::ranges::to<Lines>();
     if (!bad.empty()) {
         throw GenError("ERROR gen_i18n: unrecognized locale code(s): " + join(bad, ", ") +
                        "\n  Locale column headers must be ISO 639-1 two-letter codes (e.g. en, es, fr, de).");
@@ -230,10 +231,10 @@ auto gen_i18n(const Ctx& ctx) -> int {
     const size_t n = locales.size();
     auto button = [](const auto& indexed) -> std::string {
         const auto& [i, l] = indexed;
-        auto upper = l | std::views::transform([](char c) -> char {
-                         return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-                     }) |
-                     std::ranges::to<std::string>();
+        const auto upper = l | std::views::transform([](char c) -> char {
+                               return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                           }) |
+                           std::ranges::to<std::string>();
         return cat(R"(html::button{html::attr.type("submit"), html::attr.name("lang"), html::attr.value(")", l,
                    "\"), styles::btn, detail::locale_idx == ", std::to_string(i),
                    " ? html::Node(styles::btn_solid) : html::Node(styles::btn_ghost), \"", upper, "\"},");
@@ -249,7 +250,7 @@ auto gen_i18n(const Ctx& ctx) -> int {
             throw GenError("gen_i18n: row without a 'key' column");
         }
         auto translation = [&](const std::string& locale) -> std::string {
-            auto v = rec.find(locale);
+            const auto v = rec.find(locale);
             if (v == rec.end()) {
                 throw GenError("gen_i18n: missing translation for " + locale + " in " + key_it->second);
             }

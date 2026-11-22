@@ -73,7 +73,7 @@ TEST_CASE("async dispatch: a failing guard stops the handler", "[async]") {
     };
     const auto resp = run(make_request(), handler, {web::api::bearer_static("token")});
     CHECK(resp.status == web::status::unauthorized);
-    CHECK(resp.body.find("secret") == std::string::npos);
+    CHECK(!resp.body.contains("secret"));
     CHECK_FALSE(ran.load());
 }
 
@@ -146,7 +146,7 @@ TEST_CASE("async dispatch: a throw before the first suspend gives a 500", "[asyn
     };
     const auto resp = run(make_request(), handler);
     CHECK(resp.status == web::status::internal_error);
-    CHECK(resp.body.find("boom") == std::string::npos);
+    CHECK(!resp.body.contains("boom"));
 }
 
 TEST_CASE("async dispatch: a throw after a suspend gives a 500", "[async]") {

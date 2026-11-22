@@ -315,7 +315,7 @@ namespace detail {
 inline auto js_escape(std::string_view s) -> std::string {
     std::string out;
     out.reserve(s.size());
-    for (char c : s) {
+    for (const char c : s) {
         if (c == '\\') {
             out += "\\\\";
         } else if (c == '\'') {

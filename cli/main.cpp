@@ -8,8 +8,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <ranges>
 #include <set>
+#include <span>
+#include <string_view>
 #include <unistd.h>
+#include <vector>
 
 #include "cli.hpp"
 
@@ -34,27 +38,28 @@ struct Args {
 }
 
 auto parse(int argc, char** argv) -> Args {
+    const auto args = std::span(argv, static_cast<size_t>(argc)) | std::ranges::to<std::vector<std::string_view>>();
     Args a;
     int positional = 0;
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+    for (size_t i = 1; i < args.size(); ++i) {
+        std::string arg(args.at(i));
         std::optional<std::string> inline_value;
         if (arg.size() > 2 && arg.starts_with("--")) {
-            if (size_t eq = arg.find('='); eq != std::string::npos) {
+            if (const size_t eq = arg.find('='); eq != std::string::npos) {
                 inline_value = arg.substr(eq + 1);
                 arg = arg.substr(0, eq);
             }
         }
-        auto value = [&] -> std::string {
+        const auto value = [&] -> std::string {
             if (inline_value) {
                 return *inline_value;
             }
-            if (i + 1 >= argc) {
+            if (i + 1 >= args.size()) {
                 usage_error("argument " + arg + ": expected one argument");
             }
-            return argv[++i];
+            return std::string(args.at(++i));
         };
-        auto flag = [&](bool& target) -> void {
+        const auto flag = [&](bool& target) -> void {
             if (inline_value) {
                 usage_error("argument " + arg + ": ignored explicit argument '" + *inline_value + "'");
             }
@@ -62,7 +67,7 @@ auto parse(int argc, char** argv) -> Args {
         };
 
         if (arg == "--port") {
-            std::string v = value();
+            const std::string v = value();
             char* end = nullptr;
             long n = std::strtol(v.c_str(), &end, 10);
             if (v.empty() || *end != '\0' || n <= 0 || n > 65535) {
@@ -70,7 +75,7 @@ auto parse(int argc, char** argv) -> Args {
             }
             a.port = static_cast<int>(n);
         } else if (arg == "--logging") {
-            std::string v = value();
+            const std::string v = value();
             static const std::set<std::string> levels = {"debug", "info", "warn", "error"};
             if (!levels.contains(v)) {
                 usage_error("argument --logging: invalid choice: '" + v + "' (choose from debug, info, warn, error)");

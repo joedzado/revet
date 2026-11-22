@@ -48,11 +48,11 @@ public:
         if (dot != std::string_view::npos && frac.empty()) {
             throw DecimalError("decimal: invalid number");
         }
-        auto is_digit = [](char c) -> bool { return c >= '0' && c <= '9'; };
+        const auto is_digit = [](char c) -> bool { return c >= '0' && c <= '9'; };
         if (!std::ranges::all_of(whole, is_digit) || !std::ranges::all_of(frac, is_digit)) {
             throw DecimalError("decimal: invalid number");
         }
-        auto shift_in = [](wide acc, char c) -> wide { return add_checked(mul_checked(acc, 10), c - '0'); };
+        const auto shift_in = [](wide acc, char c) -> wide { return add_checked(mul_checked(acc, 10), c - '0'); };
         const wide value = std::ranges::fold_left(frac, std::ranges::fold_left(whole, wide{0}, shift_in), shift_in);
         if (frac.size() > kMaxScale) {
             throw DecimalError("decimal: scale too large");

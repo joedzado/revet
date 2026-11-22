@@ -11,7 +11,7 @@ namespace revet::codegen {
 // ── Files ───────────────────────────────────────────────────────────────────
 
 auto read_text(const fs::path& p) -> std::string {
-    std::ifstream in(p, std::ios::binary);
+    const std::ifstream in(p, std::ios::binary);
     if (!in) {
         throw GenError("cannot read " + p.string());
     }
@@ -54,7 +54,7 @@ auto glob(const fs::path& dir, std::string_view suffix, bool recursive) -> std::
     if (!fs::exists(dir, ec)) {
         return out;
     }
-    auto matching = [&](const auto& entries) -> std::vector<fs::path> {
+    const auto matching = [&](const auto& entries) -> std::vector<fs::path> {
         return entries | std::views::filter([&](const fs::directory_entry& e) -> bool {
                    return e.is_regular_file(ec) && e.path().filename().string().ends_with(suffix);
                }) |
@@ -83,39 +83,37 @@ auto tmpl(const Ctx& ctx, std::string_view name) -> std::string {
 }
 
 auto subst(std::string_view text, const Vars& vars) -> std::string {
-    auto lookup = [&](const std::string& key) -> const std::string& {
-        auto it = std::ranges::find(vars, key, &Vars::value_type::first);
+    const auto lookup = [&](const std::string& key) -> const std::string& {
+        const auto it = std::ranges::find(vars, key, &Vars::value_type::first);
         if (it == vars.end()) {
             throw GenError("template: no value for '" + key + "'");
         }
         return it->second;
     };
-    auto ident_char = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     std::string out;
     out.reserve(text.size());
     size_t i = 0;
     while (i < text.size()) {
-        if (text[i] != '$') {
-            out += text[i++];
+        if (text.at(i) != '$') {
+            out += text.at(i++);
             continue;
         }
-        if (i + 1 < text.size() && text[i + 1] == '$') {
+        if (i + 1 < text.size() && text.at(i + 1) == '$') {
             out += '$';
             i += 2;
             continue;
         }
         std::string key;
-        if (i + 1 < text.size() && text[i + 1] == '{') {
-            size_t close = text.find('}', i + 2);
+        if (i + 1 < text.size() && text.at(i + 1) == '{') {
+            const size_t close = text.find('}', i + 2);
             if (close == std::string_view::npos) {
                 throw GenError("template: unterminated ${");
             }
             key = std::string(text.substr(i + 2, close - i - 2));
             i = close + 1;
         } else {
-            const auto* name_end =
-                std::find_if_not(text.begin() + static_cast<std::ptrdiff_t>(i) + 1, text.end(), ident_char);
-            auto j = static_cast<size_t>(name_end - text.begin());
+            constexpr std::string_view k_ident = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+            const auto j = std::min(text.find_first_not_of(k_ident, i + 1), text.size());
             if (j == i + 1) {
                 throw GenError("template: invalid placeholder");
             }
@@ -131,7 +129,7 @@ auto subst(std::string_view text, const Vars& vars) -> std::string {
 
 auto strip(std::string_view s) -> std::string {
     constexpr std::string_view k_ws = " \t\n\r\f\v";
-    size_t b = s.find_first_not_of(k_ws);
+    const size_t b = s.find_first_not_of(k_ws);
     if (b == std::string_view::npos) {
         return {};
     }
@@ -183,14 +181,14 @@ auto split_args(std::string_view s) -> Lines {
     Lines out;
     int depth = 0;
     std::string buf;
-    auto flush = [&] -> void {
-        std::string item = strip(buf);
+    const auto flush = [&] -> void {
+        const std::string item = strip(buf);
         if (!item.empty()) {
             out.push_back(item);
         }
         buf.clear();
     };
-    for (char ch : s) {
+    for (const char ch : s) {
         if (ch == '<' || ch == '(' || ch == '[') {
             ++depth;
         } else if (ch == '>' || ch == ')' || ch == ']') {
@@ -242,7 +240,7 @@ auto collapse_ws(std::string_view s) -> std::string {
 }
 
 auto count_newlines(std::string_view s, std::size_t end) -> std::size_t {
-    return static_cast<std::size_t>(std::count(s.begin(), s.begin() + static_cast<std::ptrdiff_t>(end), '\n'));
+    return static_cast<std::size_t>(std::ranges::count(s.substr(0, end), '\n'));
 }
 
 auto rel_include(const fs::path& hpp, const fs::path& proj) -> std::string {

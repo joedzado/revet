@@ -218,17 +218,17 @@ inline auto scroll_pin(html::Node content) -> html::Node {
     const auto outer_id = std::format("sp-o-{}", n);
     const auto card_id = std::format("sp-c-{}", n);
     const auto tl_name = std::format("--sp{}", n);
-    std::string inst_css = "#" + outer_id + "{view-timeline:" + tl_name +
-                           " block}"
-                           "#" +
-                           card_id +
-                           "{"
-                           "animation:_ui_pin linear both;"
-                           "animation-timeline:" +
-                           tl_name +
-                           ";"
-                           "animation-range:entry 0% exit 100%"
-                           "}";
+    const std::string inst_css = "#" + outer_id + "{view-timeline:" + tl_name +
+                                 " block}"
+                                 "#" +
+                                 card_id +
+                                 "{"
+                                 "animation:_ui_pin linear both;"
+                                 "animation-timeline:" +
+                                 tl_name +
+                                 ";"
+                                 "animation-range:entry 0% exit 100%"
+                                 "}";
     return html::style{html::raw(inst_css)} + html::div{
                                                   detail::cls("ui-sp-outer"),
                                                   html::attr.id(outer_id),

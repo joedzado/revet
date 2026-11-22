@@ -21,7 +21,9 @@ struct Str {
     [[nodiscard]] auto get() const -> std::string_view {
         return data.at(detail::locale_idx);
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, translated strings are passed directly as text
     operator std::string_view() const {
+        // NOLINTEND(*-explicit-constructor)
         return get();
     }
 };

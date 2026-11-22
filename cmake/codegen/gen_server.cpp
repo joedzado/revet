@@ -24,12 +24,12 @@ auto to_bytes(const Node& value) -> unsigned long long {
         n = static_cast<double>(py_int(value));
     } else {
         const std::string text = py_str(value);
-        auto m = ctre::match<R"RE(\s*(\d+(?:\.\d+)?)\s*([kKmMgG]?)[iI]?[bB]?\s*)RE">(text);
+        const auto m = ctre::match<R"RE(\s*(\d+(?:\.\d+)?)\s*([kKmMgG]?)[iI]?[bB]?\s*)RE">(text);
         if (!m) {
             bad_size(text);
         }
         double unit = 1;
-        switch (m.get<2>().to_view().empty() ? '\0' : lower(m.get<2>().to_view())[0]) {
+        switch (m.get<2>().to_view().empty() ? '\0' : lower(m.get<2>().to_view()).at(0)) {
             case 'k':
                 unit = 1024.0;
                 break;
@@ -53,13 +53,13 @@ auto to_bytes(const Node& value) -> unsigned long long {
 } // namespace
 
 auto gen_server(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "server.hpp");
-    fs::path toml = ctx.proj / "revet.toml";
+    const fs::path out_path = setup(ctx, "server.hpp");
+    const fs::path toml = ctx.proj / "revet.toml";
 
     std::optional<unsigned long long> max_body;
     std::optional<std::string> data_dir;
     if (file_exists(toml)) {
-        Node root = parse_toml(read_text(toml));
+        const Node root = parse_toml(read_text(toml));
         if (const Node* v = root.find("max_body")) {
             max_body = to_bytes(*v);
         }

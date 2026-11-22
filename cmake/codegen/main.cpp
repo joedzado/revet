@@ -6,6 +6,11 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "common.hpp"
 
@@ -38,26 +43,28 @@ auto generators() -> const std::map<std::string, std::function<int(const Ctx&)>>
 
 } // namespace
 
-auto main(int argc, char** argv) -> int {
+auto main(int argc, char* const* argv) -> int {
     if (argc != 4) {
         std::cerr << "usage: revet-codegen <generator> <project-root> <framework-root>\n";
         return 2;
     }
+    const auto args = std::span(argv, static_cast<size_t>(argc)) | std::ranges::to<std::vector<std::string_view>>();
+    const std::string generator(args.at(1));
     try {
         const auto& table = generators();
-        auto it = table.find(argv[1]);
+        const auto it = table.find(generator);
         if (it == table.end()) {
-            std::cerr << "revet-codegen: unknown generator '" << argv[1] << "'\n";
+            std::cerr << "revet-codegen: unknown generator '" << generator << "'\n";
             return 2;
         }
-        Ctx ctx{.proj = std::filesystem::path(argv[2]), .framework = std::filesystem::path(argv[3])};
+        Ctx ctx{.proj = std::filesystem::path(args.at(2)), .framework = std::filesystem::path(args.at(3))};
         return it->second(ctx);
     } catch (const revet::codegen::GenError& e) {
         std::cerr << e.what() << "\n";
     } catch (const std::exception& e) {
-        std::cerr << "revet-codegen: " << argv[1] << ": " << e.what() << "\n";
+        std::cerr << "revet-codegen: " << generator << ": " << e.what() << "\n";
     } catch (...) {
-        std::cerr << "revet-codegen: " << argv[1] << ": unexpected error\n";
+        std::cerr << "revet-codegen: " << generator << ": unexpected error\n";
     }
     return 1;
 }

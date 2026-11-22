@@ -6,13 +6,10 @@ Checks: >
   cert-*,
   cppcoreguidelines-*,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-member-init,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-init-variables,
   -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   google-*,
   -google-explicit-constructor,
   -google-readability-braces-around-statements,
@@ -31,14 +28,22 @@ Checks: >
   -readability-function-cognitive-complexity,
   -readability-convert-member-functions-to-static,
   -misc-include-cleaner,
-  -misc-const-correctness,
   -misc-use-internal-linkage,
-  modernize-*
+  modernize-*,
+  misc-const-correctness,
+  misc-non-private-member-variables-in-classes
 
 WarningsAsErrors: true
 HeaderFilterRegex: '^(src/|include/)'
 
 CheckOptions:
+  # Map-like operator[] (insert or key lookup), not an index.
+  cppcoreguidelines-pro-bounds-avoid-unchecked-container-access.ExcludeClasses: '::std::map;::std::unordered_map;::std::flat_map;::web::ParamMap;::simdjson::dom::object;::simdjson::dom::element'
+  # Plain structs with all-public members are fine (C.2, C.131).
+  misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
+  # Positive literals in bit operations (`x & 0x3F`, `n << 8`) can't carry a sign (ES.101).
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  hicpp-signed-bitwise.IgnorePositiveIntegerLiterals: true
   modernize-loop-convert.MinConfidence: risky
   modernize-use-auto.MinTypeNameLength: 0
   modernize-use-designated-initializers.IgnoreSingleElementAggregates: false

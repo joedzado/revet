@@ -95,8 +95,8 @@ template<ctll::fixed_string P>
 auto replace_all(std::string_view s, std::string_view with) -> std::string {
     std::string out;
     std::size_t pos = 0;
-    for (auto m : ctre::search_all<P>(s)) {
-        std::size_t at = offset_in(s, m.to_view());
+    for (const auto m : ctre::search_all<P>(s)) {
+        const std::size_t at = offset_in(s, m.to_view());
         out.append(s.substr(pos, at - pos));
         out += with;
         pos = at + m.size();
@@ -115,8 +115,8 @@ template<ctll::fixed_string P>
 auto split_at(std::string_view s) -> Lines {
     Lines pieces;
     std::size_t prev = 0;
-    for (auto m : ctre::search_all<P>(s)) {
-        std::size_t at = offset_in(s, m.to_view());
+    for (const auto m : ctre::search_all<P>(s)) {
+        const std::size_t at = offset_in(s, m.to_view());
         pieces.emplace_back(s.substr(prev, at - prev));
         prev = at + m.size();
     }

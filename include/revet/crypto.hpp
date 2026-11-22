@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "c_api.hpp"
 #include "log.hpp"
 
 namespace web::crypto {
@@ -28,8 +29,8 @@ inline auto secure_eq(std::string_view a, std::string_view b) -> bool {
     // same length. Use a dummy comparison against `a` itself when lengths
     // differ so the work performed depends only on `a.size()`, not on `b`.
     const std::size_t len = a.size();
-    const auto* lhs = reinterpret_cast<const unsigned char*>(a.data());
-    const auto* rhs = (b.size() == len) ? reinterpret_cast<const unsigned char*>(b.data()) : lhs;
+    const auto* lhs = c_api::uchars(a);
+    const auto* rhs = (b.size() == len) ? c_api::uchars(b) : lhs;
     const bool same_bytes = sodium_memcmp(lhs, rhs, len) == 0;
     return same_bytes && a.size() == b.size();
 }
@@ -69,8 +70,7 @@ inline void get_key(Key& key) {
             gethostname(hostname.data(), hostname.size() - 1);
             std::array<unsigned char, crypto_pwhash_SALTBYTES> salt{};
             const size_t hlen = std::strlen(hostname.data());
-            crypto_generichash(salt.data(), salt.size(), reinterpret_cast<const unsigned char*>(hostname.data()), hlen,
-                               nullptr, 0);
+            crypto_generichash(salt.data(), salt.size(), c_api::uchars(hostname), hlen, nullptr, 0);
             if (crypto_pwhash(derived.data(), derived.size(), hostname.data(), hlen, salt.data(),
                               crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE,
                               crypto_pwhash_ALG_DEFAULT) != 0) {
@@ -99,8 +99,7 @@ inline auto encrypt(std::string_view plaintext) -> std::string {
 
     // Encrypt
     std::string ciphertext(plaintext.size() + crypto_secretbox_MACBYTES, '\0');
-    crypto_secretbox_easy(reinterpret_cast<unsigned char*>(ciphertext.data()),
-                          reinterpret_cast<const unsigned char*>(plaintext.data()), plaintext.size(), nonce.data(),
+    crypto_secretbox_easy(c_api::uchars(ciphertext), c_api::uchars(plaintext), plaintext.size(), nonce.data(),
                           key.data());
 
     // Combine nonce + ciphertext + base64 encode
@@ -108,8 +107,7 @@ inline auto encrypt(std::string_view plaintext) -> std::string {
     combined.append(ciphertext);
 
     std::vector<char> b64(combined.size() * 2 + 1);
-    sodium_bin2base64(b64.data(), b64.size(), reinterpret_cast<const unsigned char*>(combined.data()), combined.size(),
-                      sodium_base64_VARIANT_ORIGINAL);
+    sodium_bin2base64(b64.data(), b64.size(), c_api::uchars(combined), combined.size(), sodium_base64_VARIANT_ORIGINAL);
 
     return {b64.data()};
 }
@@ -128,8 +126,8 @@ inline auto decrypt(std::string_view encrypted) -> std::string {
     // Base64 decode
     std::string combined(encrypted.size(), '\0');
     size_t combined_len;
-    int ret = sodium_base642bin(reinterpret_cast<unsigned char*>(combined.data()), combined.size(), encrypted.data(),
-                                encrypted.size(), nullptr, &combined_len, nullptr, sodium_base64_VARIANT_ORIGINAL);
+    int ret = sodium_base642bin(c_api::uchars(combined), combined.size(), encrypted.data(), encrypted.size(), nullptr,
+                                &combined_len, nullptr, sodium_base64_VARIANT_ORIGINAL);
     if (ret != 0 || combined_len < crypto_secretbox_NONCEBYTES) {
         return ""; // Decryption failed
     }
@@ -138,8 +136,8 @@ inline auto decrypt(std::string_view encrypted) -> std::string {
     std::array<unsigned char, crypto_secretbox_NONCEBYTES> nonce{};
     std::memcpy(nonce.data(), combined.data(), nonce.size());
 
-    const unsigned char* ciphertext = reinterpret_cast<const unsigned char*>(combined.data()) + nonce.size();
-    size_t ciphertext_len = combined_len - nonce.size();
+    const unsigned char* ciphertext = c_api::uchars(std::string_view(combined).substr(nonce.size()));
+    const size_t ciphertext_len = combined_len - nonce.size();
 
     if (ciphertext_len < crypto_secretbox_MACBYTES) {
         return ""; // Too short
@@ -147,8 +145,7 @@ inline auto decrypt(std::string_view encrypted) -> std::string {
 
     // Decrypt
     std::string plaintext(ciphertext_len - crypto_secretbox_MACBYTES, '\0');
-    ret = crypto_secretbox_open_easy(reinterpret_cast<unsigned char*>(plaintext.data()), ciphertext, ciphertext_len,
-                                     nonce.data(), key.data());
+    ret = crypto_secretbox_open_easy(c_api::uchars(plaintext), ciphertext, ciphertext_len, nonce.data(), key.data());
 
     if (ret != 0) {
         log::warn("crypto::decrypt: authentication failed (bad key or corrupted ciphertext)");

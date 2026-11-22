@@ -18,7 +18,7 @@ TEST_CASE("CSRF Token Generation", "[csrf]") {
 }
 
 TEST_CASE("CSRF Middleware Logic", "[csrf]") {
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     SECTION("GET generates token if missing") {
         web::Request req;
@@ -72,7 +72,7 @@ TEST_CASE("CSRF Middleware Logic", "[csrf]") {
 }
 
 TEST_CASE("CSRF blocks PATCH without token", "[csrf]") {
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     SECTION("PATCH fails without token") {
         web::Request req;
@@ -98,7 +98,7 @@ TEST_CASE("CSRF rejects forged plaintext cookies (subdomain bypass)", "[csrf][se
     // A subdomain attacker who can set cookies on the parent domain doesn't
     // hold REVET_COOKIE_KEY. They can set a plaintext "_csrf" cookie and a
     // matching form field, but the cookie won't decrypt — fail closed.
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     web::Request req;
     req.method = web::Method::POST;
@@ -111,10 +111,10 @@ TEST_CASE("CSRF rejects forged plaintext cookies (subdomain bypass)", "[csrf][se
 
 TEST_CASE("CSRF rejects tampered ciphertext", "[csrf][security]") {
     // Real sealed cookie, but flip one byte. AEAD verification fails.
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     std::string sealed = seal("legit-token");
-    sealed[sealed.size() / 2] = (sealed[sealed.size() / 2] == 'A') ? 'B' : 'A';
+    sealed.at(sealed.size() / 2) = (sealed.at(sealed.size() / 2) == 'A') ? 'B' : 'A';
 
     web::Request req;
     req.method = web::Method::POST;
@@ -128,7 +128,7 @@ TEST_CASE("CSRF: cross-user token replay rejected", "[csrf][security]") {
     // User A's sealed cookie + User A's raw token must NOT validate when
     // submitted as someone else's request whose cookie was minted with a
     // different raw token. Each token is single-cookie-bound.
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     web::Request req;
     req.method = web::Method::POST;
@@ -142,7 +142,7 @@ TEST_CASE("CSRF: fresh visitor POST is rejected", "[csrf][security]") {
     // First-ever request, no prior GET. Client has no cookie yet, but tries
     // to POST. Must 403 — they can't possibly know the server's not-yet-
     // -issued token.
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     web::Request req;
     req.method = web::Method::POST;
@@ -153,7 +153,7 @@ TEST_CASE("CSRF: fresh visitor POST is rejected", "[csrf][security]") {
 
 TEST_CASE("CSRF: GET refresh issues new cookie when prior cookie unsealable", "[csrf][security]") {
     // If the cookie is garbage, the middleware rotates a new sealed cookie.
-    web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
+    const web::Handler handler = [](const web::Request&) -> web::Response { return web::to_response("OK"); };
 
     web::Request req;
     req.method = web::Method::GET;
@@ -164,11 +164,11 @@ TEST_CASE("CSRF: GET refresh issues new cookie when prior cookie unsealable", "[
 }
 
 TEST_CASE("CSRF Field Helper", "[csrf]") {
-    web::Request req;
+    const web::Request req;
     web::Context::current().states[typeid(web::csrf::CsrfToken)] = web::csrf::CsrfToken{.value = "my-token"};
-    auto node = web::csrf::field(req);
-    std::string html = node;
-    REQUIRE(html.find("type=\"hidden\"") != std::string::npos);
-    REQUIRE(html.find("name=\"csrf_token\"") != std::string::npos);
-    REQUIRE(html.find("value=\"my-token\"") != std::string::npos);
+    const auto node = web::csrf::field(req);
+    const std::string html = node;
+    REQUIRE(html.contains("type=\"hidden\""));
+    REQUIRE(html.contains("name=\"csrf_token\""));
+    REQUIRE(html.contains("value=\"my-token\""));
 }

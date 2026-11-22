@@ -29,14 +29,14 @@ struct Model {
 
 // Strips a trailing `= ...` initializer from a single-line statement.
 auto drop_initializer(const std::string& line) -> std::string {
-    size_t eq = line.find('=');
+    const size_t eq = line.find('=');
     if (eq == std::string::npos) {
         return line;
     }
     if (line.find('\n', eq) != std::string::npos) {
         return line;
     }
-    size_t last = eq == 0 ? std::string::npos : line.find_last_not_of(" \t\n\r", eq - 1);
+    const size_t last = eq == 0 ? std::string::npos : line.find_last_not_of(" \t\n\r", eq - 1);
     return line.substr(0, last == std::string::npos ? 0 : last + 1);
 }
 
@@ -48,7 +48,7 @@ auto parse_fields(const std::string& body) -> std::vector<Field> {
             return std::nullopt;
         }
         line = strip(drop_initializer(line));
-        if (auto m = ctre::match<R"RE(([\w:<>,\s]+?)\s+(\w+))RE">(line)) {
+        if (const auto m = ctre::match<R"RE(([\w:<>,\s]+?)\s+(\w+))RE">(line)) {
             return Field{.type = collapse_ws(strip(m.get<1>().to_view())), .name = m.get<2>().to_string()};
         }
         return std::nullopt;
@@ -68,17 +68,18 @@ auto ns_at(const std::string& content, size_t pos) -> std::string {
     std::vector<Frame> stack;
     int depth = 0;
     size_t i = 0;
-    auto is_word = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    const auto is_word = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
     while (i < pos) {
-        if (content.compare(i, 9, "namespace") == 0 && (i == 0 || !is_word(content[i - 1]))) {
-            if (auto m = ctre::starts_with<R"RE(namespace\s+([\w:]+)\s*\{)RE">(std::string_view(content).substr(i))) {
+        if (content.compare(i, 9, "namespace") == 0 && (i == 0 || !is_word(content.at(i - 1)))) {
+            if (const auto m =
+                    ctre::starts_with<R"RE(namespace\s+([\w:]+)\s*\{)RE">(std::string_view(content).substr(i))) {
                 ++depth;
                 stack.push_back({.name = m.get<1>().to_string(), .depth = depth});
                 i += m.get<0>().size();
                 continue;
             }
         }
-        char ch = content[i];
+        const char ch = content.at(i);
         if (ch == '{') {
             ++depth;
         } else if (ch == '}') {
@@ -100,17 +101,17 @@ auto is_vector(const std::string& t) -> bool {
 }
 
 auto inner_type(const std::string& t) -> std::string {
-    size_t lt = t.find('<');
-    size_t gt = t.rfind('>');
+    const size_t lt = t.find('<');
+    const size_t gt = t.rfind('>');
     return strip(t.substr(lt + 1, gt - lt - 1));
 }
 
 auto deser_expr(const std::string& ftype, const std::string& value_expr) -> std::string {
     if (is_optional(ftype)) {
-        std::string inner = inner_type(ftype);
-        if (auto km = ctre::search<R"RE(\.at\("([^"]+)"\)$)RE">(value_expr)) {
-            std::string key = km.get<1>().to_string();
-            std::string base = value_expr.substr(0, value_expr.rfind(".at("));
+        const std::string inner = inner_type(ftype);
+        if (const auto km = ctre::search<R"RE(\.at\("([^"]+)"\)$)RE">(value_expr)) {
+            const std::string key = km.get<1>().to_string();
+            const std::string base = value_expr.substr(0, value_expr.rfind(".at("));
             return cat(base, ".has(\"", key, "\") ? std::optional<", inner, ">(static_cast<", inner, ">(", base,
                        ".at(\"", key, "\"))) : std::nullopt");
         }
@@ -142,7 +143,7 @@ auto row_expr(const std::string& ftype, const std::string& cell) -> std::string 
         return cat("static_cast<", ftype, ">(std::stoll(", cell, "))");
     }
     if (is_optional(ftype)) {
-        std::string inner = inner_type(ftype);
+        const std::string inner = inner_type(ftype);
         return cat("(", cell, ".empty() ? std::optional<", inner, ">{} : std::optional<", inner, ">(",
                    row_expr(inner, cell), "))");
     }
@@ -158,7 +159,7 @@ auto indented(const Lines& lines) -> Lines {
 auto ser_lines(const std::string& ftype, const std::string& expr, const std::string& out_var) -> Lines {
     Lines lines;
     if (is_optional(ftype)) {
-        std::string inner = inner_type(ftype);
+        const std::string inner = inner_type(ftype);
         lines.push_back(cat("    if (", expr, ".has_value()) {"));
         append(lines, indented(ser_lines(inner, cat("(*", expr, ")"), out_var)));
         lines.emplace_back("    } else {");
@@ -167,7 +168,7 @@ auto ser_lines(const std::string& ftype, const std::string& expr, const std::str
         return lines;
     }
     if (is_vector(ftype)) {
-        std::string inner = inner_type(ftype);
+        const std::string inner = inner_type(ftype);
         lines.push_back(cat("    ", out_var, " += \"[\";"));
         lines.emplace_back("    {");
         lines.emplace_back("        bool first = true;");
@@ -201,20 +202,20 @@ auto model_sources(const Ctx& ctx) -> std::vector<fs::path> {
 } // namespace
 
 auto gen_json_models(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "models.hpp");
+    const fs::path out_path = setup(ctx, "models.hpp");
     std::vector<fs::path> sources = model_sources(ctx);
 
     std::vector<Model> models;
     for (const auto& f : sources) {
         std::string content = read_text(f);
-        std::ranges::transform(find_models(std::string_view(content)), std::back_inserter(models),
-                               [&](const auto& m) -> Model {
-                                   std::string name = m.template get<1>().to_string();
-                                   std::string ns = ns_at(content, offset_in(content, m.template get<0>().to_view()));
-                                   return {.src_file = f.filename().string(),
-                                           .qualified = ns.empty() ? name : cat(ns, "::", name),
-                                           .fields = parse_fields(m.template get<2>().to_string())};
-                               });
+        std::ranges::transform(
+            find_models(std::string_view(content)), std::back_inserter(models), [&](const auto& m) -> Model {
+                const std::string name = m.template get<1>().to_string();
+                const std::string ns = ns_at(content, offset_in(content, m.template get<0>().to_view()));
+                return {.src_file = f.filename().string(),
+                        .qualified = ns.empty() ? name : cat(ns, "::", name),
+                        .fields = parse_fields(m.template get<2>().to_string())};
+            });
     }
 
     Lines lines = file_header({"#include <revet/json.hpp>", "#include <string>", "#include <string_view>",
@@ -223,7 +224,7 @@ auto gen_json_models(const Ctx& ctx) -> int {
                            [&](const fs::path& hpp) -> std::string { return rel_include(hpp, ctx.proj); });
 
     // Preamble template: static_tmpl() strips trailing newlines; splitlines() keeps the leading blank line.
-    std::string preamble = tmpl(ctx, "json_models_preamble.tmpl");
+    const std::string preamble = tmpl(ctx, "json_models_preamble.tmpl");
     append(lines, splitlines(preamble));
     lines.emplace_back("");
 
@@ -235,7 +236,7 @@ auto gen_json_models(const Ctx& ctx) -> int {
     for (const auto& model : models) {
         std::string name = model.qualified;
 
-        auto indexed_fields = std::views::zip(std::views::iota(0UZ), model.fields);
+        const auto indexed_fields = std::views::zip(std::views::iota(0UZ), model.fields);
         std::string fv_body =
             join(model.fields | std::views::transform([](const Field& fd) -> std::string {
                      return cat("    out.", fd.name, " = ", deser_expr(fd.type, cat("v.at(\"", fd.name, "\")")), ";");
@@ -262,7 +263,7 @@ auto gen_json_models(const Ctx& ctx) -> int {
             append(out, ser_lines(fd.type, cat("val.", fd.name), "out"));
             return out;
         };
-        auto tj_lines =
+        const auto tj_lines =
             indexed_fields | std::views::transform(field_json) | std::views::join | std::ranges::to<Lines>();
         lines.push_back(subst(to_json_t, {{"name", name}, {"body", join(tj_lines, "\n")}}));
         lines.emplace_back("");

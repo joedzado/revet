@@ -68,21 +68,21 @@ inline auto positional_sql(std::string_view sql) -> std::string {
     const auto is_ident = [](char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
 
     while (i < sql.size()) {
-        const char c = sql[i];
-        const char next = i + 1 < sql.size() ? sql[i + 1] : '\0';
+        const char c = sql.at(i);
+        const char next = i + 1 < sql.size() ? sql.at(i + 1) : '\0';
 
         if (c == '\'' || c == '"') {
             // E'...' strings also escape with a backslash. The prefix only counts
             // when it is a whole token, so name'x' style text is not misread.
-            const bool backslash =
-                c == '\'' && i > 0 && (sql[i - 1] == 'e' || sql[i - 1] == 'E') && (i < 2 || !is_ident(sql[i - 2]));
+            const bool backslash = c == '\'' && i > 0 && (sql.at(i - 1) == 'e' || sql.at(i - 1) == 'E') &&
+                                   (i < 2 || !is_ident(sql.at(i - 2)));
             size_t j = i + 1;
             while (j < sql.size()) {
-                if (backslash && sql[j] == '\\') {
+                if (backslash && sql.at(j) == '\\') {
                     j += 2;
-                } else if (sql[j] == c) {
+                } else if (sql.at(j) == c) {
                     // A doubled quote is an escaped quote, not the end.
-                    if (j + 1 < sql.size() && sql[j + 1] == c) {
+                    if (j + 1 < sql.size() && sql.at(j + 1) == c) {
                         j += 2;
                     } else {
                         break;
@@ -111,14 +111,14 @@ inline auto positional_sql(std::string_view sql) -> std::string {
                 }
             }
             copy_until(std::min(j, sql.size()));
-        } else if (c == '$' && (i == 0 || !is_ident(sql[i - 1]))) {
+        } else if (c == '$' && (i == 0 || !is_ident(sql.at(i - 1)))) {
             // $tag$ ... $tag$ (tag may be empty). Anything else, like $1, is copied.
             size_t tag_end = i + 1;
-            while (tag_end < sql.size() && is_ident(sql[tag_end])) {
+            while (tag_end < sql.size() && is_ident(sql.at(tag_end))) {
                 ++tag_end;
             }
-            const bool tag_ok = tag_end < sql.size() && sql[tag_end] == '$' &&
-                                std::isdigit(static_cast<unsigned char>(sql[i + 1])) == 0;
+            const bool tag_ok = tag_end < sql.size() && sql.at(tag_end) == '$' &&
+                                std::isdigit(static_cast<unsigned char>(sql.at(i + 1))) == 0;
             if (tag_ok) {
                 const std::string_view tag = sql.substr(i, tag_end - i + 1);
                 const size_t close = sql.find(tag, tag_end + 1);

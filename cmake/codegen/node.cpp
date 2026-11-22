@@ -73,7 +73,7 @@ private:
         if (p_ >= t_.size()) {
             fail("json: unexpected end");
         }
-        return t_[p_];
+        return t_.at(p_);
     }
 
     void expect_word(std::string_view w) {
@@ -89,7 +89,7 @@ private:
         }
         unsigned v = 0;
         for (int i = 0; i < 4; ++i) {
-            char c = t_[p_++];
+            const char c = t_.at(p_++);
             v <<= 4U;
             if (c >= '0' && c <= '9') {
                 v |= static_cast<unsigned>(c - '0');
@@ -108,7 +108,7 @@ private:
         // Opening quote already consumed.
         std::string out;
         while (true) {
-            char c = peek();
+            const char c = peek();
             ++p_;
             if (c == '"') {
                 break;
@@ -117,7 +117,7 @@ private:
                 out += c;
                 continue;
             }
-            char e = peek();
+            const char e = peek();
             ++p_;
             switch (e) {
                 case '"':
@@ -148,7 +148,7 @@ private:
                     unsigned cp = hex4();
                     if (cp >= 0xD800 && cp <= 0xDBFF && t_.substr(p_, 2) == "\\u") {
                         p_ += 2;
-                        unsigned lo = hex4();
+                        const unsigned lo = hex4();
                         cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
                     }
                     append_utf8(out, cp);
@@ -164,7 +164,7 @@ private:
     auto value() -> Node {
         ws();
         Node n;
-        char c = peek();
+        const char c = peek();
         if (c == '{') {
             ++p_;
             n.kind = Node::Kind::Table;
@@ -189,7 +189,7 @@ private:
                 n.keys.push_back(std::move(key));
                 n.vals.push_back(std::move(v));
                 ws();
-                char d = peek();
+                const char d = peek();
                 ++p_;
                 if (d == '}') {
                     break;
@@ -209,7 +209,7 @@ private:
             while (true) {
                 n.items.push_back(value());
                 ws();
-                char d = peek();
+                const char d = peek();
                 ++p_;
                 if (d == ']') {
                     break;
@@ -232,7 +232,7 @@ private:
         } else if (c == 'n') {
             expect_word("null");
         } else {
-            size_t start = p_;
+            const size_t start = p_;
             p_ = skip_set(t_, p_, "-+.eE0123456789");
             if (start == p_) {
                 fail("json: unexpected character");
@@ -250,7 +250,7 @@ void dump_string(std::string& out, const std::string& s) {
     out += '"';
     size_t i = 0;
     while (i < s.size()) {
-        auto c = static_cast<unsigned char>(s[i]);
+        const auto c = static_cast<unsigned char>(s.at(i));
         unsigned cp = c;
         size_t len = 1;
         if (c >= 0x80) {
@@ -265,7 +265,7 @@ void dump_string(std::string& out, const std::string& s) {
                 cp = c & 0x07U;
             }
             for (size_t k = 1; k < len && i + k < s.size(); ++k) {
-                cp = (cp << 6U) | (static_cast<unsigned char>(s[i + k]) & 0x3FU);
+                cp = (cp << 6U) | (static_cast<unsigned char>(s.at(i + k)) & 0x3FU);
             }
         }
         i += len;
@@ -297,7 +297,7 @@ void dump_string(std::string& out, const std::string& s) {
         if (cp >= 0x20 && cp <= 0x7E) {
             out += static_cast<char>(cp);
         } else if (cp >= 0x10000) {
-            unsigned v = cp - 0x10000;
+            const unsigned v = cp - 0x10000;
             append_u_escape(out, 0xD800U + (v >> 10U));
             append_u_escape(out, 0xDC00U + (v & 0x3FFU));
         } else {
@@ -381,7 +381,7 @@ public:
             if (p_ >= t_.size()) {
                 break;
             }
-            if (t_[p_] == '[') {
+            if (t_.at(p_) == '[') {
                 ++p_;
                 if (peek() == '[') {
                     fail("toml: array-of-tables is not supported");
@@ -396,17 +396,17 @@ public:
                 expect('=');
                 skip_inline_ws();
                 Node v = value();
-                std::string last = path.back();
+                const std::string last = path.back();
                 path.pop_back();
                 Node& owner = table_at(root, section);
                 Node& target = table_at(owner, path);
                 target.set(last, std::move(v));
             }
             skip_inline_ws();
-            if (p_ < t_.size() && t_[p_] == '#') {
+            if (p_ < t_.size() && t_.at(p_) == '#') {
                 skip_comment();
             }
-            if (p_ < t_.size() && t_[p_] != '\n' && t_[p_] != '\r') {
+            if (p_ < t_.size() && t_.at(p_) != '\n' && t_.at(p_) != '\r') {
                 fail("toml: expected end of line");
             }
         }
@@ -425,7 +425,7 @@ private:
         if (p_ >= t_.size()) {
             bad("unexpected end");
         }
-        return t_[p_];
+        return t_.at(p_);
     }
 
     void expect(char c) {
@@ -445,7 +445,7 @@ private:
 
     // Whitespace, newlines and comments between statements and inside arrays.
     void skip_blank() {
-        for (p_ = skip_set(t_, p_, " \t\n\r"); p_ < t_.size() && t_[p_] == '#'; p_ = skip_set(t_, p_, " \t\n\r")) {
+        for (p_ = skip_set(t_, p_, " \t\n\r"); p_ < t_.size() && t_.at(p_) == '#'; p_ = skip_set(t_, p_, " \t\n\r")) {
             skip_comment();
         }
     }
@@ -454,11 +454,11 @@ private:
 
     auto simple_key() -> std::string {
         skip_inline_ws();
-        if (p_ < t_.size() && (t_[p_] == '"' || t_[p_] == '\'')) {
-            Node n = string_value();
+        if (p_ < t_.size() && (t_.at(p_) == '"' || t_.at(p_) == '\'')) {
+            const Node n = string_value();
             return n.s;
         }
-        size_t start = p_;
+        const size_t start = p_;
         p_ = skip_set(t_, p_, k_bare_chars);
         if (start == p_) {
             bad("expected key");
@@ -470,7 +470,7 @@ private:
         std::vector<std::string> parts;
         parts.push_back(simple_key());
         skip_inline_ws();
-        while (p_ < t_.size() && t_[p_] == '.') {
+        while (p_ < t_.size() && t_.at(p_) == '.') {
             ++p_;
             parts.push_back(simple_key());
             skip_inline_ws();
@@ -479,8 +479,8 @@ private:
     }
 
     static auto child_table(Node& t, const std::string& key) -> Node& {
-        if (auto it = std::ranges::find(t.keys, key); it != t.keys.end()) {
-            Node& existing = t.vals[static_cast<size_t>(it - t.keys.begin())];
+        if (const auto it = std::ranges::find(t.keys, key); it != t.keys.end()) {
+            Node& existing = t.vals.at(static_cast<size_t>(it - t.keys.begin()));
             if (existing.kind != Node::Kind::Table) {
                 fail("toml: key is not a table: " + key);
             }
@@ -501,14 +501,14 @@ private:
     auto string_value() -> Node {
         Node n;
         n.kind = Node::Kind::String;
-        char q = t_[p_];
+        const char q = t_.at(p_);
         if (t_.substr(p_, 3) == std::string(3, q)) {
             // Multi-line string: skip the first newline if present.
             p_ += 3;
-            if (p_ < t_.size() && t_[p_] == '\r') {
+            if (p_ < t_.size() && t_.at(p_) == '\r') {
                 ++p_;
             }
-            if (p_ < t_.size() && t_[p_] == '\n') {
+            if (p_ < t_.size() && t_.at(p_) == '\n') {
                 ++p_;
             }
             while (true) {
@@ -519,16 +519,16 @@ private:
                     p_ += 3;
                     break;
                 }
-                char c = t_[p_++];
+                const char c = t_.at(p_++);
                 if (q == '"' && c == '\\') {
-                    char e = t_[p_++];
+                    const char e = t_.at(p_++);
                     if (e == 'n') {
                         n.s += '\n';
                     } else if (e == 't') {
                         n.s += '\t';
                     } else if (e == '\n') {
                         while (p_ < t_.size() &&
-                               (t_[p_] == ' ' || t_[p_] == '\t' || t_[p_] == '\n' || t_[p_] == '\r')) {
+                               (t_.at(p_) == ' ' || t_.at(p_) == '\t' || t_.at(p_) == '\n' || t_.at(p_) == '\r')) {
                             ++p_;
                         }
                     } else {
@@ -542,15 +542,15 @@ private:
         }
         ++p_;
         while (true) {
-            if (p_ >= t_.size() || t_[p_] == '\n') {
+            if (p_ >= t_.size() || t_.at(p_) == '\n') {
                 bad("unterminated string");
             }
-            char c = t_[p_++];
+            const char c = t_.at(p_++);
             if (c == q) {
                 break;
             }
             if (q == '"' && c == '\\') {
-                char e = t_[p_++];
+                const char e = t_.at(p_++);
                 switch (e) {
                     case 'n':
                         n.s += '\n';
@@ -575,10 +575,10 @@ private:
                         break;
                     case 'u':
                     case 'U': {
-                        size_t digits = e == 'u' ? 4 : 8;
+                        const size_t digits = e == 'u' ? 4 : 8;
                         unsigned cp = 0;
                         for (size_t k = 0; k < digits; ++k) {
-                            char h = t_[p_++];
+                            const char h = t_.at(p_++);
                             cp <<= 4U;
                             if (h >= '0' && h <= '9') {
                                 cp |= static_cast<unsigned>(h - '0');
@@ -604,7 +604,7 @@ private:
     }
 
     auto value() -> Node {
-        char c = peek();
+        const char c = peek();
         Node n;
         if (c == '"' || c == '\'') {
             return string_value();
@@ -643,7 +643,7 @@ private:
                 expect('=');
                 skip_inline_ws();
                 Node v = value();
-                std::string last = path.back();
+                const std::string last = path.back();
                 path.pop_back();
                 table_at(n, path).set(last, std::move(v));
                 skip_inline_ws();
@@ -657,9 +657,9 @@ private:
             }
             return n;
         }
-        size_t start = p_;
+        const size_t start = p_;
         p_ = skip_to(t_, p_, " \t\n\r,]}#");
-        std::string tok(t_.substr(start, p_ - start));
+        const std::string tok(t_.substr(start, p_ - start));
         if (tok == "true" || tok == "false") {
             n.kind = Node::Kind::Bool;
             n.b = tok == "true";
@@ -682,13 +682,13 @@ auto Node::find(std::string_view key) const -> const Node* {
     if (kind != Kind::Table) {
         return nullptr;
     }
-    auto it = std::ranges::find(keys, key);
-    return it == keys.end() ? nullptr : &vals[static_cast<size_t>(it - keys.begin())];
+    const auto it = std::ranges::find(keys, key);
+    return it == keys.end() ? nullptr : &vals.at(static_cast<size_t>(it - keys.begin()));
 }
 
 void Node::set(const std::string& key, Node value) {
-    if (auto it = std::ranges::find(keys, key); it != keys.end()) {
-        vals[static_cast<size_t>(it - keys.begin())] = std::move(value);
+    if (const auto it = std::ranges::find(keys, key); it != keys.end()) {
+        vals.at(static_cast<size_t>(it - keys.begin())) = std::move(value);
         return;
     }
     keys.push_back(key);

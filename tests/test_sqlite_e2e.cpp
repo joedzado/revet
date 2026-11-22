@@ -54,8 +54,8 @@ TEST_CASE("sqlite e2e: insert + select round-trip", "[db][sqlite]") {
     }
     auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT name, email FROM users WHERE id = ?", 1);
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "Alice");
-    REQUIRE(rows[0][1] == "alice@example.com");
+    REQUIRE(rows.at(0).at(0) == "Alice");
+    REQUIRE(rows.at(0).at(1) == "alice@example.com");
 }
 
 TEST_CASE("sqlite e2e: update propagates", "[db][sqlite]") {
@@ -68,7 +68,7 @@ TEST_CASE("sqlite e2e: update propagates", "[db][sqlite]") {
     auto rows =
         db::sqlite::Handle<>(fx.pool).query("SELECT name FROM users WHERE email = ?", std::string("bob@example.com"));
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "Robert");
+    REQUIRE(rows.at(0).at(0) == "Robert");
 }
 
 TEST_CASE("sqlite e2e: delete removes the row", "[db][sqlite]") {
@@ -90,7 +90,7 @@ TEST_CASE("sqlite e2e: UNIQUE constraint violation throws", "[db][sqlite]") {
         std::runtime_error);
     // First insert is still there — the second one failed, did not
     // silently corrupt or roll back the first.
-    REQUIRE(db::sqlite::Handle<>(fx.pool).query("SELECT COUNT(*) FROM users")[0][0] == "1");
+    REQUIRE(db::sqlite::Handle<>(fx.pool).query("SELECT COUNT(*) FROM users").at(0).at(0) == "1");
 }
 
 TEST_CASE("sqlite e2e: prepare failure on bad SQL throws", "[db][sqlite]") {
@@ -112,8 +112,8 @@ TEST_CASE("sqlite e2e: LIKE search with parameter binding", "[db][sqlite]") {
                                                     "ORDER BY name",
                                                     std::string("Al"));
     REQUIRE(rows.size() == 2);
-    REQUIRE(rows[0][0] == "Alice");
-    REQUIRE(rows[1][0] == "Allison");
+    REQUIRE(rows.at(0).at(0) == "Alice");
+    REQUIRE(rows.at(1).at(0) == "Allison");
 }
 
 TEST_CASE("sqlite e2e: parameter binding defeats injection", "[db][sqlite][security]") {
@@ -123,11 +123,11 @@ TEST_CASE("sqlite e2e: parameter binding defeats injection", "[db][sqlite][secur
     auto w = db::sqlite::Handle<db::Write>(fx.pool);
     w.exec("INSERT INTO users (name, email) VALUES (?, ?)", std::string("Eve"), std::string("eve@example.com"));
 
-    auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT name FROM users WHERE email = ?",
-                                                    std::string("eve@example.com'; DROP TABLE users; --"));
+    const auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT name FROM users WHERE email = ?",
+                                                          std::string("eve@example.com'; DROP TABLE users; --"));
     REQUIRE(rows.empty());
     // Table still exists — bind interpreted the payload as a literal.
-    REQUIRE(db::sqlite::Handle<>(fx.pool).query("SELECT COUNT(*) FROM users")[0][0] == "1");
+    REQUIRE(db::sqlite::Handle<>(fx.pool).query("SELECT COUNT(*) FROM users").at(0).at(0) == "1");
 }
 
 TEST_CASE("sqlite e2e: pool serves multiple reader handles", "[db][sqlite]") {
@@ -146,7 +146,7 @@ TEST_CASE("sqlite e2e: pool serves multiple reader handles", "[db][sqlite]") {
         ts.emplace_back([&] -> void {
             auto r = db::sqlite::Handle<>(fx.pool);
             auto rows = r.query("SELECT COUNT(*) FROM users");
-            total += std::stoi(rows[0][0]);
+            total += std::stoi(rows.at(0).at(0));
         });
     }
     for (auto& t : ts) {
@@ -178,7 +178,7 @@ TEST_CASE("sqlite e2e: writes serialized through Handle<Write>", "[db][sqlite]")
     }
 
     auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT COUNT(*) FROM users");
-    REQUIRE(rows[0][0] == std::to_string(N_THREADS * N_INSERTS));
+    REQUIRE(rows.at(0).at(0) == std::to_string(N_THREADS * N_INSERTS));
 }
 
 TEST_CASE("sqlite e2e: BEGIN/ROLLBACK leaves table unchanged", "[db][sqlite]") {
@@ -190,7 +190,7 @@ TEST_CASE("sqlite e2e: BEGIN/ROLLBACK leaves table unchanged", "[db][sqlite]") {
     w.exec("ROLLBACK");
     auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT name FROM users ORDER BY id");
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "Pre");
+    REQUIRE(rows.at(0).at(0) == "Pre");
 }
 
 TEST_CASE("sqlite e2e: BEGIN/COMMIT persists", "[db][sqlite]") {
@@ -201,5 +201,5 @@ TEST_CASE("sqlite e2e: BEGIN/COMMIT persists", "[db][sqlite]") {
     w.exec("COMMIT");
     auto rows = db::sqlite::Handle<>(fx.pool).query("SELECT name FROM users");
     REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][0] == "Commit");
+    REQUIRE(rows.at(0).at(0) == "Commit");
 }

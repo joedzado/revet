@@ -137,7 +137,7 @@ Value::operator bool() {
 
 auto Value::has(std::string_view key) -> bool {
     try {
-        auto field = impl_->element.at_key(key);
+        const auto field = impl_->element.at_key(key);
         return field.error() == 0U;
     } catch (...) {
         return false;

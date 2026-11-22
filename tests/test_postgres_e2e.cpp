@@ -46,7 +46,7 @@ void run_task(MakeTask make_task) {
     std::condition_variable cv;
     bool done = false;
     std::move(make_task()).start([&] -> void {
-        std::scoped_lock lk(m);
+        const std::scoped_lock lk(m);
         done = true;
         cv.notify_one();
     });
@@ -228,7 +228,7 @@ TEST_CASE("postgres: async variants run and propagate errors", "[postgres]") {
     std::string value;
     std::optional<std::string> nullable = "unset";
     std::string count;
-    bool threw = false;
+    bool threw = false; // NOLINT(misc-const-correctness): set inside the coroutine
 
     run_task([&]() -> web::Task<void> {
         Handle<Write> h(pool);

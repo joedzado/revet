@@ -30,9 +30,6 @@ struct CurlHandle {
             curl_easy_cleanup(h);
         }
     }
-    operator CURL*() const {
-        return h;
-    }
     explicit operator bool() const {
         return h != nullptr;
     }
@@ -56,34 +53,34 @@ auto CurlClient::execute(const std::string& method, const std::string& url,
                          const std::map<std::string, std::string>& headers, const std::string& body) -> Response {
     init_curl_global();
 
-    CurlHandle curl;
+    const CurlHandle curl;
     if (!curl) {
         return Response{.status_code = 0, .body = "Failed to initialize curl", .headers = {}};
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(options_.connect_timeout.count()));
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(options_.total_timeout.count()));
+    curl_easy_setopt(curl.h, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl.h, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl.h, CURLOPT_CONNECTTIMEOUT, static_cast<long>(options_.connect_timeout.count()));
+    curl_easy_setopt(curl.h, CURLOPT_TIMEOUT, static_cast<long>(options_.total_timeout.count()));
 
     std::string response_body;
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+    curl_easy_setopt(curl.h, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl.h, CURLOPT_WRITEDATA, &response_body);
 
     CurlHeaders header_list;
     header_list.append("Content-Type: application/json");
     for (const auto& [key, value] : headers) {
         header_list.append(std::format("{}: {}", key, value));
     }
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list.list);
+    curl_easy_setopt(curl.h, CURLOPT_HTTPHEADER, header_list.list);
 
     if (!body.empty()) {
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+        curl_easy_setopt(curl.h, CURLOPT_POSTFIELDS, body.c_str());
     }
 
-    CURLcode res = curl_easy_perform(curl);
+    const CURLcode res = curl_easy_perform(curl.h);
     long status_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    curl_easy_getinfo(curl.h, CURLINFO_RESPONSE_CODE, &status_code);
 
     if (res != CURLE_OK) {
         // status_code 0 signals a transport failure (DNS, connect, timeout, …)

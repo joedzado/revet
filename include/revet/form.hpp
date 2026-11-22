@@ -204,7 +204,9 @@ struct Field {
         (void)(check_rule.template operator()<Rules>() && ...);
     }
 
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, forms render where an html node is expected
     operator html::Node() const {
+        // NOLINTEND(*-explicit-constructor)
         std::string class_attr;
         if (_style) {
             html::detail::style_registry[_style->name] = _style->rules;

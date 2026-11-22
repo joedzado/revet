@@ -68,9 +68,9 @@ void fail(std::string_view s) {
 auto expand_tabs(std::string_view s, int width) -> std::string {
     std::string out;
     int col = 0;
-    for (char c : s) {
+    for (const char c : s) {
         if (c == '\t') {
-            int n = width - (col % width);
+            const int n = width - (col % width);
             out.append(static_cast<size_t>(n), ' ');
             col += n;
         } else {
@@ -124,27 +124,27 @@ auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Ch
         return child;
     }
     if (opts.err == Io::Pipe && pipe(err_pipe.data()) != 0) {
-        if (out_pipe[0] >= 0) {
-            close(out_pipe[0]), close(out_pipe[1]);
+        if (out_pipe.at(0) >= 0) {
+            close(out_pipe.at(0)), close(out_pipe.at(1));
         }
         return child;
     }
 
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    auto route = [&](Io io, int fd, const std::array<int, 2>& pipe_fds) -> void {
+    const auto route = [&](Io io, int fd, const std::array<int, 2>& pipe_fds) -> void {
         if (io == Io::Null) {
             posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0);
         } else if (io == Io::Pipe) {
-            posix_spawn_file_actions_adddup2(&actions, pipe_fds[1], fd);
-            posix_spawn_file_actions_addclose(&actions, pipe_fds[0]);
-            posix_spawn_file_actions_addclose(&actions, pipe_fds[1]);
+            posix_spawn_file_actions_adddup2(&actions, pipe_fds.at(1), fd);
+            posix_spawn_file_actions_addclose(&actions, pipe_fds.at(0));
+            posix_spawn_file_actions_addclose(&actions, pipe_fds.at(1));
         }
     };
     route(opts.in, 0, {-1, -1}); // stdin is never piped
     route(opts.out, 1, out_pipe);
     route(opts.err, 2, err_pipe);
-    std::string cwd = opts.cwd.string();
+    const std::string cwd = opts.cwd.string();
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations" // macOS 26 renamed it; Linux has only the _np name
     if (!cwd.empty()) {
@@ -177,28 +177,28 @@ auto spawn(const std::vector<std::string>& argv, const SpawnOptions& opts) -> Ch
     auto c_args = c_array(args);
     auto c_env = c_array(env);
     pid_t pid = -1;
-    int rc = posix_spawnp(&pid, c_args[0], &actions, &attr, c_args.data(), c_env.data());
+    const int rc = posix_spawnp(&pid, c_args.at(0), &actions, &attr, c_args.data(), c_env.data());
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
 
-    if (out_pipe[1] >= 0) {
-        close(out_pipe[1]);
+    if (out_pipe.at(1) >= 0) {
+        close(out_pipe.at(1));
     }
-    if (err_pipe[1] >= 0) {
-        close(err_pipe[1]);
+    if (err_pipe.at(1) >= 0) {
+        close(err_pipe.at(1));
     }
     if (rc != 0) {
-        if (out_pipe[0] >= 0) {
-            close(out_pipe[0]);
+        if (out_pipe.at(0) >= 0) {
+            close(out_pipe.at(0));
         }
-        if (err_pipe[0] >= 0) {
-            close(err_pipe[0]);
+        if (err_pipe.at(0) >= 0) {
+            close(err_pipe.at(0));
         }
         return child;
     }
     child.pid = pid;
-    child.out_fd = out_pipe[0];
-    child.err_fd = err_pipe[0];
+    child.out_fd = out_pipe.at(0);
+    child.err_fd = err_pipe.at(0);
     return child;
 }
 
@@ -225,11 +225,11 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
     opts.in = Io::Null;
     opts.out = Io::Pipe;
     opts.err = Io::Pipe;
-    Child c = spawn(argv, opts);
+    const Child c = spawn(argv, opts);
     if (c.pid < 0) {
         r.started = false;
         r.rc = -1;
-        r.err = argv.empty() ? "" : argv[0] + ": cannot run";
+        r.err = argv.empty() ? "" : argv.at(0) + ": cannot run";
         return r;
     }
 
@@ -243,14 +243,14 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
     while (open_fds > 0) {
         int wait_ms = -1;
         if (timeout_s > 0) {
-            auto left = deadline - std::time(nullptr);
+            const auto left = deadline - std::time(nullptr);
             if (left <= 0) {
                 timed_out = true;
                 break;
             }
             wait_ms = static_cast<int>(left * 1000);
         }
-        int n = poll(fds.data(), fds.size(), wait_ms);
+        const int n = poll(fds.data(), fds.size(), wait_ms);
         if (n < 0) {
             if (errno == EINTR) {
                 continue;
@@ -263,7 +263,7 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
             if (f.fd < 0 || (f.revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
                 continue;
             }
-            ssize_t got = read(f.fd, buf.data(), buf.size());
+            const ssize_t got = read(f.fd, buf.data(), buf.size());
             if (got > 0) {
                 sinks.at(i)->append(buf.data(), static_cast<size_t>(got));
             } else if (got == 0 || errno != EINTR) {
@@ -288,7 +288,7 @@ auto run(const std::vector<std::string>& argv, const fs::path& cwd, int timeout_
 auto run_inherit(const std::vector<std::string>& argv, const fs::path& cwd) -> int {
     SpawnOptions opts;
     opts.cwd = cwd;
-    Child c = spawn(argv, opts);
+    const Child c = spawn(argv, opts);
     if (c.pid < 0) {
         return -1;
     }
@@ -310,7 +310,7 @@ auto which(std::string_view name) -> std::optional<fs::path> {
         std::string_view(path) | std::views::split(':') | std::views::transform([&](auto dir) -> fs::path {
             return fs::path(dir.empty() ? "." : std::string(std::string_view(dir))) / std::string(name);
         });
-    auto found = std::ranges::find_if(candidates, [](const fs::path& p) -> bool {
+    const auto found = std::ranges::find_if(candidates, [](const fs::path& p) -> bool {
         std::error_code ec;
         return fs::is_regular_file(p, ec) && access(p.c_str(), X_OK) == 0;
     });
@@ -321,14 +321,14 @@ auto which(std::string_view name) -> std::optional<fs::path> {
 }
 
 auto cpu_count() -> unsigned {
-    unsigned n = std::thread::hardware_concurrency();
+    const unsigned n = std::thread::hardware_concurrency();
     return (n != 0U) ? n : 1;
 }
 
 // ── Files ───────────────────────────────────────────────────────────────────
 
 auto read_file(const fs::path& p) -> std::optional<std::string> {
-    std::ifstream in(p, std::ios::binary);
+    const std::ifstream in(p, std::ios::binary);
     if (!in) {
         return std::nullopt;
     }
@@ -368,7 +368,7 @@ auto split_lines_keepends(std::string_view s) -> std::vector<std::string> {
 
 auto strip(std::string_view s) -> std::string {
     constexpr std::string_view k_ws = " \t\n\r\f\v";
-    size_t b = s.find_first_not_of(k_ws);
+    const size_t b = s.find_first_not_of(k_ws);
     if (b == std::string_view::npos) {
         return {};
     }
@@ -411,7 +411,7 @@ auto files_under(const fs::path& root,
     }
     for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        bool skipped = skip && skip(*it);
+        const bool skipped = skip && skip(*it);
         if (it->is_directory(ec)) {
             if (skipped) {
                 it.disable_recursion_pending();
@@ -438,7 +438,7 @@ auto find_up(const fs::path& start, const std::function<bool(const fs::path&)>& 
 // ── Hashes ──────────────────────────────────────────────────────────────────
 
 // Fixed-size digest blocks: every index is bounded by its loop.
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 namespace {
 
@@ -466,7 +466,7 @@ auto padded(std::string_view data, bool big_endian) -> std::string {
         msg.push_back('\0');
     }
     for (int i = 0; i < 8; ++i) {
-        int shift = big_endian ? (7 - i) * 8 : i * 8;
+        const int shift = big_endian ? (7 - i) * 8 : i * 8;
         msg.push_back(static_cast<char>((bits >> shift) & 0xffU));
     }
     return msg;
@@ -532,7 +532,7 @@ auto md5_hex(std::string_view data) -> std::string {
         a0 += a, b0 += b, c0 += c, d0 += d;
     }
     unsigned char out[16];
-    std::uint32_t words[4] = {a0, b0, c0, d0};
+    const std::uint32_t words[4] = {a0, b0, c0, d0};
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
             out[(i * 4) + j] = static_cast<unsigned char>((words[i] >> (8U * j)) & 0xffU);
@@ -589,7 +589,7 @@ auto sha1_hex(std::string_view data) -> std::string {
     return to_hex(out, 20);
 }
 
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-signed-bitwise,hicpp-signed-bitwise)
 
 // ── Framework ───────────────────────────────────────────────────────────────
 
@@ -619,7 +619,7 @@ auto framework_dir() -> const fs::path& {
             return {env};
         }
         std::error_code ec;
-        fs::path exe = fs::canonical(executable_path(), ec);
+        const fs::path exe = fs::canonical(executable_path(), ec);
         // Installed: <framework>/prebuilt/bin/revet. Built in a checkout: <repo>/build/tools/revet.
         if (auto d = find_up(exe.parent_path(), [&](const fs::path& d) -> bool {
                 return fs::is_regular_file(d / "template" / "CMakeLists.txt", ec);

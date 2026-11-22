@@ -30,7 +30,7 @@ TEST_CASE("Task<int> exception propagates via co_await", "[task]") {
     std::atomic<bool> done{false};
     std::exception_ptr caught;
 
-    auto driver = [&]() -> web::Task<int> {
+    const auto driver = [&]() -> web::Task<int> {
         try {
             co_return co_await thrower();
         } catch (...) {
@@ -55,7 +55,7 @@ TEST_CASE("Task<void> exception propagates via co_await", "[task]") {
     std::atomic<bool> done{false};
     std::exception_ptr caught;
 
-    auto driver = [&]() -> web::Task<void> {
+    const auto driver = [&]() -> web::Task<void> {
         try {
             co_await thrower();
         } catch (...) {
@@ -77,7 +77,7 @@ TEST_CASE("Task<int> returns value normally", "[task]") {
     std::atomic<bool> done{false};
     int result = 0;
 
-    auto driver = [&]() -> web::Task<int> { co_return co_await producer(); };
+    const auto driver = [&]() -> web::Task<int> { co_return co_await producer(); };
 
     std::move(driver()).start([&](int v) -> void {
         result = v;
@@ -102,13 +102,13 @@ struct IOPoolFixture {
 };
 
 TEST_CASE("IOAwaitable exception propagates via co_await", "[task]") {
-    IOPoolFixture pool;
+    const IOPoolFixture pool;
     std::mutex m;
     std::condition_variable cv;
     std::atomic<bool> done{false};
     std::exception_ptr caught;
 
-    auto driver = [&]() -> web::Task<int> {
+    const auto driver = [&]() -> web::Task<int> {
         try {
             co_await web::run_on_io([]() -> int {
                 throw std::runtime_error("io boom");
@@ -121,7 +121,7 @@ TEST_CASE("IOAwaitable exception propagates via co_await", "[task]") {
     };
 
     std::move(driver()).start([&](int) -> void {
-        std::unique_lock lk(m);
+        const std::unique_lock lk(m);
         done.store(true);
         cv.notify_one();
     });
@@ -135,16 +135,16 @@ TEST_CASE("IOAwaitable exception propagates via co_await", "[task]") {
 }
 
 TEST_CASE("IOAwaitable returns value normally", "[task]") {
-    IOPoolFixture pool;
+    const IOPoolFixture pool;
     std::mutex m;
     std::condition_variable cv;
     std::atomic<bool> done{false};
     int result = 0;
 
-    auto driver = [&]() -> web::Task<int> { co_return co_await web::run_on_io([]() -> int { return 99; }); };
+    const auto driver = [&]() -> web::Task<int> { co_return co_await web::run_on_io([]() -> int { return 99; }); };
 
     std::move(driver()).start([&](int v) -> void {
-        std::unique_lock lk(m);
+        const std::unique_lock lk(m);
         result = v;
         done.store(true);
         cv.notify_one();

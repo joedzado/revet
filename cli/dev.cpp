@@ -52,7 +52,7 @@ std::atomic<pid_t> g_server{-1};
 std::atomic<bool> g_server_own_group{false}; // false for lldb, which shares our terminal and group
 
 void stop_server(bool wait) {
-    pid_t pid = g_server.exchange(-1);
+    const pid_t pid = g_server.exchange(-1);
     if (pid <= 0) {
         return;
     }
@@ -81,7 +81,7 @@ auto server_running() -> bool {
 
 // Ctrl-C while the terminal is cooked (during a build) or a kill: take the server down too.
 extern "C" void on_signal(int sig) {
-    pid_t pid = g_server;
+    const pid_t pid = g_server;
     if (pid > 0) {
         if (g_server_own_group) {
             killpg(pid, SIGTERM);
@@ -118,7 +118,7 @@ public:
     }
 
     auto take() -> std::vector<std::string> {
-        std::scoped_lock lock(mu_);
+        const std::scoped_lock lock(mu_);
         std::vector<std::string> out(pending_.begin(), pending_.end());
         pending_.clear();
         return out;
@@ -128,14 +128,14 @@ private:
     // Dot entries (.git, .cache), build output, samply profiles and SQLite files.
     static auto skipped(const fs::directory_entry& e) -> bool {
         std::error_code ec;
-        std::string name = e.path().filename().string();
+        const std::string name = e.path().filename().string();
         if (is_hidden(e)) {
             return true;
         }
         if (e.is_directory(ec)) {
             return name == "build" || name == "profiles" || name == "__pycache__";
         }
-        std::string ext = e.path().extension().string();
+        const std::string ext = e.path().extension().string();
         return ext == ".db" || ext == ".db-shm" || ext == ".db-wal";
     }
 
@@ -143,12 +143,12 @@ private:
         std::error_code ec;
         std::vector<std::string> changed;
         for (const auto& p : files_under(".", skipped)) {
-            auto t = fs::last_write_time(p, ec);
+            const auto t = fs::last_write_time(p, ec);
             if (ec) {
                 continue;
             }
-            std::string key = p.lexically_relative(".").string();
-            auto found = mtimes_.find(key);
+            const std::string key = p.lexically_relative(".").string();
+            const auto found = mtimes_.find(key);
             if (initial) {
                 mtimes_[key] = t;
             } else if (found == mtimes_.end() || found->second != t) {
@@ -157,7 +157,7 @@ private:
             }
         }
         if (!changed.empty()) {
-            std::scoped_lock lock(mu_);
+            const std::scoped_lock lock(mu_);
             pending_.insert(changed.begin(), changed.end());
         }
     }
@@ -176,9 +176,9 @@ void header() {
 void print_flags(const DevOptions& o) {
     const auto all = std::to_array<std::pair<std::string, bool>>(
         {{"asan", o.asan}, {"ubsan", o.asan}, {"lldb", o.lldb}, {"profile", o.profile}});
-    std::string flags = join(all | std::views::filter([](const auto& f) -> bool { return f.second; }) |
-                                 std::views::keys | std::ranges::to<std::vector<std::string>>(),
-                             " ");
+    const std::string flags = join(all | std::views::filter([](const auto& f) -> bool { return f.second; }) |
+                                       std::views::keys | std::ranges::to<std::vector<std::string>>(),
+                                   " ");
     if (!flags.empty()) {
         dim("  flags: " + flags);
     }
@@ -196,7 +196,7 @@ void tee_server_log(int fd, const fs::path& log_path) {
         std::ofstream log(log_path, std::ios::binary | std::ios::trunc);
         std::string pending;
         std::array<char, 4096> buf{};
-        auto emit = [&](std::string_view line) -> void {
+        const auto emit = [&](std::string_view line) -> void {
             log << line << std::flush;
             std::string out = "\r\033[K" + std::string(line);
             (void)std::fflush(stdout);
@@ -231,7 +231,7 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         dim(reason);
     }
     dim("building…");
-    Result r = cmake_build(false, o.asan, o.debug, std::nullopt);
+    const Result r = cmake_build(false, o.asan, o.debug, std::nullopt);
     for (const auto& line : split_lines_keepends(r.out)) {
         info(expand_tabs(chomp(line)));
     }
@@ -243,18 +243,18 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         return;
     }
 
-    std::string port = std::to_string(o.port);
-    std::string url = "http://localhost:" + port;
-    std::string bin = binary_path().string();
+    const std::string port = std::to_string(o.port);
+    const std::string url = "http://localhost:" + port;
+    const std::string bin = binary_path().string();
     if (o.lldb) {
-        Child c = spawn({"lldb", "--", bin, "--port", port});
+        const Child c = spawn({"lldb", "--", bin, "--port", port});
         g_server_own_group = false;
         g_server = c.pid;
         ok("● lldb attached  " + url);
     } else if (o.profile) {
         std::error_code ec;
         fs::create_directories("profiles", ec);
-        std::string out = "profiles/profile-" + std::to_string(std::time(nullptr)) + ".json.gz";
+        const std::string out = "profiles/profile-" + std::to_string(std::time(nullptr)) + ".json.gz";
         // samply opens the profile with `open`; this one forces Chrome instead of the default browser.
         std::string dir = (fs::temp_directory_path() / "revet-samply-XXXXXX").string();
         if (mkdtemp(dir.data()) != nullptr) {
@@ -266,8 +266,8 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         so.new_session = true;
         const char* path = std::getenv("PATH");
         so.env.push_back("PATH=" + dir + ":" + ((path != nullptr) ? path : ""));
-        std::string samply = which("samply").value_or("samply").string();
-        Child c = spawn({samply, "record", "-o", out, bin, "--port", port}, so);
+        const std::string samply = which("samply").value_or("samply").string();
+        const Child c = spawn({samply, "record", "-o", out, bin, "--port", port}, so);
         g_server_own_group = true;
         g_server = c.pid;
         if (c.pid > 0) {
@@ -278,9 +278,9 @@ void rebuild(const DevOptions& o, const std::string& reason) {
         SpawnOptions so;
         so.new_session = true;
         so.out = Io::Null;
-        bool logging = std::getenv("LOG_LEVEL") != nullptr;
+        const bool logging = std::getenv("LOG_LEVEL") != nullptr;
         so.err = logging ? Io::Pipe : Io::Null;
-        Child c = spawn({bin, "--port", port}, so);
+        const Child c = spawn({bin, "--port", port}, so);
         g_server_own_group = true;
         g_server = c.pid;
         if (c.pid <= 0) {
@@ -288,7 +288,7 @@ void rebuild(const DevOptions& o, const std::string& reason) {
             return;
         }
         if (logging) {
-            fs::path log_path = fs::path(k_build_dir) / ".server.log";
+            const fs::path log_path = fs::path(k_build_dir) / ".server.log";
             tee_server_log(c.err_fd, log_path);
             dim("  logs → " + log_path.string());
         }
@@ -344,7 +344,7 @@ auto cmd_dev(const DevOptions& o) -> int {
 
     bool stdin_open = true;
     while (true) {
-        if (auto changed = watcher.take(); !changed.empty()) {
+        if (const auto changed = watcher.take(); !changed.empty()) {
             restore_tty();
             rebuild(o, changed_reason(changed));
             raw_tty();
@@ -367,7 +367,7 @@ auto cmd_dev(const DevOptions& o) -> int {
         if (key == 'r') {
             rebuild(o, "");
         } else if (key == 'd') {
-            pid_t pid = g_server;
+            const pid_t pid = g_server;
             if (server_running()) {
                 run_inherit({"lldb", "-p", std::to_string(pid)});
                 clear_screen();

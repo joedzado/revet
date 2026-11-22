@@ -63,11 +63,11 @@ struct Field {
 
 // Strips a trailing `= ...` initializer from a single declaration.
 auto drop_default(const std::string& line) -> std::string {
-    size_t eq = line.find('=');
+    const size_t eq = line.find('=');
     if (eq == std::string::npos || line.find('\n', eq) != std::string::npos) {
         return line;
     }
-    size_t last = eq == 0 ? std::string::npos : line.find_last_not_of(" \t\n\r\f\v", eq - 1);
+    const size_t last = eq == 0 ? std::string::npos : line.find_last_not_of(" \t\n\r\f\v", eq - 1);
     return line.substr(0, last == std::string::npos ? 0 : last + 1);
 }
 
@@ -75,7 +75,7 @@ auto struct_fields(const std::string& body) -> std::vector<Field> {
     // One declaration per ';'.
     auto field_of = [](auto piece) -> std::optional<Field> {
         std::string line = drop_default(strip(std::string_view(piece)));
-        if (auto m = ctre::search<R"RE(([\w:<>]+)\s+(\w+)$)RE">(line)) {
+        if (const auto m = ctre::search<R"RE(([\w:<>]+)\s+(\w+)$)RE">(line)) {
             return Field{.type = m.get<1>().to_string(), .name = m.get<2>().to_string()};
         }
         return std::nullopt;
@@ -89,19 +89,19 @@ auto struct_fields(const std::string& body) -> std::vector<Field> {
 } // namespace
 
 auto gen_states(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "states.hpp");
-    fs::path site = ctx.proj / "app" / "routes";
-    fs::path layouts = ctx.proj / "app" / "layouts";
-    fs::path models_dir = ctx.proj / "models";
-    fs::path models_site = site / "models.hpp";
+    const fs::path out_path = setup(ctx, "states.hpp");
+    const fs::path site = ctx.proj / "app" / "routes";
+    const fs::path layouts = ctx.proj / "app" / "layouts";
+    const fs::path models_dir = ctx.proj / "models";
+    const fs::path models_site = site / "models.hpp";
 
     std::vector<fs::path> files = glob(site, ".cpp", true);
     std::ranges::copy(glob(layouts, ".cpp", true), std::back_inserter(files));
 
     std::set<std::string> types;
-    auto add_types = [&](const Lines& found) -> void { types.insert(found.begin(), found.end()); };
+    const auto add_types = [&](const Lines& found) -> void { types.insert(found.begin(), found.end()); };
     for (const auto& f : files) {
-        std::string content = read_text(f);
+        const std::string content = read_text(f);
         // web::State<T> / web::Flash<T> arguments, ctx.state(T{...}) / ctx.flash(T{...}) writes, has<T> / clear<T>.
         add_types(captures<R"RE(web::(State|Flash)<(\w+)>)RE", 2>(content));
         add_types(captures<R"RE(\.(?:state|flash)\((\w+)\s*\{)RE">(content));
@@ -139,16 +139,16 @@ auto gen_states(const Ctx& ctx) -> int {
 
     std::map<std::string, std::vector<Field>> struct_defs;
     for (const auto& f : search) {
-        std::string content = read_text(f);
+        const std::string content = read_text(f);
         // `struct T { fields };` (optionally `struct [[attr]] T`). First definition of each type wins.
         const std::string_view view = content;
-        for (auto head : ctre::search_all<R"RE((?:struct|class)\s+(?:\[\[[^\n]*?\]\]\s*)?(\w+)\s*\{)RE">(view)) {
-            std::string name = head.get<1>().to_string();
+        for (const auto head : ctre::search_all<R"RE((?:struct|class)\s+(?:\[\[[^\n]*?\]\]\s*)?(\w+)\s*\{)RE">(view)) {
+            const std::string name = head.get<1>().to_string();
             if ((!types.contains(name)) || struct_defs.contains(name)) {
                 continue;
             }
-            std::string_view rest = view.substr(offset_in(view, head.to_view()) + head.size());
-            if (auto body = ctre::starts_with<R"RE(([^}]+)\};)RE">(rest)) {
+            const std::string_view rest = view.substr(offset_in(view, head.to_view()) + head.size());
+            if (const auto body = ctre::starts_with<R"RE(([^}]+)\};)RE">(rest)) {
                 struct_defs[name] = struct_fields(body.get<1>().to_string());
             }
         }
@@ -163,7 +163,7 @@ auto gen_states(const Ctx& ctx) -> int {
     const std::string unpack_plain_fn_t = tmpl(ctx, "states_unpack_plain_fn.tmpl");
 
     for (const auto& t : types) {
-        auto it = struct_defs.find(t);
+        const auto it = struct_defs.find(t);
         if (it == struct_defs.end()) {
             throw GenError("gen_states: definition for '" + t + "' not found in any scanned header or source file");
         }
@@ -172,7 +172,7 @@ auto gen_states(const Ctx& ctx) -> int {
         hpp.emplace_back("");
 
         // Fields of unsupported types are left out.
-        auto field_lines = [&](auto codec) -> std::string {
+        const auto field_lines = [&](auto codec) -> std::string {
             return join(fields | std::views::transform([&](const Field& fd) -> std::string {
                             return codec(fd.type, fd.name);
                         }) | std::views::filter([](const std::string& ln) -> bool { return !ln.empty(); }) |

@@ -29,7 +29,7 @@ TEST_CASE("to_pg_param: unsigned integers") {
 
 TEST_CASE("to_pg_param: floating point round-trips") {
     // Value must survive string → postgres → back
-    auto rt = [](double v) -> double { return std::stod(to_pg_param(v)); };
+    const auto rt = [](double v) -> double { return std::stod(to_pg_param(v)); };
 
     CHECK(rt(0.0) == 0.0);
     CHECK(rt(3.14) == 3.14);

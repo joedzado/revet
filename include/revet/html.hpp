@@ -20,6 +20,8 @@ template<size_t N>
 struct fixed_string {
     std::array<char, N> value{};
     // A string literal binds only to a C array reference.
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the html DSL builds nodes and attributes from plain
+    // values
     consteval fixed_string(const char (&s)[N]) { // NOLINT(*-avoid-c-arrays)
         std::copy_n(s, N, value.begin());
     }
@@ -69,7 +71,7 @@ struct Node {
 };
 
 constexpr auto operator+(Node lhs, Node rhs) -> Node {
-    lhs.str += std::move(rhs.str);
+    lhs.str += rhs.str;
     return lhs;
 }
 
@@ -80,7 +82,7 @@ inline auto num(double v, int decimals = 3) -> std::string {
         return "0";
     }
     std::string s = std::format("{:.{}f}", v, decimals);
-    if (s.find('.') != std::string::npos) {
+    if (s.contains('.')) {
         s.erase(s.find_last_not_of('0') + 1);
         if (s.back() == '.') {
             s.pop_back();
@@ -108,6 +110,7 @@ struct attr_value {
     attr_value(T v) : s(std::format("{}", v)) {}
     template<std::floating_point T>
     attr_value(T v) : s(num(static_cast<double>(v))) {}
+    // NOLINTEND(*-explicit-constructor)
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -118,7 +121,9 @@ constexpr auto raw(std::string s) -> Node {
 template<typename... Args>
 auto fragment(Args&&... args) -> Node {
     std::string result;
-    auto append = [&result](auto&& arg) -> auto { result.append(std::string(Node(std::forward<decltype(arg)>(arg)))); };
+    const auto append = [&result](auto&& arg) -> auto {
+        result.append(std::string(Node(std::forward<decltype(arg)>(arg))));
+    };
     (append(std::forward<Args>(args)), ...);
     return Node{raw_tag{}, std::move(result)};
 }
@@ -323,6 +328,8 @@ inline constexpr attr_t attr;
 struct id {
     std::string_view name;
     constexpr explicit id(std::string_view n) : name(n) {}
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the html DSL builds nodes and attributes from plain
+    // values
     constexpr operator Node() const {
         return Node{raw_tag{}, std::format(" #{}", name)};
     }
@@ -469,6 +476,7 @@ struct file_input : void_elem<"input"> {
 struct search_input : void_elem<"input"> {
     template<typename... Args>
     constexpr search_input(Args&&... args)
+        // NOLINTEND(*-explicit-constructor)
         : void_elem<"input">(Node{raw_tag{}, " type=\"search\""}, std::forward<Args>(args)...) {}
 };
 using br = void_elem<"br">;
@@ -530,7 +538,10 @@ public:
     [[nodiscard]] auto str() const -> const std::string& {
         return css_;
     }
+    // NOLINTBEGIN(*-explicit-constructor): implicit on purpose, the html DSL builds nodes and attributes from plain
+    // values
     operator Node() const {
+        // NOLINTEND(*-explicit-constructor)
         return attr("style", css_);
     }
 
@@ -567,7 +578,7 @@ auto list(Range&& range) -> Node {
 template<typename... Args>
 auto classes(Args&&... args) -> Node {
     std::string result;
-    auto add = [&result](std::string_view s) -> auto {
+    const auto add = [&result](std::string_view s) -> auto {
         if (!s.empty()) {
             if (!result.empty()) {
                 result += " ";

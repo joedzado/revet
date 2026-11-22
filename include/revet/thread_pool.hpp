@@ -19,7 +19,7 @@ public:
 
     ~WorkerPool() {
         {
-            std::scoped_lock lock(mu_);
+            const std::scoped_lock lock(mu_);
             stop_ = true;
         }
         cv_.notify_all();
@@ -33,7 +33,7 @@ public:
 
     void submit(std::function<void()> f) {
         {
-            std::scoped_lock lock(mu_);
+            const std::scoped_lock lock(mu_);
             queue_.push(std::move(f));
         }
         cv_.notify_one();

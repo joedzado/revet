@@ -20,14 +20,14 @@ struct FormStruct {
 
 auto find_form_structs(const std::string& src) -> std::vector<FormStruct> {
     std::vector<FormStruct> out;
-    for (auto m : ctre::search_all<R"RE(struct\s+\[\[revet::form\]\]\s+(\w+)\s*\{)RE">(std::string_view(src))) {
-        size_t start = offset_in(src, m.to_view()) + m.size();
+    for (const auto m : ctre::search_all<R"RE(struct\s+\[\[revet::form\]\]\s+(\w+)\s*\{)RE">(std::string_view(src))) {
+        const size_t start = offset_in(src, m.to_view()) + m.size();
         int depth = 1;
         size_t i = start;
         while (i < src.size() && depth > 0) {
-            if (src[i] == '{') {
+            if (src.at(i) == '{') {
                 ++depth;
-            } else if (src[i] == '}') {
+            } else if (src.at(i) == '}') {
                 --depth;
             }
             ++i;
@@ -44,7 +44,7 @@ auto parse_members(const std::string& body) -> std::vector<Member> {
         int depth = 0;
         size_t j = i;
         while (j < body.size()) {
-            char c = body[j];
+            const char c = body.at(j);
             if (c == '<' || c == '(') {
                 ++depth;
             } else if (c == '>' || c == ')') {
@@ -54,14 +54,14 @@ auto parse_members(const std::string& body) -> std::vector<Member> {
             }
             ++j;
         }
-        std::string decl = strip(body.substr(i, j - i));
+        const std::string decl = strip(body.substr(i, j - i));
         i = j + 1;
         if (decl.empty() || !decl.contains("revet::Field")) {
             continue;
         }
-        bool optional = starts_with(decl, "std::optional");
+        const bool optional = starts_with(decl, "std::optional");
         std::string no_init = strip(replace_all<R"RE(\{[^}]*\})RE">(decl, ""));
-        if (auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) {
+        if (const auto m = ctre::search<R"RE((\w+)\s*$)RE">(no_init)) {
             members.push_back({.name = m.get<1>().to_string(), .optional = optional});
         }
     }
@@ -71,8 +71,8 @@ auto parse_members(const std::string& body) -> std::vector<Member> {
 } // namespace
 
 auto gen_forms(const Ctx& ctx) -> int {
-    fs::path out_path = setup(ctx, "forms.hpp");
-    fs::path forms_dir = ctx.proj / "app" / "forms";
+    const fs::path out_path = setup(ctx, "forms.hpp");
+    const fs::path forms_dir = ctx.proj / "app" / "forms";
     std::vector<fs::path> form_files = glob(forms_dir, ".hpp");
 
     if (form_files.empty()) {
@@ -95,7 +95,7 @@ auto gen_forms(const Ctx& ctx) -> int {
 
     Lines functions;
     for (const auto& hpp : form_files) {
-        std::string src = read_text(hpp);
+        const std::string src = read_text(hpp);
         for (const auto& fs_struct : find_form_structs(src)) {
             auto members = parse_members(fs_struct.body);
             if (members.empty()) {
@@ -103,7 +103,7 @@ auto gen_forms(const Ctx& ctx) -> int {
             }
 
             // One line per member, from the optional or required template.
-            auto body = [&](const std::string& opt_t, const std::string& req_t) -> std::string {
+            const auto body = [&](const std::string& opt_t, const std::string& req_t) -> std::string {
                 return join(members | std::views::transform([&](const Member& m) -> std::string {
                                 return subst(m.optional ? opt_t : req_t, {{"mname", m.name}});
                             }) | std::ranges::to<Lines>(),
