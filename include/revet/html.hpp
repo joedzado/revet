@@ -100,6 +100,11 @@ struct attr_value {
     constexpr attr_value(std::string_view v) : s(v) {}
     constexpr attr_value(const char* v) : s(v) {}
     constexpr attr_value(std::string v) : s(std::move(v)) {}
+    // Anything else that converts to text, such as an i18n::Str.
+    template<typename T>
+        requires std::convertible_to<const T&, std::string_view> && (!std::convertible_to<const T&, const char*>) &&
+                 (!std::same_as<T, std::string>) && (!std::same_as<T, std::string_view>)
+    constexpr attr_value(const T& v) : s(std::string_view(v)) {}
     template<std::integral T>
         requires(!std::is_same_v<T, bool>) && (!std::is_same_v<T, char>)
     attr_value(T v) : s(std::format("{}", v)) {}

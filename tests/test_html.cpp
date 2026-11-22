@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/html.hpp>
+#include <revet/i18n.hpp>
 
 TEST_CASE("Node — text is escaped", "[html]") {
     const html::Node n{"<b>bold</b>"};
@@ -159,4 +160,10 @@ TEST_CASE("text starting with a space cannot become an attribute", "[html][secur
     CHECK(std::string(html::td{std::string(" #evil")}) == "<td>&#32;#evil</td>");
     CHECK(std::string(html::td{html::attr.title("ok"), "plain"}) == "<td title=\"ok\">plain</td>");
     CHECK(std::string(html::span{"a ", html::span{" b"}}) == "<span>a <span>&#32;b</span></span>");
+}
+
+TEST_CASE("attr values accept i18n strings", "[html]") {
+    const i18n::Str<2> hint{{"Say hi", "Di hola"}};
+    const html::Node n{html::attr.placeholder(hint)};
+    CHECK(n.str == R"( placeholder="Say hi")");
 }
