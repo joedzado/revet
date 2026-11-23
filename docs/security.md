@@ -57,7 +57,7 @@ Recommend rotating: on suspected key compromise, on employee departure if the ke
 | Cookie tampering | yes | State cookies and CSRF cookie are AEAD-sealed; tampering fails verification. |
 | Cookie theft via plain HTTP | opt-in | Enable via `secure_cookies(true)`. Off by default for dev. |
 | Rate limiting / brute force | opt-in | `web::rate_limit::by_ip` / `by_key` middleware; per process, in memory. See [api.md](api.md#rate-limiting-revetrate_limithpp-namespace-webrate_limit). |
-| Replay attacks on bearer tokens | partial | `bearer`/`bearer_static` tokens are not time-bound. `web::auth::tokens` access tokens expire (15 min); refresh tokens are single use, and presenting an old one revokes the session. |
+| Replay attacks on bearer tokens | partial | `bearer`/`bearer_static` tokens are not time-bound. `web::auth::tokens` access tokens expire (15 min); refresh tokens are single use and MACed, and presenting an old one revokes the session. |
 | Phishing, credential stuffing, password reuse | yes, with passkeys | A passkey is bound to the site's domain by the browser/OS and holds no shared secret. The server stores public keys only. |
 | Replayed or forged passkey answers | yes | Challenges are random, single use, expire in 5 minutes, and are tied to one ceremony. Origin, RP ID, signature and signature counter are verified. |
 | Stolen refresh token | partial | Rotation plus reuse detection ends the session when both thief and owner use it. Revocation takes effect at the next refresh, or at once with `tokens::guard_checked`. |

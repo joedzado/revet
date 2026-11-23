@@ -69,9 +69,9 @@ const auto& who = web::api::principal<web::auth::tokens::Principal>();   // who.
 
 **Lifetimes.** `access_ttl` and `refresh_ttl` default to 15 minutes and 60 days. Set `REVET_ACCESS_TTL_SECONDS` / `REVET_REFRESH_TTL_SECONDS`, or assign `web::auth::tokens::config().access_ttl` at startup. A session ends at `refresh_ttl` after sign-in; refreshing does not extend it.
 
-**Table.** `auth_sessions(id, user_id, token_hash, generation, label, created_at, last_used_at, expires_at, revoked_at)`; `user_id` cascades from `auth_users`, so `delete_user` removes a user's sessions. A refresh token reads `<session id>.<generation>.<secret>`.
+**Table.** `auth_sessions(id, user_id, token_hash, generation, label, created_at, last_used_at, expires_at, revoked_at)`; `user_id` cascades from `auth_users`, so `delete_user` removes a user's sessions. A refresh token reads `<session id>.<generation>.<secret>.<mac>`. The MAC (keyed BLAKE2b under a key derived from `REVET_COOKIE_KEY`) means only a token this server issued can reach the session, so a forged old-generation token cannot trigger the reuse revocation.
 
-**Key.** The access token uses the same key as cookies. After rotating `REVET_COOKIE_KEY`, existing access tokens fail, and apps get a new one on their next refresh. Refresh tokens are hashed, not sealed, so they are unaffected.
+**Key.** The access token uses the same key as cookies. After rotating `REVET_COOKIE_KEY`, existing access tokens fail, and apps get a new one on their next refresh. Refresh tokens carry a MAC under it too, so rotating the key signs every device out.
 
 ## WebAuthn core (`<revet/webauthn.hpp>`, `<revet/cbor.hpp>`, namespace `web::webauthn`, `web::cbor`)
 
