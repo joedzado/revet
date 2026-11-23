@@ -6,7 +6,9 @@
 //   access token   sealed with REVET_COOKIE_KEY, carries user id, session id and expiry. Checked
 //                  with no database read. Sent as `Authorization: Bearer <token>`.
 //   refresh token  random, shown to the client once, stored only as a hash. Each use rotates it; using
-//                  an old one again means a copy was stolen, so the whole session is revoked.
+//                  an old one again means a copy was stolen, so the whole session is revoked. It also
+//                  carries a MAC under REVET_COOKIE_KEY, so only a token this server issued can trigger
+//                  that revocation: knowing a session id is not enough to sign someone out.
 //
 //   auto pair = web::auth::tokens::issue(db, user_id, "Alex's iPhone");        // after a sign-in
 //   auto next = web::auth::tokens::refresh(db, pair.refresh_token);           // std::expected
@@ -129,8 +131,30 @@ inline auto hash_secret(std::string_view secret) -> std::string {
     return hex;
 }
 
+// Keyed BLAKE2b over the token body, under a key derived from REVET_COOKIE_KEY. base64url, 16 bytes.
+inline auto refresh_mac(std::string_view body) -> std::string {
+    web::crypto::init();
+    web::crypto::Key cookie_key{};
+    web::crypto::get_key(cookie_key);
+    std::array<unsigned char, crypto_generichash_KEYBYTES> key{};
+    constexpr std::string_view k_context = "revet-refresh-mac-v1";
+    crypto_generichash(key.data(), key.size(), reinterpret_cast<const unsigned char*>(k_context.data()), k_context.size(),
+                       cookie_key.data(), cookie_key.size());
+    sodium_memzero(cookie_key.data(), cookie_key.size());
+    std::array<unsigned char, 16> mac{};
+    crypto_generichash(mac.data(), mac.size(), reinterpret_cast<const unsigned char*>(body.data()), body.size(), key.data(), key.size());
+    sodium_memzero(key.data(), key.size());
+    std::string out(sodium_base64_ENCODED_LEN(mac.size(), sodium_base64_VARIANT_URLSAFE_NO_PADDING), '\0');
+    sodium_bin2base64(out.data(), out.size(), mac.data(), mac.size(), sodium_base64_VARIANT_URLSAFE_NO_PADDING);
+    out.resize(std::strlen(out.c_str()));
+    return out;
+}
+
+// <session id>.<generation>.<secret>.<mac>
 inline auto make_refresh_token(std::string_view session_id, long long generation, std::string_view secret) -> std::string {
-    return std::string(session_id) + "." + std::to_string(generation) + "." + std::string(secret);
+    auto body = std::string(session_id) + "." + std::to_string(generation) + "." + std::string(secret);
+    auto mac = refresh_mac(body);
+    return body + "." + mac;
 }
 
 struct ParsedRefresh {
@@ -149,10 +173,14 @@ inline auto parse_refresh_token(std::string_view token) -> std::optional<ParsedR
     if (d1 == std::string_view::npos) return std::nullopt;
     const auto d2 = token.find('.', d1 + 1);
     if (d2 == std::string_view::npos) return std::nullopt;
+    const auto d3 = token.find('.', d2 + 1);
+    if (d3 == std::string_view::npos || token.find('.', d3 + 1) != std::string_view::npos) return std::nullopt;
+    // A token this server did not mint is refused before it can touch the session (and so cannot revoke it).
+    if (!web::crypto::secure_eq(refresh_mac(token.substr(0, d3)), token.substr(d3 + 1))) return std::nullopt;
     ParsedRefresh p;
     p.session_id = std::string(token.substr(0, d1));
     const auto gen = token.substr(d1 + 1, d2 - d1 - 1);
-    p.secret = std::string(token.substr(d2 + 1));
+    p.secret = std::string(token.substr(d2 + 1, d3 - d2 - 1));
     if (!is_hex32(p.session_id) || gen.empty() || gen.size() > 12 || p.secret.empty()) return std::nullopt;
     long long g = 0;
     for (char c : gen) {

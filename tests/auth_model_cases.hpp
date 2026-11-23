@@ -104,9 +104,7 @@ void run_model(unsigned seed, int steps) {
             bad[bad.size() - 1] = bad.back() == 'A' ? 'B' : 'A';
             const auto r1 = tok::refresh(w, bad, now);
             REQUIRE_FALSE(r1.has_value());
-            if (s->revoked) REQUIRE(r1.error() == tok::RefreshError::revoked);
-            else if (s->expires_at <= now) REQUIRE(r1.error() == tok::RefreshError::expired);
-            else REQUIRE(r1.error() == tok::RefreshError::invalid);
+            REQUIRE(r1.error() == tok::RefreshError::invalid); // the MAC fails before the session is looked at
             REQUIRE_FALSE(tok::refresh(w, "garbage", now).has_value());
         } else if (op == 7) { // sign out one device
             auto* s = pick_session();

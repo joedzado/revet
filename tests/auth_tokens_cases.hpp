@@ -15,6 +15,16 @@ namespace tok = web::auth::tokens;
 namespace {
 constexpr long long T0 = 1'800'000'000;
 
+// The secret part of <session>.<generation>.<secret>.<mac>.
+auto secret_of(const std::string& token) -> std::string {
+    const auto d2 = token.find('.', token.find('.') + 1);
+    return token.substr(d2 + 1, token.rfind('.') - d2 - 1);
+}
+// A body signed the way the server signs refresh tokens, for tests that need well-formed tokens.
+auto signed_token(const std::string& body) -> std::string {
+    return body + "." + web::auth::tokens::detail::refresh_mac(body);
+}
+
 auto make_user(W& w, const std::string& name = "alice") -> std::string {
     return auth::find_or_create_user(w, "test", name);
 }
@@ -55,7 +65,8 @@ TEST_CASE("tokens: the server stores only a hash of the refresh token", "[auth][
     AuthDb fx;
     W w(fx.pool);
     const auto pair = tok::issue(w, make_user(w), "", T0);
-    const auto secret = pair.refresh_token.substr(pair.refresh_token.rfind('.') + 1);
+    const auto secret = secret_of(pair.refresh_token);
+    REQUIRE(secret.size() >= 40);
     const auto stored = w.scalar<std::string>("SELECT token_hash FROM auth_sessions WHERE id = ?", pair.session_id);
     REQUIRE(stored.has_value());
     REQUIRE(stored->size() == 64);
@@ -133,6 +144,22 @@ TEST_CASE("tokens: reusing a rotated refresh token revokes the session", "[auth]
     REQUIRE_FALSE(tok::session_active(w, first.session_id, T0 + 30));
 }
 
+TEST_CASE("tokens: a forged old-generation token does not revoke the session", "[auth][db]") {
+    AUTH_REQUIRE_DB();
+    AuthDb fx;
+    W w(fx.pool);
+    const auto first = tok::issue(w, make_user(w), "phone", T0);
+    const auto second = tok::refresh(w, first.refresh_token, T0 + 10);
+    REQUIRE(second.has_value());
+
+    // Someone who knows only the session id tries generation 1 with a made-up secret and MAC.
+    const auto forged = tok::refresh(w, first.session_id + ".1.madeupsecret.AAAAAAAAAAAAAAAAAAAAAA", T0 + 20);
+    REQUIRE_FALSE(forged.has_value());
+    REQUIRE(forged.error() == tok::RefreshError::invalid);
+    REQUIRE(tok::session_active(w, first.session_id, T0 + 20));
+    REQUIRE(tok::refresh(w, second->refresh_token, T0 + 30).has_value());
+}
+
 TEST_CASE("tokens: wrong, malformed and unknown refresh tokens are invalid", "[auth][db]") {
     AUTH_REQUIRE_DB();
     AuthDb fx;
@@ -143,9 +170,13 @@ TEST_CASE("tokens: wrong, malformed and unknown refresh tokens are invalid", "[a
         return !r.has_value() && r.error() == tok::RefreshError::invalid;
     };
 
-    REQUIRE(bad(pair.session_id + ".1.wrongsecret"));
-    REQUIRE(bad(std::string(32, 'a') + ".1." + pair.refresh_token.substr(pair.refresh_token.rfind('.') + 1)));
-    REQUIRE(bad(pair.session_id + ".5." + pair.refresh_token.substr(pair.refresh_token.rfind('.') + 1))); // a generation not issued yet
+    const auto secret = secret_of(pair.refresh_token);
+    REQUIRE(bad(signed_token(pair.session_id + ".1.wrongsecret")));
+    REQUIRE(bad(signed_token(std::string(32, 'a') + ".1." + secret)));
+    REQUIRE(bad(signed_token(pair.session_id + ".5." + secret))); // a generation not issued yet
+    REQUIRE(bad(pair.session_id + ".1." + secret));               // no MAC
+    REQUIRE(bad(pair.session_id + ".1." + secret + ".AAAAAAAAAAAAAAAAAAAAAA")); // wrong MAC
+    REQUIRE(bad(pair.refresh_token + ".x"));                      // extra part
     REQUIRE(bad(""));
     REQUIRE(bad("garbage"));
     REQUIRE(bad("a.b.c"));
