@@ -14,7 +14,8 @@
 // Request and response bodies are JSON. Binary fields are base64url without padding.
 //
 //   register_options   POST  {display_name?}                          -> {challenge_id, options}
-//                            Authorization: Bearer <access token> adds a passkey to that user;
+//                            Authorization: Bearer <access token> adds a passkey to that user
+//                            (the session must still be active: a signed-out token is refused);
 //                            without it, finishing creates a new account.
 //   register_finish    POST  {challenge_id, client_data_json, attestation_object, label?, device?}
 //                                                                     -> {user_id, credential_id, new_user, tokens?}
@@ -141,6 +142,11 @@ auto register_options(const web::Request& req, Open open) -> web::Response {
         if (auto n = body->str("display_name"); !n.empty() && n.size() <= 128) name = std::move(n);
     }
     auto h = open();
+    // Adding a passkey is a lasting grant, so a signed-out (revoked) session must not do it, even
+    // while its access token has not expired yet.
+    if (*who && !tokens::session_active(h, (*who)->session_id)) {
+        return web::api::error(web::status::unauthorized, "unauthorized");
+    }
     const auto user = *who ? std::optional<std::string>((*who)->user_id) : std::nullopt;
     const auto opts = begin_registration(h, user, name);
     if (!opts) return detail::registration_failure(opts.error());
@@ -164,6 +170,7 @@ auto register_finish(const web::Request& req, Open open) -> web::Response {
     if (done->new_user) {
         auto device = body->str("device");
         if (device.empty()) device = label;
+        if (device.size() > 128) device.resize(128);
         detail::tokens_json(w, tokens::issue(h, done->user_id, device));
     }
     w.end();

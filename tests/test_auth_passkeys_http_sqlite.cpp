@@ -185,6 +185,40 @@ TEST_CASE("passkey http: a bad bearer token on register_options is refused, not 
     REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_challenges").value_or(-1) == 0);
 }
 
+TEST_CASE("passkey http: a signed-out session cannot add a passkey with its unexpired access token", "[auth][http]") {
+    Fixture fx;
+    soft::Authenticator phone;
+    const auto first = register_via_http(fx, phone);
+    const auto token = access_token(first);
+    revet::json::Document fd(first.body);
+    const auto user = static_cast<std::string>(fd.at("user_id"));
+    const auto session = static_cast<std::string>(fd.at("tokens").at("session_id"));
+    {
+        W w(fx.pool);
+        REQUIRE(tok::revoke_session(w, user, session));
+    }
+    REQUIRE(tok::verify_access(token).has_value()); // the token alone still looks fine...
+    const auto opts = http::register_options(post("{}", token), fx.open());
+    REQUIRE(opts.status.code == 401); // ...but the session behind it is gone
+    W w(fx.pool);
+    REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_challenges").value_or(-1) == 0);
+}
+
+TEST_CASE("passkey http: an oversized device name is cut to 128 bytes", "[auth][http]") {
+    Fixture fx;
+    soft::Authenticator a;
+    const auto opts = http::register_options(post("{}"), fx.open());
+    Parsed o(opts.body);
+    revet::json::Document doc(opts.body);
+    const auto raw = *wa::base64url_decode(static_cast<std::string>(doc.at("options").at("challenge")));
+    const auto r = a.registration(raw, {});
+    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" + b64(r.client_data_json) +
+                      R"(","attestation_object":")" + b64(r.attestation_object) + R"(","device":")" + std::string(5000, 'd') + R"("})";
+    REQUIRE(http::register_finish(post(body), fx.open()).status.code == 200);
+    W w(fx.pool);
+    REQUIRE(w.scalar<long long>("SELECT MAX(LENGTH(label)) FROM auth_sessions").value_or(-1) == 128);
+}
+
 TEST_CASE("passkey http: registration says why it failed", "[auth][http]") {
     Fixture fx;
     soft::Authenticator a;
