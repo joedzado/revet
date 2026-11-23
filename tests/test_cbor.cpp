@@ -165,3 +165,26 @@ TEST_CASE("cbor: counts larger than the input cannot allocate", "[cbor]") {
     REQUIRE(err_of(hex("9a7fffffff01")) == cbor::Error::too_large);       // 2 billion items, 1 byte left
     REQUIRE(err_of(hex("5bffffffffffffffff")) == cbor::Error::truncated); // byte string of 2^64-1
 }
+
+TEST_CASE("cbor: arrays and maps are capped at max_items entries", "[cbor]") {
+    // max_items entries decode; one more is refused even though the input holds every byte.
+    const auto array_of = [](std::uint64_t n) {
+        std::string s = hex("99") + static_cast<char>(n >> 8U) + static_cast<char>(n & 0xFFU);
+        s.append(n, '\x00');
+        return s;
+    };
+    const auto map_of = [](std::uint64_t n) { // distinct integer keys 0..n-1, null values
+        std::string s = hex("b9") + static_cast<char>(n >> 8U) + static_cast<char>(n & 0xFFU);
+        for (std::uint64_t i = 0; i < n; ++i) {
+            s += hex("19") + static_cast<char>(i >> 8U) + static_cast<char>(i & 0xFFU);
+            s += '\xf6';
+        }
+        return s;
+    };
+    REQUIRE(cbor::decode(array_of(cbor::max_items)).has_value());
+    REQUIRE(err_of(array_of(cbor::max_items + 1)) == cbor::Error::too_large);
+    REQUIRE(cbor::decode(map_of(cbor::max_items)).has_value());
+    REQUIRE(err_of(map_of(cbor::max_items + 1)) == cbor::Error::too_large);
+    // A large map that would make the duplicate-key check quadratic is refused before any entry is read.
+    REQUIRE(err_of(map_of(20000)) == cbor::Error::too_large);
+}

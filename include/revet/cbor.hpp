@@ -2,7 +2,8 @@
 
 // A small, strict CBOR (RFC 8949) decoder for the subset WebAuthn uses: integers, byte and text
 // strings, arrays, maps, booleans and null, all definite length. Anything else (tags, floats,
-// indefinite lengths, duplicate map keys, nesting deeper than max_depth) is an error, never a crash.
+// indefinite lengths, duplicate map keys, nesting deeper than max_depth, more than max_items entries
+// in one array or map) is an error, never a crash.
 //
 //   auto v = web::cbor::decode(bytes);                 // whole input must be one item
 //   auto [v, used] = web::cbor::decode_prefix(bytes);  // one item, then whatever follows
@@ -26,7 +27,7 @@ enum class Error {
     trailing_bytes,  // decode(): bytes left over after the item
     unsupported,     // tags, floats, indefinite length, simple values other than false/true/null
     too_deep,        // nested more than max_depth levels
-    too_large,       // an integer outside int64, or a count larger than the input can hold
+    too_large,       // an integer outside int64, a count larger than the input can hold, or above max_items
     duplicate_key,   // the same key twice in one map
     bad_text,        // text string that is not valid UTF-8
 };
@@ -93,6 +94,9 @@ inline auto Value::find(std::int64_t key) const -> const Value* {
 }
 
 inline constexpr int max_depth = 16;
+// WebAuthn's arrays and maps hold a handful of entries. The cap keeps the duplicate-key check (quadratic
+// in the map size) and the allocations small whatever an attacker sends.
+inline constexpr std::uint64_t max_items = 256;
 
 namespace detail {
 
@@ -180,7 +184,7 @@ public:
             return Value{Text{std::move(data)}};
         }
         case 4: {
-            if (n > in_.size() - pos_) return std::unexpected(Error::too_large); // every item takes a byte
+            if (n > max_items || n > in_.size() - pos_) return std::unexpected(Error::too_large); // every item takes a byte
             std::vector<Value> items;
             items.reserve(static_cast<std::size_t>(n));
             for (std::uint64_t i = 0; i < n; ++i) {
@@ -191,7 +195,7 @@ public:
             return Value{std::move(items)};
         }
         default: { // 5: map
-            if (n > (in_.size() - pos_) / 2) return std::unexpected(Error::too_large); // a pair takes two bytes
+            if (n > max_items || n > (in_.size() - pos_) / 2) return std::unexpected(Error::too_large); // a pair takes two bytes
             std::vector<Entry> entries;
             entries.reserve(static_cast<std::size_t>(n));
             for (std::uint64_t i = 0; i < n; ++i) {
