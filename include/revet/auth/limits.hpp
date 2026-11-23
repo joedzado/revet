@@ -53,6 +53,11 @@ inline auto limiters() -> Limiters& {
     return l;
 }
 
+// Fresh, empty buckets built from config(). Guards made before this keep the old ones. For tests.
+inline void reset() {
+    limiters() = Limiters{};
+}
+
 // A JSON body's credential_id, else refresh_token's session part. Empty when the body names neither,
 // which leaves only the per-address limit.
 inline auto body_key(const Request& req) -> std::string {

@@ -106,6 +106,7 @@ auto mail_request(const std::string& ip, const std::string& email) -> web::Reque
 } // namespace
 
 TEST_CASE("auth limits: mail to one address is limited across clients", "[auth][limits][mail]") {
+    lim::detail::reset(); // Catch2 runs cases in random order; the global mail cap is shared
     const auto guards = lim::magic_request();
     REQUIRE(call(guards, mail_request("198.18.0.1", "victim@example.com")).body == "ok");
     REQUIRE(call(guards, mail_request("198.18.0.2", "victim@example.com")).body == "ok");
@@ -118,6 +119,7 @@ TEST_CASE("auth limits: mail to one address is limited across clients", "[auth][
 }
 
 TEST_CASE("auth limits: a form field works as well as JSON", "[auth][limits][mail]") {
+    lim::detail::reset();
     const auto guards = lim::magic_request();
     web::Request req;
     req.peer_ip = "198.18.1.1";
@@ -130,9 +132,9 @@ TEST_CASE("auth limits: a form field works as well as JSON", "[auth][limits][mai
 }
 
 TEST_CASE("auth limits: all the mail the app sends has a ceiling", "[auth][limits][mail]") {
+    lim::detail::reset();
     const auto guards = lim::magic_request();
-    // Distinct addresses from distinct clients, so only the global cap can stop them. The earlier tests in
-    // this file already used part of the allowance of 6, so count what is left rather than assuming.
+    // Distinct addresses from distinct clients, so only the global cap of 6 can stop them.
     int allowed = 0;
     int ip = 0;
     for (int i = 0; i < 20; ++i) {
@@ -140,7 +142,7 @@ TEST_CASE("auth limits: all the mail the app sends has a ceiling", "[auth][limit
         if (r.body == "ok") ++allowed;
         else REQUIRE(r.status.code == 429);
     }
-    REQUIRE(allowed <= 6);
+    REQUIRE(allowed == 6);
     REQUIRE(call(guards, mail_request("198.19.9.9", "late@example.com")).status.code == 429);
 }
 
