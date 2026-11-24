@@ -42,7 +42,7 @@ inline auto fields(const web::Request& req, std::initializer_list<std::string_vi
     try {
         revet::json::Document doc(req.raw_body);
         std::vector<std::string> out;
-        for (auto n : names) {
+        for (const auto n : names) {
             out.push_back(doc.root().get(n, ""));
         }
         return out;
@@ -75,6 +75,7 @@ auto request(const web::Request& req, Open open) -> web::Response {
     }
 
     auto h = open();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
     switch (magic::request(h, (*f)[0], purpose, user_id)) {
         case RequestResult::invalid_email:
             return web::api::error(web::status::bad_request, "invalid_email");
@@ -93,12 +94,14 @@ auto verify(const web::Request& req, Open open) -> web::Response {
     if (!f) {
         return f.error();
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
     auto device = (*f)[1];
     if (device.size() > 128) {
         device.resize(128);
     }
 
     auto h = open();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
     const auto done = magic::complete(h, (*f)[0]);
     if (!done) {
         return done.error() == CompleteError::email_taken ? web::api::error(web::status::conflict, "email_taken")

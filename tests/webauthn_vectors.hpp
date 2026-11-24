@@ -5,8 +5,8 @@
 
 namespace webauthn_vectors {
 
-inline std::string bytes(std::initializer_list<unsigned char> b) {
-    return std::string(b.begin(), b.end());
+inline auto bytes(std::initializer_list<unsigned char> b) -> std::string {
+    return {b.begin(), b.end()};
 }
 
 inline const std::string rp_id = "app.example.com";

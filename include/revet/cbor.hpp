@@ -22,7 +22,7 @@
 
 namespace web::cbor {
 
-enum class Error {
+enum class Error : std::uint8_t {
     truncated,      // input ended inside an item
     trailing_bytes, // decode(): bytes left over after the item
     unsupported,    // tags, floats, indefinite length, simple values other than false/true/null
@@ -139,6 +139,7 @@ inline auto same_key(const Value& a, const Value& b) -> bool {
 inline auto valid_utf8(std::string_view s) -> bool {
     std::size_t i = 0;
     while (i < s.size()) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
         const auto c = static_cast<unsigned char>(s[i]);
         std::size_t len = 0;
         std::uint32_t cp = 0;
@@ -162,6 +163,7 @@ inline auto valid_utf8(std::string_view s) -> bool {
             return false;
         }
         for (std::size_t k = 1; k < len; ++k) {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
             const auto cc = static_cast<unsigned char>(s[i + k]);
             if ((cc & 0xC0U) != 0x80U) {
                 return false;
@@ -192,6 +194,7 @@ public:
         if (pos_ >= in_.size()) {
             return std::unexpected(Error::truncated);
         }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
         const auto initial = static_cast<unsigned char>(in_[pos_++]);
         const unsigned major = initial >> 5U;
         const unsigned info = initial & 0x1FU;
@@ -308,6 +311,7 @@ private:
         }
         std::uint64_t v = 0;
         for (std::size_t i = 0; i < width; ++i) {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
             v = (v << 8U) | static_cast<unsigned char>(in_[pos_++]);
         }
         return v;

@@ -28,7 +28,7 @@ struct AuthDb {
         std::remove((path + "-shm").c_str());
     }
     AuthDb(const AuthDb&) = delete;
-    AuthDb& operator=(const AuthDb&) = delete;
+    auto operator=(const AuthDb&) -> AuthDb& = delete;
 };
 
 using W = db::sqlite::Handle<db::Write>;

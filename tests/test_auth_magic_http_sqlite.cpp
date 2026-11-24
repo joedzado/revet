@@ -40,7 +40,7 @@ struct Fixture {
         c.path = "/auth/magic";
         c.max_per_address_per_hour = 5;
         c.ttl = std::chrono::seconds(900);
-        c.send = [this](web::mail::Message m) {
+        c.send = [this](web::mail::Message m) -> void {
             const std::scoped_lock lock(mu);
             sent.push_back(std::move(m));
         };
@@ -52,9 +52,9 @@ struct Fixture {
         }
     }
     Fixture(const Fixture&) = delete;
-    Fixture& operator=(const Fixture&) = delete;
+    auto operator=(const Fixture&) -> Fixture& = delete;
     auto open() {
-        return [this] { return W(pool); };
+        return [this] -> W { return W(pool); };
     }
     auto last_token() -> std::string {
         const auto& t = sent.back().text;
@@ -154,7 +154,8 @@ TEST_CASE("magic http: bad tokens are all the same 401", "[auth][magic][http]") 
 
 TEST_CASE("magic http: a signed-in user adds an address with a link", "[auth][magic][http]") {
     Fixture fx;
-    std::string user, access;
+    std::string user;
+    std::string access;
     {
         W w(fx.pool);
         user = auth::find_or_create_user(w, "passkey", "cred");

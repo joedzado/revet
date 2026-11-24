@@ -38,9 +38,9 @@ struct Fixture {
         std::remove((path + "-shm").c_str());
     }
     Fixture(const Fixture&) = delete;
-    Fixture& operator=(const Fixture&) = delete;
+    auto operator=(const Fixture&) -> Fixture& = delete;
     auto open() {
-        return [this] { return W(pool); };
+        return [this] -> W { return W(pool); };
     }
 };
 
@@ -96,7 +96,8 @@ TEST_CASE("session http: refresh trades a token for a new pair", "[auth][session
 
 TEST_CASE("session http: refresh refusals tell the app to sign in again", "[auth][session]") {
     Fixture fx;
-    tok::TokenPair first, expired_pair;
+    tok::TokenPair first;
+    tok::TokenPair expired_pair;
     {
         W w(fx.pool);
         const auto user = auth::find_or_create_user(w, "t", "alice");
@@ -129,15 +130,16 @@ TEST_CASE("session http: refresh rejects malformed requests", "[auth][session]")
 TEST_CASE("session http: logout ends this device only", "[auth][session]") {
     Fixture fx;
     std::string user;
-    tok::TokenPair phone, laptop;
+    tok::TokenPair phone;
+    tok::TokenPair laptop;
     {
         W w(fx.pool);
         user = auth::find_or_create_user(w, "t", "alice");
         phone = tok::issue(w, user, "phone", tok::detail::unix_now());
         laptop = tok::issue(w, user, "laptop", tok::detail::unix_now());
     }
-    const auto out =
-        guarded(bearer(phone.access_token), [&](const web::Request& r) { return sess::logout(r, fx.open()); });
+    const auto out = guarded(bearer(phone.access_token),
+                             [&](const web::Request& r) -> web::Response { return sess::logout(r, fx.open()); });
     REQUIRE(out.status.code == 200);
     REQUIRE(out.body == R"({"ok":true})");
 
@@ -147,22 +149,24 @@ TEST_CASE("session http: logout ends this device only", "[auth][session]") {
 
 TEST_CASE("session http: logout needs a token", "[auth][session]") {
     Fixture fx;
-    REQUIRE(guarded(web::Request{}, [&](const web::Request& r) { return sess::logout(r, fx.open()); }).status.code ==
-            401);
+    REQUIRE(guarded(web::Request{}, [&](const web::Request& r) -> web::Response {
+                return sess::logout(r, fx.open());
+            }).status.code == 401);
 }
 
 TEST_CASE("session http: logout everywhere and the device list", "[auth][session]") {
     Fixture fx;
     std::string user;
-    tok::TokenPair phone, laptop;
+    tok::TokenPair phone;
+    tok::TokenPair laptop;
     {
         W w(fx.pool);
         user = auth::find_or_create_user(w, "t", "alice");
         phone = tok::issue(w, user, "phone", tok::detail::unix_now());
         laptop = tok::issue(w, user, "laptop", tok::detail::unix_now());
     }
-    const auto list =
-        guarded(bearer(phone.access_token), [&](const web::Request& r) { return sess::devices(r, fx.open()); });
+    const auto list = guarded(bearer(phone.access_token),
+                              [&](const web::Request& r) -> web::Response { return sess::devices(r, fx.open()); });
     REQUIRE(list.status.code == 200);
     revet::json::Document doc(list.body);
     int current = 0;
@@ -174,8 +178,8 @@ TEST_CASE("session http: logout everywhere and the device list", "[auth][session
     }
     REQUIRE(current == 1);
 
-    const auto all =
-        guarded(bearer(phone.access_token), [&](const web::Request& r) { return sess::logout_all(r, fx.open()); });
+    const auto all = guarded(bearer(phone.access_token),
+                             [&](const web::Request& r) -> web::Response { return sess::logout_all(r, fx.open()); });
     REQUIRE(all.status.code == 200);
     revet::json::Document ad(all.body);
     REQUIRE(static_cast<int>(ad.root().at("signed_out")) == 2);
@@ -184,7 +188,8 @@ TEST_CASE("session http: logout everywhere and the device list", "[auth][session
 
 TEST_CASE("session http: deleting an account removes everything", "[auth][session]") {
     Fixture fx;
-    std::string user, other;
+    std::string user;
+    std::string other;
     tok::TokenPair pair;
     {
         W w(fx.pool);
@@ -194,8 +199,9 @@ TEST_CASE("session http: deleting an account removes everything", "[auth][sessio
         pair = tok::issue(w, user, "phone", tok::detail::unix_now());
         tok::issue(w, other, "phone");
     }
-    const auto gone =
-        guarded(bearer(pair.access_token), [&](const web::Request& r) { return sess::delete_account(r, fx.open()); });
+    const auto gone = guarded(bearer(pair.access_token), [&](const web::Request& r) -> web::Response {
+        return sess::delete_account(r, fx.open());
+    });
     REQUIRE(gone.status.code == 200);
 
     {
@@ -210,7 +216,8 @@ TEST_CASE("session http: deleting an account removes everything", "[auth][sessio
     // The deleted user's access token still verifies (it is sealed, not looked up) but their refresh token is dead,
     // and a second delete finds nothing.
     REQUIRE(error_of(sess::refresh(post(refresh_body(pair.refresh_token)), fx.open())) == "invalid_refresh_token");
-    const auto again =
-        guarded(bearer(pair.access_token), [&](const web::Request& r) { return sess::delete_account(r, fx.open()); });
+    const auto again = guarded(bearer(pair.access_token), [&](const web::Request& r) -> web::Response {
+        return sess::delete_account(r, fx.open());
+    });
     REQUIRE(again.status.code == 404);
 }

@@ -31,7 +31,7 @@ auto capture(Outbox& out) {
     c.app_name = "Example";
     c.ttl = std::chrono::seconds(900);
     c.max_per_address_per_hour = 5;
-    c.send = [&out](web::mail::Message m) {
+    c.send = [&out](web::mail::Message m) -> void {
         const std::scoped_lock lock(out.mu);
         out.sent.push_back(std::move(m));
     };
@@ -143,8 +143,8 @@ TEST_CASE("magic: an expired, unknown or malformed token is refused", "[auth][db
     REQUIRE(late.error() == magic::CompleteError::invalid_link);
     REQUIRE(magic::complete(w, token, T0 + 899).has_value()); // an expired attempt did not spend it
 
-    for (const std::string bad : {std::string(), std::string("nope"), std::string(43, 'A'), std::string(500, 'x'),
-                                  token + "x", token.substr(1), std::string("' OR 1=1 --")}) {
+    for (const std::string& bad : {std::string(), std::string("nope"), std::string(43, 'A'), std::string(500, 'x'),
+                                   token + "x", token.substr(1), std::string("' OR 1=1 --")}) {
         INFO(bad);
         REQUIRE_FALSE(magic::complete(w, bad, T0 + 10).has_value());
     }
@@ -157,7 +157,7 @@ TEST_CASE("magic: addresses that cannot be mailed are refused without a trace", 
     Outbox out;
     capture(out);
     W w(fx.pool);
-    for (const std::string bad :
+    for (const std::string& bad :
          {std::string(), std::string("ann"), std::string("ann@example"), std::string("ann@example.com\r\nBcc: x@y.com"),
           std::string("a@b.c"), std::string("<ann@example.com>"), std::string(300, 'a')}) {
         INFO(bad);
@@ -259,17 +259,18 @@ TEST_CASE("magic: of many racing clicks on one link exactly one wins", "[auth][d
     }
     std::vector<int> won(8, 0);
     std::vector<std::thread> threads;
-    for (std::size_t i = 0; i < won.size(); ++i) {
-        threads.emplace_back([&, i] {
+    threads.reserve(won.size());
+    for (int& i : won) {
+        threads.emplace_back([&] -> void {
             W w(fx.pool);
-            won[i] = magic::complete(w, token, T0 + 5).has_value() ? 1 : 0;
+            i = magic::complete(w, token, T0 + 5).has_value() ? 1 : 0;
         });
     }
     for (auto& t : threads) {
         t.join();
     }
     int total = 0;
-    for (int v : won) {
+    for (const int v : won) {
         total += v;
     }
     REQUIRE(total == 1);
@@ -345,7 +346,7 @@ TEST_CASE("magic: old link records are cleared", "[auth][db][magic]") {
     W w(fx.pool);
     magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0);
     REQUIRE(count(w, "auth_magic_links") == 1);
-    magic::request(w, "bob@example.com", magic::Purpose::sign_in, {}, T0 + 3 * 86400);
+    magic::request(w, "bob@example.com", magic::Purpose::sign_in, {}, T0 + (3 * 86400));
     REQUIRE(count(w, "auth_magic_links") == 1);
 }
 

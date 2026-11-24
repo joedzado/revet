@@ -176,12 +176,12 @@ TEST_CASE("cbor: counts larger than the input cannot allocate", "[cbor]") {
 
 TEST_CASE("cbor: arrays and maps are capped at max_items entries", "[cbor]") {
     // max_items entries decode; one more is refused even though the input holds every byte.
-    const auto array_of = [](std::uint64_t n) {
+    const auto array_of = [](std::uint64_t n) -> std::string {
         std::string s = hex("99") + static_cast<char>(n >> 8U) + static_cast<char>(n & 0xFFU);
         s.append(n, '\x00');
         return s;
     };
-    const auto map_of = [](std::uint64_t n) { // distinct integer keys 0..n-1, null values
+    const auto map_of = [](std::uint64_t n) -> std::string { // distinct integer keys 0..n-1, null values
         std::string s = hex("b9") + static_cast<char>(n >> 8U) + static_cast<char>(n & 0xFFU);
         for (std::uint64_t i = 0; i < n; ++i) {
             s += hex("19") + static_cast<char>(i >> 8U) + static_cast<char>(i & 0xFFU);

@@ -36,7 +36,7 @@ auto challenge_of(const pk::Options& o) -> std::string {
 }
 
 // Registers `a` as a new user and returns the result (or fails the test).
-auto register_new(W& w, soft::Authenticator& a, long long now = T0,
+auto register_new(W& w, const soft::Authenticator& a, long long now = T0,
                   const soft::Tweaks& t = {}) -> std::expected<pk::Registered, pk::Failure> {
     const auto opts = pk::begin_registration(w, std::nullopt, "Alex", now);
     REQUIRE(opts.has_value());
@@ -45,7 +45,7 @@ auto register_new(W& w, soft::Authenticator& a, long long now = T0,
                                    now + 1);
 }
 
-auto register_add(W& w, const std::string& user, soft::Authenticator& a,
+auto register_add(W& w, const std::string& user, const soft::Authenticator& a,
                   long long now = T0) -> std::expected<pk::Registered, pk::Failure> {
     const auto opts = pk::begin_registration(w, user, "Alex", now);
     REQUIRE(opts.has_value());
@@ -212,7 +212,7 @@ TEST_CASE("passkeys: a challenge answers once", "[auth][db]") {
 
     const auto login = pk::begin_login(w, T0 + 10);
     const auto ar = a.assertion(challenge_of(login));
-    const auto answer = [&] {
+    const auto answer = [&] -> std::expected<pk::LoggedIn, pk::Failure> {
         return pk::finish_login(w, login.challenge_id, b64(a.credential_id), b64(ar.client_data_json),
                                 b64(ar.authenticator_data), b64(ar.signature), "", T0 + 11);
     };
@@ -225,7 +225,7 @@ TEST_CASE("passkeys: a challenge expires", "[auth][db]") {
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto a = new_credential('a');
+    const auto a = new_credential('a');
     const auto opts = pk::begin_registration(w, std::nullopt, "Alex", T0);
     const auto r = a.registration(challenge_of(*opts));
     REQUIRE(fails(pk::finish_registration(w, opts->challenge_id, b64(r.client_data_json), b64(r.attestation_object),
@@ -263,7 +263,7 @@ TEST_CASE("passkeys: a challenge only works for the ceremony it was issued for",
 
     // A login challenge offered to registration.
     const auto login = pk::begin_login(w, T0 + 10);
-    auto b = new_credential('b');
+    const auto b = new_credential('b');
     const auto reg = b.registration(challenge_of(login));
     REQUIRE(fails(pk::finish_registration(w, login.challenge_id, b64(reg.client_data_json), b64(reg.attestation_object),
                                           "x", T0 + 11),
@@ -282,7 +282,7 @@ TEST_CASE("passkeys: unknown challenge ids are refused", "[auth][db]") {
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto a = new_credential('a');
+    const auto a = new_credential('a');
     const auto r = a.registration(std::string(32, 'x'));
     REQUIRE(fails(
         pk::finish_registration(w, std::string(32, '0'), b64(r.client_data_json), b64(r.attestation_object), "x", T0),
@@ -296,7 +296,7 @@ TEST_CASE("passkeys: a failed registration spends the challenge and creates noth
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto a = new_credential('a');
+    const auto a = new_credential('a');
     const auto opts = pk::begin_registration(w, std::nullopt, "Alex", T0);
     const auto bad = a.registration(challenge_of(*opts), {.origin = "https://evil.example.com"});
     const auto r = pk::finish_registration(w, opts->challenge_id, b64(bad.client_data_json),

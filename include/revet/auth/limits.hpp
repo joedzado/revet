@@ -65,22 +65,23 @@ inline void reset() {
 // A JSON body's credential_id, else refresh_token's session part. Empty when the body names neither,
 // which leaves only the per-address limit.
 inline auto body_key(const Request& req) -> std::string {
-    if (req.raw_body.empty() || req.raw_body.size() > 64 * 1024) {
+    if (req.raw_body.empty() || req.raw_body.size() > std::size_t{64} * 1024) {
         return {};
     }
     try {
         revet::json::Document doc(req.raw_body);
         auto root = doc.root();
-        if (auto id = root.get("credential_id", ""); !id.empty() && id.size() <= 1400) {
+        if (const auto id = root.get("credential_id", ""); !id.empty() && id.size() <= 1400) {
             return "cred:" + id;
         }
-        if (auto rt = root.get("refresh_token", ""); !rt.empty()) {
+        if (const auto rt = root.get("refresh_token", ""); !rt.empty()) {
             const auto dot = rt.find('.');
-            if (dot != std::string::npos && dot <= 64) {
+            if (dot <= 64) { // npos is larger, so this also means "has a dot"
                 return "sess:" + rt.substr(0, dot);
             }
         }
     } catch (const std::exception&) {
+        return {}; // malformed JSON names no key; only the per-address limit applies
     }
     return {};
 }
@@ -89,24 +90,28 @@ inline auto body_key(const Request& req) -> std::string {
 // {"email": ...} or a form field. Empty when there is none or it is not an address.
 inline auto email_key(const Request& req) -> std::string {
     std::string raw;
-    if (!req.raw_body.empty() && req.raw_body.size() <= 64 * 1024) {
+    if (!req.raw_body.empty() && req.raw_body.size() <= std::size_t{64} * 1024) {
         try {
             revet::json::Document doc(req.raw_body);
             raw = doc.root().get("email", "");
         } catch (const std::exception&) {
+            raw.clear(); // malformed JSON: fall through to the form field
         }
     }
     if (raw.empty()) {
         raw = req.form.get("email");
     }
     const auto normal = mail::normalize_address(raw);
-    return normal ? "email:" + *normal : std::string();
+    if (!normal) {
+        return {};
+    }
+    return "email:" + *normal;
 }
 
 } // namespace detail
 
 inline auto anonymous() -> std::vector<Middleware> {
-    auto& l = detail::limiters();
+    const auto& l = detail::limiters();
     return {rate_limit::by_ip(l.ip), rate_limit::by_key(l.name, detail::body_key)};
 }
 
@@ -114,14 +119,14 @@ inline auto anonymous() -> std::vector<Middleware> {
 // all mail the app sends (so many addresses from many places cannot run up the SMTP bill or get the sender blocked).
 // The recipient limit is checked before the global one, so one hammered address does not use up everybody's allowance.
 inline auto magic_request() -> std::vector<Middleware> {
-    auto& l = detail::limiters();
+    const auto& l = detail::limiters();
     return {rate_limit::by_ip(l.ip), rate_limit::by_key(l.email, detail::email_key),
-            rate_limit::by_key(l.all_mail, [](const Request&) { return std::string("mail"); })};
+            rate_limit::by_key(l.all_mail, [](const Request&) -> std::string { return {"mail"}; })};
 }
 
 inline auto signed_in() -> std::vector<Middleware> {
-    auto& l = detail::limiters();
-    return {tokens::guard(), rate_limit::by_key(l.user, [](const Request&) {
+    const auto& l = detail::limiters();
+    return {tokens::guard(), rate_limit::by_key(l.user, [](const Request&) -> std::string {
                 return "user:" + web::api::principal<tokens::Principal>().user_id;
             })};
 }

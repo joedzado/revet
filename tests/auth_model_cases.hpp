@@ -39,7 +39,7 @@ void run_model(unsigned seed, int steps) {
     }
     long long now = 1'800'000'000;
 
-    const auto pick_session = [&]() -> ModelSession* {
+    const auto pick_session = [&] -> ModelSession* {
         if (m.sessions.empty()) {
             return nullptr;
         }
@@ -47,15 +47,15 @@ void run_model(unsigned seed, int steps) {
         std::advance(it, static_cast<long>(rng() % m.sessions.size()));
         return &it->second;
     };
-    const auto sid_of = [&](const ModelSession* s) {
+    const auto sid_of = [&](const ModelSession* s) -> std::string {
         for (const auto& [id, v] : m.sessions) {
             if (&v == s) {
                 return id;
             }
         }
-        return std::string();
+        return {};
     };
-    const auto active = [&](const ModelSession& s) { return !s.revoked && s.expires_at > now; };
+    const auto active = [&](const ModelSession& s) -> bool { return !s.revoked && s.expires_at > now; };
 
     for (int step = 0; step < steps; ++step) {
         now += static_cast<long long>(rng() % 400); // time moves; some sessions will expire
@@ -74,7 +74,7 @@ void run_model(unsigned seed, int steps) {
             ModelSession s;
             s.user = m.users[name];
             s.current_refresh = pair.refresh_token;
-            s.access.push_back({pair.access_token, pair.access_expires_at});
+            s.access.emplace_back(pair.access_token, pair.access_expires_at);
             s.expires_at = pair.refresh_expires_at;
             m.sessions[pair.session_id] = s;
         } else if (op <= 4) { // refresh with the current token
@@ -93,7 +93,7 @@ void run_model(unsigned seed, int steps) {
                 REQUIRE(r->refresh_token != s->current_refresh);
                 s->old_refresh.push_back(s->current_refresh);
                 s->current_refresh = r->refresh_token;
-                s->access.push_back({r->access_token, r->access_expires_at});
+                s->access.emplace_back(r->access_token, r->access_expires_at);
             }
         } else if (op == 5) { // replay an old refresh token
             auto* s = pick_session();
@@ -112,7 +112,7 @@ void run_model(unsigned seed, int steps) {
                 s->revoked = true;
             }
         } else if (op == 6) { // garbage and tampered refresh tokens
-            auto* s = pick_session();
+            const auto* s = pick_session();
             auto bad = s->current_refresh;
             bad[bad.size() - 1] = bad.back() == 'A' ? 'B' : 'A';
             const auto r1 = tok::refresh(w, bad, now);
@@ -193,7 +193,7 @@ void run_model(unsigned seed, int steps) {
 
 TEST_CASE("model: random token operations match a simple model", "[auth][db][model]") {
     AUTH_REQUIRE_DB();
-    for (unsigned seed : {1u, 2u, 3u, 4u, 5u}) {
+    for (const unsigned seed : {1U, 2U, 3U, 4U, 5U}) {
         run_model(seed, 1500);
     }
 }

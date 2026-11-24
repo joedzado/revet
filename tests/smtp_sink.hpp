@@ -34,7 +34,7 @@ struct Received {
     std::string login; // "user:password" if the client authenticated
 };
 
-enum class Tls { none, implicit, starttls };
+enum class Tls : std::uint8_t { none, implicit, starttls };
 
 class Server {
 public:
@@ -53,7 +53,7 @@ public:
         socklen_t len = sizeof(addr);
         getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &len);
         port_ = ntohs(addr.sin_port);
-        thread_ = std::thread([this] { serve(); });
+        thread_ = std::thread([this] -> void { serve(); });
     }
     ~Server() {
         stop_ = true;
@@ -61,7 +61,7 @@ public:
             thread_.join();
         }
         close(listener_);
-        if (ctx_) {
+        if (ctx_ != nullptr) {
             SSL_CTX_free(ctx_);
         }
         if (!ca_path_.empty()) {
@@ -69,7 +69,7 @@ public:
         }
     }
     Server(const Server&) = delete;
-    Server& operator=(const Server&) = delete;
+    auto operator=(const Server&) -> Server& = delete;
 
     [[nodiscard]] auto url() const -> std::string {
         if (tls_ == Tls::implicit) {
@@ -116,7 +116,7 @@ private:
             return true;
         }
         auto line(std::string& out) -> bool {
-            while (buf.find("\r\n") == std::string::npos) {
+            while (!buf.contains("\r\n")) {
                 if (!fill()) {
                     return false;
                 }
@@ -126,7 +126,7 @@ private:
             buf.erase(0, eol + 2);
             return true;
         }
-        void say(const std::string& s) {
+        void say(const std::string& s) const {
             if (ssl != nullptr) {
                 SSL_write(ssl, s.data(), static_cast<int>(s.size()));
             } else {
@@ -186,9 +186,9 @@ private:
 
     void handle(int fd) {
         ++connections_;
-        timeval tv{5, 0};
+        timeval tv{.tv_sec = 5, .tv_usec = 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        Conn c{fd};
+        Conn c{.fd = fd};
         if (tls_ == Tls::implicit && !upgrade(c)) {
             return;
         }
@@ -203,7 +203,7 @@ private:
         std::string login;
         std::string line;
         while (c.line(line)) {
-            auto starts = [&](const char* p) {
+            const auto starts = [&](const char* p) -> bool {
                 return line.size() >= std::strlen(p) && strncasecmp(line.c_str(), p, std::strlen(p)) == 0;
             };
             if (starts("EHLO") || starts("HELO")) {
@@ -211,7 +211,7 @@ private:
                 if (tls_ == Tls::starttls && c.ssl == nullptr) {
                     r += "250-STARTTLS\r\n";
                 }
-                r += require_login_ || true ? "250 AUTH PLAIN LOGIN\r\n" : "250 OK\r\n";
+                r += true ? "250 AUTH PLAIN LOGIN\r\n" : "250 OK\r\n";
                 c.say(r);
             } else if (starts("STARTTLS") && tls_ == Tls::starttls && c.ssl == nullptr) {
                 c.say("220 go ahead\r\n");
@@ -238,7 +238,8 @@ private:
                 c.say("235 ok\r\n");
             } else if (starts("AUTH LOGIN")) {
                 c.say("334 VXNlcm5hbWU6\r\n");
-                std::string u, p;
+                std::string u;
+                std::string p;
                 if (!c.line(u)) {
                     return;
                 }
@@ -246,7 +247,7 @@ private:
                 if (!c.line(p)) {
                     return;
                 }
-                auto dec = [](const std::string& b) {
+                const auto dec = [](const std::string& b) -> std::string {
                     std::string raw(b.size(), '\0');
                     std::size_t n = 0;
                     sodium_base642bin(reinterpret_cast<unsigned char*>(raw.data()), raw.size(), b.data(), b.size(),
@@ -274,7 +275,7 @@ private:
                 c.say("354 go ahead\r\n");
                 std::string body = c.buf;
                 c.buf.clear();
-                while (body.find("\r\n.\r\n") == std::string::npos) {
+                while (!body.contains("\r\n.\r\n")) {
                     if (!c.fill()) {
                         return;
                     }
@@ -313,7 +314,7 @@ private:
 
     void serve() {
         while (!stop_) {
-            pollfd p{listener_, POLLIN, 0};
+            pollfd p{.fd = listener_, .events = POLLIN, .revents = 0};
             if (poll(&p, 1, 100) <= 0) {
                 continue;
             }

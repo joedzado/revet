@@ -34,7 +34,7 @@ struct AuthDb {
         std::remove((path + "-shm").c_str());
     }
     AuthDb(const AuthDb&) = delete;
-    AuthDb& operator=(const AuthDb&) = delete;
+    auto operator=(const AuthDb&) -> AuthDb& = delete;
 };
 
 auto count(W& h, const char* table) -> long long {

@@ -43,7 +43,7 @@ namespace web::auth::passkeys::http {
 
 namespace detail {
 
-using Failure = web::auth::passkeys::Failure;
+using web::auth::passkeys::Failure;
 
 inline auto json_response(std::string body, web::Status status = web::status::ok) -> web::Response {
     return web::Response{.body = std::move(body), .content_type = "application/json", .status = status};

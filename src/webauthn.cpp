@@ -29,11 +29,13 @@ using Sha256 = std::array<unsigned char, crypto_hash_sha256_BYTES>;
 auto sha256(std::string_view data) -> Sha256 {
     web::crypto::init();
     Sha256 out{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     crypto_hash_sha256(out.data(), reinterpret_cast<const unsigned char*>(data.data()), data.size());
     return out;
 }
 
 auto as_view(const Sha256& h) -> std::string_view {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): byte view as chars
     return {reinterpret_cast<const char*>(h.data()), h.size()};
 }
 
@@ -99,6 +101,11 @@ struct AuthData {
     std::optional<Credential> credential;
 };
 
+// Callers check the length first; at() keeps a slip from reading past the end.
+auto byte_at(std::string_view d, std::size_t i) -> unsigned char {
+    return static_cast<unsigned char>(d.at(i));
+}
+
 auto parse_auth_data(std::string_view d) -> std::expected<AuthData, Error> {
     constexpr std::size_t fixed = 37; // rpIdHash 32, flags 1, signCount 4
     if (d.size() < fixed) {
@@ -106,11 +113,10 @@ auto parse_auth_data(std::string_view d) -> std::expected<AuthData, Error> {
     }
     AuthData out;
     out.rp_id_hash = d.substr(0, 32);
-    out.flags = static_cast<unsigned char>(d[32]);
-    out.sign_count = (static_cast<std::uint32_t>(static_cast<unsigned char>(d[33])) << 24U) |
-                     (static_cast<std::uint32_t>(static_cast<unsigned char>(d[34])) << 16U) |
-                     (static_cast<std::uint32_t>(static_cast<unsigned char>(d[35])) << 8U) |
-                     static_cast<std::uint32_t>(static_cast<unsigned char>(d[36]));
+    out.flags = byte_at(d, 32);
+    out.sign_count = (static_cast<std::uint32_t>(byte_at(d, 33)) << 24U) |
+                     (static_cast<std::uint32_t>(byte_at(d, 34)) << 16U) |
+                     (static_cast<std::uint32_t>(byte_at(d, 35)) << 8U) | static_cast<std::uint32_t>(byte_at(d, 36));
     if ((out.flags & k_flag_bs) != 0 && (out.flags & k_flag_be) == 0) {
         return std::unexpected(Error::bad_backup_flags);
     }
@@ -123,8 +129,8 @@ auto parse_auth_data(std::string_view d) -> std::expected<AuthData, Error> {
         Credential c;
         c.aaguid = std::string(d.substr(pos, 16));
         pos += 16;
-        const std::size_t id_len = (static_cast<std::size_t>(static_cast<unsigned char>(d[pos])) << 8U) |
-                                   static_cast<std::size_t>(static_cast<unsigned char>(d[pos + 1]));
+        const std::size_t id_len =
+            (static_cast<std::size_t>(byte_at(d, pos)) << 8U) | static_cast<std::size_t>(byte_at(d, pos + 1));
         pos += 2;
         if (id_len == 0 || id_len > k_max_credential_id) {
             return std::unexpected(Error::bad_credential_data);
@@ -201,7 +207,7 @@ using Pkey = std::unique_ptr<EVP_PKEY, PkeyDeleter>;
 
 // `point` is 0x04 || X || Y. OpenSSL rejects a point that is not on the curve.
 auto load_public_key(std::string_view point) -> Pkey {
-    if (point.size() != 65 || point[0] != 0x04) {
+    if (point.size() != 65 || point.front() != 0x04) {
         return nullptr;
     }
     const std::unique_ptr<OSSL_PARAM_BLD, BldDeleter> bld(OSSL_PARAM_BLD_new());
@@ -258,7 +264,9 @@ auto verify_es256(EVP_PKEY* key, std::string_view message, std::string_view der_
     if (!ctx || EVP_DigestVerifyInit(ctx.get(), nullptr, EVP_sha256(), nullptr, key) != 1) {
         return false;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): OpenSSL takes unsigned char*
     return EVP_DigestVerify(ctx.get(), reinterpret_cast<const unsigned char*>(der_signature.data()),
+                            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): byte view as chars
                             der_signature.size(), reinterpret_cast<const unsigned char*>(message.data()),
                             message.size()) == 1;
 }

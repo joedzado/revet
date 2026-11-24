@@ -156,10 +156,11 @@ TEST_CASE("auth users: concurrent creation of one identity yields one user", "[a
     AuthDb fx;
     std::vector<std::string> ids(8);
     std::vector<std::thread> threads;
-    for (std::size_t i = 0; i < ids.size(); ++i) {
-        threads.emplace_back([&, i] {
+    threads.reserve(ids.size());
+    for (auto& id : ids) {
+        threads.emplace_back([&] -> void {
             W w(fx.pool);
-            ids[i] = auth::find_or_create_user(w, "google", "same");
+            id = auth::find_or_create_user(w, "google", "same");
         });
     }
     for (auto& t : threads) {

@@ -58,10 +58,12 @@ auto refresh(const web::Request& req, Open open) -> web::Response {
         // An app should send the user back to sign-in on any of these; `session_revoked` also
         // means someone else may have held a copy of the old token.
         using E = tokens::RefreshError;
-        const char* code = next.error() == E::expired ? "session_expired"
-                           : (next.error() == E::revoked || next.error() == E::reuse_detected)
-                               ? "session_revoked"
-                               : "invalid_refresh_token";
+        const char* code = "invalid_refresh_token";
+        if (next.error() == E::expired) {
+            code = "session_expired";
+        } else if (next.error() == E::revoked || next.error() == E::reuse_detected) {
+            code = "session_revoked";
+        }
         return web::api::error(web::status::unauthorized, code);
     }
     revet::json::Writer w;

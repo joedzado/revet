@@ -46,9 +46,9 @@ struct Config {
 
 // Defaults, overridden by the environment on first use. Assign to the fields to set them in code.
 inline auto config() -> Config& {
-    static Config cfg = [] {
+    static Config cfg = [] -> Config {
         Config c;
-        auto from_env = [](const char* name, std::chrono::seconds& out) {
+        const auto from_env = [](const char* name, std::chrono::seconds& out) -> void {
             if (const char* v = std::getenv(name); v != nullptr) {
                 char* end = nullptr;
                 const long n = std::strtol(v, &end, 10);
@@ -85,7 +85,7 @@ struct Device {
     long long last_used_at = 0;
 };
 
-enum class RefreshError {
+enum class RefreshError : std::uint8_t {
     invalid,        // malformed, unknown session, or wrong secret
     expired,        // the session has outlived refresh_ttl
     revoked,        // signed out
@@ -104,7 +104,8 @@ inline auto random_hex(std::size_t bytes) -> std::string {
     web::crypto::init();
     std::string raw(bytes, '\0');
     randombytes_buf(raw.data(), raw.size());
-    std::string hex(bytes * 2 + 1, '\0');
+    std::string hex((bytes * 2) + 1, '\0');
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     sodium_bin2hex(hex.data(), hex.size(), reinterpret_cast<const unsigned char*>(raw.data()), raw.size());
     hex.pop_back();
     return hex;
@@ -124,8 +125,9 @@ inline auto random_secret() -> std::string {
 inline auto hash_secret(std::string_view secret) -> std::string {
     web::crypto::init();
     std::array<unsigned char, crypto_hash_sha256_BYTES> digest{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     crypto_hash_sha256(digest.data(), reinterpret_cast<const unsigned char*>(secret.data()), secret.size());
-    std::string hex(digest.size() * 2 + 1, '\0');
+    std::string hex((digest.size() * 2) + 1, '\0');
     sodium_bin2hex(hex.data(), hex.size(), digest.data(), digest.size());
     hex.pop_back();
     return hex;
@@ -138,10 +140,12 @@ inline auto refresh_mac(std::string_view body) -> std::string {
     web::crypto::get_key(cookie_key);
     std::array<unsigned char, crypto_generichash_KEYBYTES> key{};
     constexpr std::string_view k_context = "revet-refresh-mac-v1";
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     crypto_generichash(key.data(), key.size(), reinterpret_cast<const unsigned char*>(k_context.data()),
                        k_context.size(), cookie_key.data(), cookie_key.size());
     sodium_memzero(cookie_key.data(), cookie_key.size());
     std::array<unsigned char, 16> mac{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     crypto_generichash(mac.data(), mac.size(), reinterpret_cast<const unsigned char*>(body.data()), body.size(),
                        key.data(), key.size());
     sodium_memzero(key.data(), key.size());
@@ -154,8 +158,8 @@ inline auto refresh_mac(std::string_view body) -> std::string {
 // <session id>.<generation>.<secret>.<mac>
 inline auto make_refresh_token(std::string_view session_id, long long generation,
                                std::string_view secret) -> std::string {
-    auto body = std::string(session_id) + "." + std::to_string(generation) + "." + std::string(secret);
-    auto mac = refresh_mac(body);
+    const auto body = std::string(session_id) + "." + std::to_string(generation) + "." + std::string(secret);
+    const auto mac = refresh_mac(body);
     return body + "." + mac;
 }
 
@@ -167,7 +171,7 @@ struct ParsedRefresh {
 
 inline auto is_hex32(std::string_view s) -> bool {
     return s.size() == 32 &&
-           std::ranges::all_of(s, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+           std::ranges::all_of(s, [](char c) -> bool { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
 inline auto parse_refresh_token(std::string_view token) -> std::optional<ParsedRefresh> {
@@ -198,11 +202,11 @@ inline auto parse_refresh_token(std::string_view token) -> std::optional<ParsedR
         return std::nullopt;
     }
     long long g = 0;
-    for (char c : gen) {
+    for (const char c : gen) {
         if (c < '0' || c > '9') {
             return std::nullopt;
         }
-        g = g * 10 + (c - '0');
+        g = (g * 10) + (c - '0');
     }
     p.generation = g;
     return p;
@@ -243,7 +247,7 @@ void create_schema(H& h) {
     }
     const auto plain = web::crypto::decrypt(token);
     std::string_view rest = plain;
-    auto next = [&rest]() -> std::optional<std::string_view> {
+    const auto next = [&rest] -> std::optional<std::string_view> {
         const auto bar = rest.find('|');
         if (bar == std::string_view::npos) {
             return std::nullopt;
@@ -262,16 +266,16 @@ void create_schema(H& h) {
     if (rest.empty() || rest.size() > 18) {
         return std::nullopt;
     }
-    for (char c : rest) {
+    for (const char c : rest) {
         if (c < '0' || c > '9') {
             return std::nullopt;
         }
-        exp = exp * 10 + (c - '0');
+        exp = (exp * 10) + (c - '0');
     }
     if (exp <= now) {
         return std::nullopt;
     }
-    return Principal{std::string(*user), std::string(*session)};
+    return Principal{.user_id = std::string(*user), .session_id = std::string(*session)};
 }
 
 // Start a session for a user who has just proven who they are.
@@ -288,7 +292,8 @@ auto issue(H& h, std::string_view user_id, std::string_view device_label = "",
         session_id, std::string(user_id), detail::hash_secret(secret), 1LL, std::string(device_label), now, now,
         refresh_exp);
     const long long access_exp = now + cfg.access_ttl.count();
-    return {.access_token = detail::make_access_token({std::string(user_id), session_id}, access_exp),
+    return {.access_token =
+                detail::make_access_token({.user_id = std::string(user_id), .session_id = session_id}, access_exp),
             .refresh_token = detail::make_refresh_token(session_id, 1, secret),
             .session_id = session_id,
             .access_expires_at = access_exp,
@@ -402,7 +407,7 @@ auto purge_ended(H& h, long long before) -> std::size_t {
 // Route guard: 401 unless the request carries a valid access token. No database read.
 inline auto guard() -> Middleware {
     return web::api::bearer<Principal>(std::function<std::optional<Principal>(std::string_view)>(
-        [](std::string_view token) { return verify_access(token); }));
+        [](std::string_view token) -> std::optional<Principal> { return verify_access(token); }));
 }
 
 // As guard(), and the session must still be active in the database, so sign-out takes effect at once.

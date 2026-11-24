@@ -877,16 +877,19 @@ namespace detail {
 inline auto peer_ip(int fd) -> std::string {
     sockaddr_storage ss{};
     socklen_t len = sizeof(ss);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
     if (getpeername(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) {
         return {};
     }
     std::array<char, INET6_ADDRSTRLEN> buf{};
     if (ss.ss_family == AF_INET) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
         const auto* a = reinterpret_cast<const sockaddr_in*>(&ss);
         if (inet_ntop(AF_INET, &a->sin_addr, buf.data(), buf.size()) != nullptr) {
             return buf.data();
         }
     } else if (ss.ss_family == AF_INET6) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
         const auto* a = reinterpret_cast<const sockaddr_in6*>(&ss);
         if (inet_ntop(AF_INET6, &a->sin6_addr, buf.data(), buf.size()) != nullptr) {
             return buf.data();

@@ -53,7 +53,7 @@ struct Config {
 // Defaults, overridden by the environment on first use: REVET_RP_ID, REVET_RP_NAME,
 // REVET_WEBAUTHN_ORIGINS (comma-separated). Assign to the fields to set them in code.
 inline auto config() -> Config& {
-    static Config cfg = [] {
+    static Config cfg = [] -> Config {
         Config c;
         if (const char* v = std::getenv("REVET_RP_ID")) {
             c.rp.rp_id = v;
@@ -87,7 +87,7 @@ inline auto config() -> Config& {
 }
 
 struct Failure {
-    enum class Kind {
+    enum class Kind : std::uint8_t {
         bad_request,         // a field is missing or not base64url
         challenge_invalid,   // unknown, expired, already used, or for another ceremony
         verification_failed, // the authenticator's answer did not check out; see `detail`
@@ -125,7 +125,7 @@ struct PasskeyInfo {
     bool backup_state = false;
 };
 
-enum class RemoveResult {
+enum class RemoveResult : std::uint8_t {
     removed,
     not_found,
     last_login_method, // refused: the user would be locked out
@@ -166,14 +166,15 @@ template<typename H>
 auto issue_challenge(H& h, std::string_view purpose, std::string_view user_id, long long now) -> Issued {
     h.exec("DELETE FROM auth_challenges WHERE expires_at <= ?", now);
     const auto id = random_bytes(16);
-    std::string hex(id.size() * 2 + 1, '\0');
+    std::string hex((id.size() * 2) + 1, '\0');
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     sodium_bin2hex(hex.data(), hex.size(), reinterpret_cast<const unsigned char*>(id.data()), id.size());
     hex.pop_back();
     const auto challenge = random_bytes(32);
     h.exec("INSERT INTO auth_challenges (id, purpose, challenge, user_id, expires_at) VALUES (?, ?, ?, ?, ?)", hex,
            std::string(purpose), webauthn::base64url_encode(challenge), std::string(user_id),
            now + config().challenge_ttl.count());
-    return {hex, webauthn::base64url_encode(challenge)};
+    return {.challenge_id = hex, .challenge = webauthn::base64url_encode(challenge)};
 }
 
 // Deletes the row as it reads it, so a challenge can be answered once.
@@ -194,7 +195,7 @@ auto consume_challenge(H& h, std::string_view id, long long now) -> std::optiona
 }
 
 inline auto fail(Failure::Kind k, std::optional<webauthn::Error> d = std::nullopt) -> std::unexpected<Failure> {
-    return std::unexpected(Failure{k, d});
+    return std::unexpected(Failure{.kind = k, .detail = d});
 }
 
 } // namespace detail
@@ -239,7 +240,8 @@ auto begin_registration(H& h, const std::optional<std::string>& user_id, std::st
     } else {
         handle_id = web::auth::detail::new_user_id();
     }
-    auto issued = detail::issue_challenge(h, user_id ? detail::k_register_add : detail::k_register_new, handle_id, now);
+    const auto issued =
+        detail::issue_challenge(h, user_id ? detail::k_register_add : detail::k_register_new, handle_id, now);
 
     revet::json::Writer w;
     w.object();
@@ -338,7 +340,7 @@ auto finish_registration(H& h, std::string_view challenge_id, std::string_view c
 template<typename H>
 auto begin_login(H& h, long long now = detail::unix_now()) -> Options {
     const auto& cfg = config();
-    auto issued = detail::issue_challenge(h, detail::k_login, "", now);
+    const auto issued = detail::issue_challenge(h, detail::k_login, "", now);
     revet::json::Writer w;
     w.object();
     w.key("challenge").value(issued.challenge);

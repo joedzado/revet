@@ -1,5 +1,6 @@
 // SMTP delivery through libcurl. The curl headers stay in this file.
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <curl/curl.h>
 #include <revet/mail.hpp>
@@ -16,7 +17,8 @@ auto read_callback(char* buffer, std::size_t size, std::size_t nitems, void* use
     auto* up = static_cast<Upload*>(userp);
     const auto room = size * nitems;
     const auto n = std::min(room, up->data->size() - up->sent);
-    strcpy(buffer, up->data->data() + up->sent);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic,bugprone-not-null-terminated-result): curl buffer
+    std::memcpy(buffer, up->data->data() + up->sent, n);
     up->sent += n;
     return n;
 }
@@ -46,6 +48,10 @@ auto send_smtp(const Config& cfg, const Message& m, std::string& error) -> bool 
         return false;
     }
     const auto sender = envelope_address(cfg.from);
+    if (!sender) {
+        error = "REVET_MAIL_FROM is not a valid address";
+        return false;
+    }
 
     static const bool curl_ready = [] -> bool { return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK; }();
     if (!curl_ready) {
@@ -59,7 +65,7 @@ auto send_smtp(const Config& cfg, const Message& m, std::string& error) -> bool 
         return false;
     }
     curl_slist* recipients = curl_slist_append(nullptr, ("<" + m.to + ">").c_str());
-    char errbuf[CURL_ERROR_SIZE] = {};
+    std::array<char, CURL_ERROR_SIZE> errbuf{};
     Upload upload{.data = &*mime};
     const std::string from = "<" + *sender + ">";
 
@@ -83,14 +89,14 @@ auto send_smtp(const Config& cfg, const Message& m, std::string& error) -> bool 
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg.timeout_seconds);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, std::min<long>(cfg.timeout_seconds, 10));
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf.data());
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     const CURLcode rc = curl_easy_perform(curl);
     curl_slist_free_all(recipients);
     curl_easy_cleanup(curl);
     if (rc != CURLE_OK) {
-        error = errbuf[0] != '\0' ? errbuf : curl_easy_strerror(rc);
+        error = errbuf.front() != '\0' ? errbuf.data() : curl_easy_strerror(rc);
         return false;
     }
     return true;

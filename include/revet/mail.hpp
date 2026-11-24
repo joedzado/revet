@@ -16,11 +16,13 @@
 // or REVET_SMTP_ALLOW_PLAINTEXT=1, because the login would cross the network in the clear.
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <expected>
+#include <format>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -176,6 +178,7 @@ namespace detail {
 
 inline auto base64(std::string_view bytes) -> std::string {
     std::string out(sodium_base64_ENCODED_LEN(bytes.size(), sodium_base64_VARIANT_ORIGINAL), '\0');
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     sodium_bin2base64(out.data(), out.size(), reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(),
                       sodium_base64_VARIANT_ORIGINAL);
     out.resize(out.find('\0'));
@@ -200,22 +203,22 @@ inline auto random_hex(std::size_t n) -> std::string {
     std::string raw(n, '\0');
     randombytes_buf(raw.data(), raw.size());
     std::string hex((n * 2) + 1, '\0');
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     sodium_bin2hex(hex.data(), hex.size(), reinterpret_cast<const unsigned char*>(raw.data()), raw.size());
     hex.pop_back();
     return hex;
 }
 
 inline auto http_date(std::chrono::system_clock::time_point tp) -> std::string {
-    static constexpr const char* days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    static constexpr const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    static constexpr std::array<std::string_view, 7> days = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static constexpr std::array<std::string_view, 12> months = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     const auto t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
     gmtime_r(&t, &tm);
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%s, %02d %s %04d %02d:%02d:%02d +0000", days[tm.tm_wday], tm.tm_mday,
-                  months[tm.tm_mon], tm.tm_year + 1900, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    return buf;
+    return std::format("{}, {:02} {} {:04} {:02}:{:02}:{:02} +0000", days.at(static_cast<std::size_t>(tm.tm_wday)),
+                       tm.tm_mday, months.at(static_cast<std::size_t>(tm.tm_mon)), tm.tm_year + 1900, tm.tm_hour,
+                       tm.tm_min, tm.tm_sec);
 }
 
 } // namespace detail
@@ -305,6 +308,8 @@ public:
     }
     Outbox(const Outbox&) = delete;
     auto operator=(const Outbox&) -> Outbox& = delete;
+    Outbox(Outbox&&) = delete;
+    auto operator=(Outbox&&) -> Outbox& = delete;
 
     void enqueue(Message m) {
         {

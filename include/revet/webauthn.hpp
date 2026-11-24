@@ -32,7 +32,7 @@
 
 namespace web::webauthn {
 
-enum class Error {
+enum class Error : std::uint8_t {
     bad_client_data,       // clientDataJSON is not the expected JSON object
     wrong_type,            // webauthn.create where webauthn.get was expected, or the reverse
     wrong_challenge,       // does not match the challenge we issued (or ours was too short to trust)
@@ -114,6 +114,7 @@ struct Assertion {
 
 inline auto base64url_encode(std::string_view bytes) -> std::string {
     std::string out(sodium_base64_ENCODED_LEN(bytes.size(), sodium_base64_VARIANT_URLSAFE_NO_PADDING), '\0');
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     sodium_bin2base64(out.data(), out.size(), reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(),
                       sodium_base64_VARIANT_URLSAFE_NO_PADDING);
     out.resize(out.find('\0'));
@@ -124,6 +125,7 @@ inline auto base64url_encode(std::string_view bytes) -> std::string {
 inline auto base64url_decode(std::string_view text) -> std::optional<std::string> {
     std::string out((text.size() / 4 * 3) + 3, '\0');
     std::size_t len = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     if (sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), text.data(), text.size(), nullptr,
                           &len, nullptr, sodium_base64_VARIANT_URLSAFE_NO_PADDING) != 0) {
         return std::nullopt;

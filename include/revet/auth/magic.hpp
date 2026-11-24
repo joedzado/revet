@@ -51,7 +51,7 @@ struct Config {
 };
 
 inline auto config() -> Config& {
-    static Config c = [] {
+    static Config c = [] -> Config {
         Config cfg;
         if (const char* v = std::getenv("REVET_BASE_URL")) {
             cfg.base_url = v;
@@ -74,16 +74,16 @@ inline auto config() -> Config& {
     return c;
 }
 
-enum class Purpose { sign_in, link };
+enum class Purpose : std::uint8_t { sign_in, link };
 
-enum class RequestResult {
+enum class RequestResult : std::uint8_t {
     sent,          // a mail was queued (or, for a throttled address, quietly not: see throttled)
     throttled,     // too many links for this address this hour; nothing was sent
     invalid_email, // not an address we can mail
     no_such_user,  // Purpose::link for a user that does not exist
 };
 
-enum class CompleteError {
+enum class CompleteError : std::uint8_t {
     invalid_link, // unknown, expired, used, or malformed: deliberately one answer
     email_taken,  // Purpose::link, and the address already belongs to another user
 };
@@ -102,8 +102,9 @@ inline auto sha256_hex(std::string_view s) -> std::string {
         throw std::runtime_error("auth: libsodium failed to initialise");
     }
     std::array<unsigned char, crypto_hash_sha256_BYTES> d{};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): libsodium takes unsigned char*
     crypto_hash_sha256(d.data(), reinterpret_cast<const unsigned char*>(s.data()), s.size());
-    std::string hex(d.size() * 2 + 1, '\0');
+    std::string hex((d.size() * 2) + 1, '\0');
     sodium_bin2hex(hex.data(), hex.size(), d.data(), d.size());
     hex.pop_back();
     return hex;
@@ -120,7 +121,7 @@ inline auto new_token() -> std::string {
 
 inline auto html_escape(std::string_view s) -> std::string {
     std::string out;
-    for (char c : s) {
+    for (const char c : s) {
         switch (c) {
             case '&':
                 out += "&amp;";

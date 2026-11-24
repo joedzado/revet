@@ -52,7 +52,7 @@ auto fails_with(const std::expected<T, wa::Error>& r, wa::Error e) -> bool {
 // ── base64url ────────────────────────────────────────────────────────────────
 
 TEST_CASE("base64url: round trip without padding", "[webauthn]") {
-    for (const std::string s : {""s, "f"s, "fo"s, "foo"s, "foob"s, "\xff\xfe\xfd"s, "\x00\x01"s}) {
+    for (const std::string& s : {""s, "f"s, "fo"s, "foo"s, "foob"s, "\xff\xfe\xfd"s, "\x00\x01"s}) {
         const auto enc = wa::base64url_encode(s);
         REQUIRE(enc.find('=') == std::string::npos);
         REQUIRE(wa::base64url_decode(enc) == s);
@@ -151,7 +151,7 @@ TEST_CASE("webauthn: registration is refused for every wrong field", "[webauthn]
 TEST_CASE("webauthn: user verification can be made optional", "[webauthn]") {
     auto cfg = config();
     cfg.require_user_verification = false;
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const auto r = a.registration(challenge, {.flags = soft::UP | soft::AT});
     REQUIRE(wa::verify_registration(cfg, challenge, r.client_data_json, r.attestation_object).has_value());
     REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object),
@@ -159,7 +159,7 @@ TEST_CASE("webauthn: user verification can be made optional", "[webauthn]") {
 }
 
 TEST_CASE("webauthn: a challenge shorter than 16 bytes is never trusted", "[webauthn]") {
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const std::string weak = "short";
     const auto r = a.registration(weak);
     REQUIRE(fails_with(wa::verify_registration(config(), weak, r.client_data_json, r.attestation_object),
@@ -169,7 +169,7 @@ TEST_CASE("webauthn: a challenge shorter than 16 bytes is never trusted", "[weba
 }
 
 TEST_CASE("webauthn: no origin is accepted when none are configured", "[webauthn]") {
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const auto r = a.registration(challenge);
     const wa::Config none{.rp_id = "app.example.com", .origins = {}};
     REQUIRE(fails_with(wa::verify_registration(none, challenge, r.client_data_json, r.attestation_object),
@@ -186,9 +186,10 @@ TEST_CASE("webauthn: a public key that is not on the curve is refused", "[webaut
 }
 
 TEST_CASE("webauthn: malformed registration inputs are errors, never crashes", "[webauthn]") {
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const auto r = a.registration(challenge);
-    const auto call = [&](const std::string& cdj, const std::string& att) {
+    const auto call = [&](const std::string& cdj,
+                          const std::string& att) -> std::expected<wa::Registration, wa::Error> {
         return wa::verify_registration(config(), challenge, cdj, att);
     };
     REQUIRE(fails_with(call("", r.attestation_object), wa::Error::bad_client_data));
@@ -271,7 +272,8 @@ TEST_CASE("webauthn: tampering after signing is caught", "[webauthn]") {
     auto e = enroll();
     REQUIRE(e.has_value());
     const auto a = e->auth.assertion(challenge);
-    const auto verify = [&](const std::string& cdj, const std::string& ad, const std::string& sig) {
+    const auto verify = [&](const std::string& cdj, const std::string& ad,
+                            const std::string& sig) -> std::expected<wa::Assertion, wa::Error> {
         return wa::verify_assertion(config(), challenge, e->reg.public_key, 0, cdj, ad, sig);
     };
     REQUIRE(verify(a.client_data_json, a.authenticator_data, a.signature).has_value());
@@ -297,7 +299,7 @@ TEST_CASE("webauthn: bad stored public keys are refused", "[webauthn]") {
     auto e = enroll();
     REQUIRE(e.has_value());
     const auto a = e->auth.assertion(challenge);
-    const auto verify = [&](const std::string& key) {
+    const auto verify = [&](const std::string& key) -> std::expected<wa::Assertion, wa::Error> {
         return wa::verify_assertion(config(), challenge, key, 0, a.client_data_json, a.authenticator_data, a.signature);
     };
     REQUIRE(fails_with(verify(""), wa::Error::bad_public_key));

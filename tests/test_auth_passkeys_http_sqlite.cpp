@@ -46,9 +46,9 @@ struct Fixture {
         std::remove((path + "-shm").c_str());
     }
     Fixture(const Fixture&) = delete;
-    Fixture& operator=(const Fixture&) = delete;
+    auto operator=(const Fixture&) -> Fixture& = delete;
     auto open() {
-        return [this] { return W(pool); };
+        return [this] -> W { return W(pool); };
     }
 };
 
@@ -85,7 +85,7 @@ struct Registered {
     web::Response finish;
     std::string body;
 };
-auto register_via_http(Fixture& fx, soft::Authenticator& a, const std::string& bearer = "",
+auto register_via_http(Fixture& fx, const soft::Authenticator& a, const std::string& bearer = "",
                        const std::string& origin = "") -> web::Response {
     const auto opts = http::register_options(post(R"({"display_name":"Alex"})", bearer), fx.open());
     REQUIRE(opts.status.code == 200);
@@ -217,7 +217,7 @@ TEST_CASE("passkey http: a signed-out session cannot add a passkey with its unex
 
 TEST_CASE("passkey http: an oversized device name is cut to 128 bytes", "[auth][http]") {
     Fixture fx;
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const auto opts = http::register_options(post("{}"), fx.open());
     Parsed o(opts.body);
     revet::json::Document doc(opts.body);
@@ -273,7 +273,7 @@ TEST_CASE("passkey http: login failures all look the same", "[auth][http]") {
 
 TEST_CASE("passkey http: malformed requests are 400s", "[auth][http]") {
     Fixture fx;
-    web::Request empty;
+    const web::Request empty;
     REQUIRE(http::register_finish(empty, fx.open()).status.code == 400);
     REQUIRE(error_of(http::login_finish(empty, fx.open())) == "json_body_required");
     REQUIRE(error_of(http::register_finish(post("not json"), fx.open())) == "bad_json");
@@ -291,43 +291,47 @@ TEST_CASE("passkey http: list and remove sit behind the token guard", "[auth][ht
     soft::Authenticator phone;
     const auto reg = register_via_http(fx, phone);
     const auto token = access_token(reg);
-    Parsed rp(reg.body);
+    const Parsed rp(reg.body);
 
     const auto guard = tok::guard();
     web::Request get;
     get.headers.data["authorization"] = "Bearer " + token;
-    const auto listed = guarded(guard, get, [&](const web::Request& r) { return http::list(r, fx.open()); });
+    const auto listed =
+        guarded(guard, get, [&](const web::Request& r) -> web::Response { return http::list(r, fx.open()); });
     REQUIRE(listed.status.code == 200);
     revet::json::Document ld(listed.body);
     REQUIRE(static_cast<std::string>(ld.at("passkeys").at(0).at("credential_id")) == b64(phone.credential_id));
     REQUIRE(static_cast<std::string>(ld.at("passkeys").at(0).at("label")) == "iPhone");
 
-    REQUIRE(guarded(guard, web::Request{}, [&](const web::Request& r) {
+    REQUIRE(guarded(guard, web::Request{}, [&](const web::Request& r) -> web::Response {
                 return http::list(r, fx.open());
             }).status.code == 401);
 
     // The only login method cannot be removed.
-    auto rm = post(R"({"credential_id":")" + b64(phone.credential_id) + R"("})", token);
-    const auto refused = guarded(guard, rm, [&](const web::Request& r) { return http::remove(r, fx.open()); });
+    const auto rm = post(R"({"credential_id":")" + b64(phone.credential_id) + R"("})", token);
+    const auto refused =
+        guarded(guard, rm, [&](const web::Request& r) -> web::Response { return http::remove(r, fx.open()); });
     REQUIRE(refused.status.code == 409);
     REQUIRE(error_of(refused) == "last_login_method");
 
-    auto missing = post(R"({"credential_id":"nope"})", token);
-    REQUIRE(guarded(guard, missing, [&](const web::Request& r) { return http::remove(r, fx.open()); }).status.code ==
-            404);
+    const auto missing = post(R"({"credential_id":"nope"})", token);
+    REQUIRE(guarded(guard, missing, [&](const web::Request& r) -> web::Response {
+                return http::remove(r, fx.open());
+            }).status.code == 404);
 
     // With a second passkey the first can go.
     soft::Authenticator laptop;
     laptop.credential_id = std::string(32, '\x22');
     REQUIRE(register_via_http(fx, laptop, token).status.code == 200);
-    const auto removed = guarded(guard, rm, [&](const web::Request& r) { return http::remove(r, fx.open()); });
+    const auto removed =
+        guarded(guard, rm, [&](const web::Request& r) -> web::Response { return http::remove(r, fx.open()); });
     REQUIRE(removed.status.code == 200);
     REQUIRE(removed.body == R"({"removed":true})");
 }
 
 TEST_CASE("passkey http: app association files", "[auth][http]") {
-    Fixture fx;
-    web::Request req;
+    const Fixture fx;
+    const web::Request req;
     REQUIRE(http::apple_app_site_association(req).status.code == 404);
     REQUIRE(http::asset_links(req).status.code == 404);
 

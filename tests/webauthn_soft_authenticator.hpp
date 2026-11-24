@@ -17,7 +17,7 @@ namespace soft {
 inline auto sha256(const std::string& s) -> std::string {
     unsigned char out[crypto_hash_sha256_BYTES];
     crypto_hash_sha256(out, reinterpret_cast<const unsigned char*>(s.data()), s.size());
-    return std::string(reinterpret_cast<char*>(out), sizeof(out));
+    return {reinterpret_cast<char*>(out), sizeof(out)};
 }
 
 // ── CBOR encoding ────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ struct Key {
     }
 
     [[nodiscard]] auto sign(const std::string& message) const -> std::string {
-        std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+        const std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
         EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, pkey.get());
         std::size_t len = 0;
         EVP_DigestSign(ctx.get(), nullptr, &len, reinterpret_cast<const unsigned char*>(message.data()),
@@ -155,7 +155,7 @@ struct Authenticator {
                (t.cross_origin ? "true" : "false") + t.extra_json + "}";
     }
 
-    [[nodiscard]] auto registration(const std::string& challenge, const Tweaks& t = {}) -> Registration {
+    [[nodiscard]] auto registration(const std::string& challenge, const Tweaks& t = {}) const -> Registration {
         const int flags = t.flags >= 0 ? t.flags : (UP | UV | AT);
         const auto count = static_cast<std::uint32_t>(t.sign_count >= 0 ? t.sign_count : static_cast<int>(counter));
         std::string auth = sha256(t.rp_id.empty() ? rp_id : t.rp_id);
@@ -168,8 +168,9 @@ struct Authenticator {
             auth += credential_id;
             auth += cose_key(t.break_cose);
         }
-        return {client_data(challenge, "webauthn.create", t),
-                map({{tstr("fmt"), tstr(t.fmt)}, {tstr("attStmt"), map({})}, {tstr("authData"), bstr(auth)}})};
+        return {.client_data_json = client_data(challenge, "webauthn.create", t),
+                .attestation_object =
+                    map({{tstr("fmt"), tstr(t.fmt)}, {tstr("attStmt"), map({})}, {tstr("authData"), bstr(auth)}})};
     }
 
     // Each call advances the counter, like a real authenticator, unless the test pins it.
@@ -180,7 +181,7 @@ struct Authenticator {
         auth += static_cast<char>(flags);
         auth += be32(count);
         const auto client = client_data(challenge, "webauthn.get", t);
-        return {client, auth, key.sign(auth + sha256(client))};
+        return {.client_data_json = client, .authenticator_data = auth, .signature = key.sign(auth + sha256(client))};
     }
 };
 

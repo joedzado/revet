@@ -8,7 +8,7 @@ namespace tok = web::auth::tokens;
 namespace {
 
 // Small buckets so the tests are short. Must be set before the limiters are first built.
-const bool configured = [] {
+const bool configured = [] -> bool {
     lim::config().per_ip = {.burst = 3, .per_second = 0.001, .max_keys = 1000};
     lim::config().per_name = {.burst = 2, .per_second = 0.001, .max_keys = 1000};
     lim::config().per_user = {.burst = 4, .per_second = 0.001, .max_keys = 1000};
@@ -18,7 +18,7 @@ const bool configured = [] {
 }();
 
 auto call(const std::vector<web::Middleware>& guards, const web::Request& req) -> web::Response {
-    return web::dispatch(req, [](const web::Request&) { return web::Response{.body = "ok"}; }, guards);
+    return web::dispatch(req, [](const web::Request&) -> web::Response { return web::Response{.body = "ok"}; }, guards);
 }
 
 auto from(const std::string& ip, const std::string& body = "") -> web::Request {
@@ -33,7 +33,8 @@ auto with_token(const std::string& user, const std::string& ip = "10.9.9.9") -> 
     web::Request req;
     req.peer_ip = ip;
     const auto exp = tok::detail::unix_now() + 600;
-    req.headers.data["authorization"] = "Bearer " + tok::detail::make_access_token({user, std::string(32, 'a')}, exp);
+    req.headers.data["authorization"] =
+        "Bearer " + tok::detail::make_access_token({.user_id = user, .session_id = std::string(32, 'a')}, exp);
     return req;
 }
 
@@ -66,7 +67,7 @@ TEST_CASE("auth limits: a credential is limited across addresses", "[auth][limit
 TEST_CASE("auth limits: a session's refresh tokens are limited by session id", "[auth][limits]") {
     const auto guards = lim::anonymous();
     const std::string sid(32, 'c');
-    const auto body = [&](const std::string& secret) {
+    const auto body = [&](const std::string& secret) -> std::string {
         return R"({"refresh_token":")" + sid + ".7." + secret + R"("})";
     };
     REQUIRE(call(guards, from("192.0.2.1", body("a"))).body == "ok");

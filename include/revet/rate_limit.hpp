@@ -55,7 +55,7 @@ public:
 
         auto it = index_.find(key);
         if (it == index_.end()) {
-            lru_.push_front({std::string(key), rule_.burst, now});
+            lru_.push_front({.key = std::string(key), .tokens = rule_.burst, .updated = now});
             it = index_.emplace(lru_.front().key, lru_.begin()).first;
             while (index_.size() > rule_.max_keys) {
                 index_.erase(lru_.back().key);
@@ -171,7 +171,9 @@ inline auto parse_net(std::string_view text) -> std::optional<Net> {
         addr = text.substr(0, slash);
         const auto p = text.substr(slash + 1);
         int v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic): from_chars end pointer
         const auto [end, ec] = std::from_chars(p.data(), p.data() + p.size(), v);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic): from_chars end pointer
         if (ec != std::errc{} || end != p.data() + p.size() || v < 0) {
             return std::nullopt;
         }
@@ -199,7 +201,7 @@ inline auto in_net(const Net& n, std::string_view ip) -> bool {
     }
     int bits = n.prefix;
     for (std::size_t i = 0; bits > 0; ++i, bits -= 8) {
-        const unsigned mask = bits >= 8 ? 0xFFU : (0xFFU << (8 - bits)) & 0xFFU;
+        const unsigned mask = bits >= 8 ? 0xFFU : (0xFFU << static_cast<unsigned>(8 - bits)) & 0xFFU;
         if ((a.at(i) & mask) != (n.addr.at(i) & mask)) {
             return false;
         }
@@ -228,7 +230,7 @@ public:
     }
 
     [[nodiscard]] auto contains(std::string_view ip) const -> bool {
-        return std::ranges::any_of(nets_, [&](const detail::Net& n) { return detail::in_net(n, ip); });
+        return std::ranges::any_of(nets_, [&](const detail::Net& n) -> bool { return detail::in_net(n, ip); });
     }
     [[nodiscard]] auto empty() const -> bool {
         return nets_.empty();
@@ -240,7 +242,7 @@ private:
 
 // Process-wide default, read once from REVET_TRUSTED_PROXIES (comma separated addresses or CIDRs).
 inline auto trusted_proxies() -> TrustedProxies& {
-    static TrustedProxies tp = [] {
+    static TrustedProxies tp = [] -> TrustedProxies {
         const char* env = std::getenv("REVET_TRUSTED_PROXIES");
         return env != nullptr ? TrustedProxies(env) : TrustedProxies();
     }();
@@ -309,8 +311,8 @@ inline auto by_key(std::shared_ptr<Limiter> limiter, std::function<std::string(c
 // Limit by client address. Requests with no known address share one bucket, so a failure to
 // identify the peer limits harder rather than not at all.
 inline auto by_ip(std::shared_ptr<Limiter> limiter, const TrustedProxies* trusted = nullptr) -> Middleware {
-    return by_key(std::move(limiter), [trusted](const Request& req) {
-        auto ip = client_ip(req, trusted != nullptr ? *trusted : trusted_proxies());
+    return by_key(std::move(limiter), [trusted](const Request& req) -> std::string {
+        const auto ip = client_ip(req, trusted != nullptr ? *trusted : trusted_proxies());
         return ip.empty() ? std::string("unknown") : ip;
     });
 }

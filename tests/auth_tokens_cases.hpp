@@ -36,9 +36,11 @@ auto bearer_request(const std::string& token) -> web::Request {
 
 // Runs a request through a guard to a handler that reports the principal's user id.
 auto call(const web::Middleware& guard, const web::Request& req) -> web::Response {
-    return web::dispatch(
-        req, [](const web::Request&) { return web::Response{.body = web::api::principal<tok::Principal>().user_id}; },
-        {guard});
+    return web::dispatch(req,
+                         [](const web::Request&) -> web::Response {
+                             return web::Response{.body = web::api::principal<tok::Principal>().user_id};
+                         },
+                         {guard});
 }
 } // namespace
 
@@ -165,7 +167,7 @@ TEST_CASE("tokens: wrong, malformed and unknown refresh tokens are invalid", "[a
     AuthDb fx;
     W w(fx.pool);
     const auto pair = tok::issue(w, make_user(w), "", T0);
-    const auto bad = [&](const std::string& t) {
+    const auto bad = [&](const std::string& t) -> bool {
         const auto r = tok::refresh(w, t, T0 + 1);
         return !r.has_value() && r.error() == tok::RefreshError::invalid;
     };
@@ -287,7 +289,7 @@ TEST_CASE("tokens: guard_checked honours sign-out at once", "[auth][db]") {
         pair = tok::issue(w, user, "", tok::detail::unix_now());
     }
     // The guard opens its own read handle per request.
-    const auto checked = tok::guard_checked([&fx] { return R(fx.pool); });
+    const auto checked = tok::guard_checked([&fx] -> R { return R(fx.pool); });
 
     REQUIRE(call(checked, bearer_request(pair.access_token)).status.code == 200);
     {
@@ -337,17 +339,18 @@ TEST_CASE("tokens: of many racing refreshes with one token, exactly one wins", "
     }
     std::vector<int> won(8, 0);
     std::vector<std::thread> threads;
-    for (std::size_t i = 0; i < won.size(); ++i) {
-        threads.emplace_back([&, i] {
+    threads.reserve(won.size());
+    for (int& i : won) {
+        threads.emplace_back([&] -> void {
             W w(fx.pool);
-            won[i] = tok::refresh(w, refresh_token).has_value() ? 1 : 0;
+            i = tok::refresh(w, refresh_token).has_value() ? 1 : 0;
         });
     }
     for (auto& t : threads) {
         t.join();
     }
     int total = 0;
-    for (int v : won) {
+    for (const int v : won) {
         total += v;
     }
     REQUIRE(total == 1);

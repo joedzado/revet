@@ -38,13 +38,13 @@ auto mutate(const std::string& s, std::mt19937_64& rng) -> std::string {
             case 3: // delete a range
                 if (!out.empty()) {
                     const auto at = rng() % out.size();
-                    out.erase(at, 1 + rng() % std::min<std::size_t>(8, out.size() - at));
+                    out.erase(at, 1 + (rng() % std::min<std::size_t>(8, out.size() - at)));
                 }
                 break;
             case 4: // duplicate a range
                 if (!out.empty()) {
                     const auto at = rng() % out.size();
-                    const auto len = 1 + rng() % std::min<std::size_t>(8, out.size() - at);
+                    const auto len = 1 + (rng() % std::min<std::size_t>(8, out.size() - at));
                     out.insert(at, out.substr(at, len));
                 }
                 break;
@@ -75,7 +75,7 @@ TEST_CASE("fuzz: a login verifies only when every input is the original", "[weba
     const auto reg = wa::verify_registration(cfg, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object);
     REQUIRE(reg.has_value());
     const auto call = [&](const std::string& challenge, const std::string& key, const std::string& cdj,
-                          const std::string& ad, const std::string& sig) {
+                          const std::string& ad, const std::string& sig) -> bool {
         return wa::verify_assertion(cfg, challenge, key, 0, cdj, ad, sig).has_value();
     };
     REQUIRE(call(V::get1_challenge, reg->public_key, V::get1_client_data_json, V::get1_authenticator_data,

@@ -34,14 +34,14 @@ struct Identity {
     long long created_at = 0; // unix seconds
 };
 
-enum class LinkResult {
+enum class LinkResult : std::uint8_t {
     linked,
     already_linked, // this identity already belongs to this user
     taken,          // this identity belongs to a different user
     no_such_user,
 };
 
-enum class UnlinkResult {
+enum class UnlinkResult : std::uint8_t {
     unlinked,
     not_found,
     last_identity, // refused: a user keeps at least one way to sign in
@@ -65,7 +65,7 @@ struct tx_of<db::postgres::Handle<db::Write>> {
 #endif
 
 template<typename H>
-using Tx = typename tx_of<std::remove_cvref_t<H>>::type;
+using Tx = tx_of<std::remove_cvref_t<H>>::type;
 
 inline auto now() -> long long {
     return static_cast<long long>(std::time(nullptr));
@@ -79,7 +79,7 @@ inline auto new_user_id() -> std::string {
     randombytes_buf(raw.data(), raw.size());
     std::array<char, 33> hex{};
     sodium_bin2hex(hex.data(), hex.size(), raw.data(), raw.size());
-    return std::string(hex.data());
+    return {hex.data()};
 }
 
 } // namespace detail
