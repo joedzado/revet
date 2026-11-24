@@ -4,8 +4,9 @@
 
 #include "json_models.hpp"
 
-// POST /passkey/register/finish: verify the new passkey. A new account is signed in with a cookie session.
-static auto render_post(const web::Request& req) -> web::Response {
+// POST /passkey/register/finish: verify the new passkey. A new account is signed in with a cookie session;
+// a signed-in user can only finish a challenge issued to them.
+static auto render_post(const web::Request& req, web::State<Session> session) -> web::Response {
     namespace pk = web::auth::passkeys;
     std::string challenge_id, client_data, attestation, label;
     try {
@@ -23,7 +24,9 @@ static auto render_post(const web::Request& req) -> web::Response {
     }
 
     auto db = resources::users_db<db::Write>();
-    const auto done = pk::finish_registration(db, challenge_id, client_data, attestation, label);
+    const auto done =
+        pk::finish_registration(db, challenge_id, client_data, attestation, label,
+                                session ? pk::Expect::user(session->username) : pk::Expect::new_account());
     if (!done) {
         const auto code =
             done.error().kind == pk::Failure::Kind::credential_taken ? "credential_taken" : "registration_failed";

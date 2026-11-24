@@ -109,8 +109,11 @@ inline auto registration_failure(const Failure& f) -> web::Response {
             w.object().key("error").value("verification_failed").key("reason").value(reason).end();
             return json_response(std::move(w).str(), web::status::bad_request);
         }
-        case Failure::Kind::unknown_credential:
         case Failure::Kind::user_mismatch:
+            // Not the caller the ceremony was started by: say nothing to the client, but leave a trace.
+            log::warn("passkey registration refused: the challenge belongs to another caller");
+            break;
+        case Failure::Kind::unknown_credential:
             break;
     }
     return web::api::error(web::status::bad_request, "bad_request");
@@ -191,9 +194,19 @@ auto register_finish(const web::Request& req, Open open) -> web::Response {
     if (label.size() > 128) {
         label.resize(128);
     }
+    // The caller that finishes a ceremony is the one that started it: a signed-in caller adds a passkey
+    // to their own account (and only while their session is live), an anonymous one creates an account.
+    const auto who = detail::optional_user(req);
+    if (!who) {
+        return who.error();
+    }
     auto h = open();
+    if (*who && !tokens::session_active(h, (*who)->session_id)) {
+        return web::api::error(web::status::unauthorized, "unauthorized");
+    }
     const auto done = finish_registration(h, body->str("challenge_id"), body->str("client_data_json"),
-                                          body->str("attestation_object"), label);
+                                          body->str("attestation_object"), label,
+                                          *who ? Expect::user((*who)->user_id) : Expect::new_account());
     if (!done) {
         return detail::registration_failure(done.error());
     }
