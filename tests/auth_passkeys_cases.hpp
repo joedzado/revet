@@ -281,6 +281,75 @@ TEST_CASE("passkeys: a challenge only works for the ceremony it was issued for",
                   pk::Failure::Kind::challenge_invalid));
 }
 
+TEST_CASE("passkeys: a caller can only finish the ceremony they are expected to", "[auth][db]") {
+    AUTH_REQUIRE_DB();
+    use_test_config();
+    AuthDb fx;
+    W w(fx.pool);
+    const auto alice = register_new(w, new_credential('a'));
+    const auto bob = register_new(w, new_credential('b'));
+    REQUIRE(alice.has_value());
+    REQUIRE(bob.has_value());
+    const auto passkeys_before = count(w, "auth_passkeys");
+    const auto users_before = count(w, "auth_users");
+    const auto phone = new_credential('c');
+
+    const auto finish = [&](const pk::Options& opts, const pk::Expect& expect,
+                            long long now) -> std::expected<pk::Registered, pk::Failure> {
+        const auto r = phone.registration(challenge_of(opts));
+        return pk::finish_registration(w, opts.challenge_id, b64(r.client_data_json), b64(r.attestation_object), "x",
+                                       now, expect);
+    };
+    const auto nothing_stored = [&] -> bool {
+        return count(w, "auth_passkeys") == passkeys_before && count(w, "auth_users") == users_before &&
+               !auth::find_user(w, "passkey", b64(phone.credential_id)).has_value();
+    };
+
+    SECTION("the user a passkey is being added for finishes it") {
+        const auto opts = pk::begin_registration(w, alice->user_id, "Alex", T0 + 10);
+        const auto done = finish(*opts, pk::Expect::user(alice->user_id), T0 + 11);
+        REQUIRE(done.has_value());
+        REQUIRE(done->user_id == alice->user_id);
+        REQUIRE_FALSE(done->new_user);
+        REQUIRE(count(w, "auth_passkeys") == passkeys_before + 1);
+    }
+    SECTION("another signed-in user is refused before anything is stored, and the challenge is spent") {
+        const auto opts = pk::begin_registration(w, alice->user_id, "Alex", T0 + 10);
+        REQUIRE(fails(finish(*opts, pk::Expect::user(bob->user_id), T0 + 11), pk::Failure::Kind::user_mismatch));
+        REQUIRE(nothing_stored());
+        REQUIRE(fails(finish(*opts, pk::Expect::user(alice->user_id), T0 + 12), pk::Failure::Kind::challenge_invalid));
+        REQUIRE(nothing_stored());
+    }
+    SECTION("a caller who is not signed in cannot finish an add-passkey challenge") {
+        const auto opts = pk::begin_registration(w, alice->user_id, "Alex", T0 + 10);
+        REQUIRE(fails(finish(*opts, pk::Expect::new_account(), T0 + 11), pk::Failure::Kind::user_mismatch));
+        REQUIRE(nothing_stored());
+    }
+    SECTION("a signed-in caller cannot finish a new-account challenge") {
+        const auto opts = pk::begin_registration(w, std::nullopt, "Alex", T0 + 10);
+        REQUIRE(fails(finish(*opts, pk::Expect::user(alice->user_id), T0 + 11), pk::Failure::Kind::user_mismatch));
+        REQUIRE(nothing_stored());
+    }
+    SECTION("a caller who is not signed in creates an account") {
+        const auto opts = pk::begin_registration(w, std::nullopt, "Alex", T0 + 10);
+        const auto done = finish(*opts, pk::Expect::new_account(), T0 + 11);
+        REQUIRE(done.has_value());
+        REQUIRE(done->new_user);
+        REQUIRE(count(w, "auth_users") == users_before + 1);
+    }
+    SECTION("an empty user id matches nothing") {
+        const auto add = pk::begin_registration(w, alice->user_id, "Alex", T0 + 10);
+        REQUIRE(fails(finish(*add, pk::Expect::user(""), T0 + 11), pk::Failure::Kind::user_mismatch));
+        const auto create = pk::begin_registration(w, std::nullopt, "Alex", T0 + 10);
+        REQUIRE(fails(finish(*create, pk::Expect::user(""), T0 + 11), pk::Failure::Kind::user_mismatch));
+        REQUIRE(nothing_stored());
+    }
+    SECTION("without an expectation the challenge alone decides") {
+        const auto add = pk::begin_registration(w, alice->user_id, "Alex", T0 + 10);
+        REQUIRE(finish(*add, pk::Expect::any(), T0 + 11).has_value());
+    }
+}
+
 TEST_CASE("passkeys: unknown challenge ids are refused", "[auth][db]") {
     AUTH_REQUIRE_DB();
     use_test_config();

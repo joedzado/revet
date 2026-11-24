@@ -161,6 +161,16 @@ Routes live in the template under `app/routes/api/v1/auth/`; each is one line ca
 
 For use without the HTTP layer: `begin_registration`, `finish_registration`, `begin_login`, `finish_login`, `list_passkeys`, `remove_passkey`. They return `std::expected<..., Failure>` where `Failure::kind` is one of `bad_request`, `challenge_invalid`, `verification_failed` (with the `webauthn::Error` in `detail`), `unknown_credential`, `credential_taken`, `user_mismatch`, `no_such_user`.
 
+`finish_registration` takes a last argument, `Expect`, saying who is calling. A challenge id is only a bearer secret, so without it whoever holds the id finishes the ceremony, signed in as someone else or not signed in at all. `register_finish` and the template's cookie route pass it for you:
+
+| Caller | Pass | Accepts |
+|---|---|---|
+| Signed in, adding a passkey | `Expect::user(id)` | only a challenge issued for that user |
+| Not signed in, creating an account | `Expect::new_account()` | only a new-account challenge |
+| Checked another way | `Expect::any()` (the default) | any challenge |
+
+Anything else fails with `user_mismatch` before a credential is stored, and the challenge is spent. An empty id passed to `Expect::user` matches nothing. If you call `finish_registration` yourself, pass one of the first two.
+
 ### What is stored
 
 - `auth_passkeys(credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, label, created_at, last_used_at)`. `user_id` cascades from `auth_users`, so `delete_user` removes a user's passkeys.

@@ -51,6 +51,7 @@ New: users, login sessions, passkeys, magic links and auth rate limits (see [aut
 - **Rotating `REVET_COOKIE_KEY` signs every device out**, because refresh tokens carry a MAC under a key derived from it.
 - **`register_options` needs a live session.** A signed-out session with an unexpired access token can no longer add a passkey.
 - **CBOR arrays and maps are capped at 256 entries**; a larger attestation is rejected.
+- **`register_finish` must come from the caller that started the ceremony.** A client adding a passkey sends its bearer token to `register_finish` as well as `register_options`; one without a token can only finish a new-account ceremony. `register_finish` also checks an `Authorization` header the way `register_options` does: a stale or invalid bearer on a new-account finish is refused with 401, so clients should send no header until they hold a valid token. Library callers of `finish_registration` pass `Expect::user(id)` or `Expect::new_account()` (see [auth.md](auth.md)); the default `Expect::any()` accepts any challenge, as before.
 
 ## Cookie key behavior across upgrades
 

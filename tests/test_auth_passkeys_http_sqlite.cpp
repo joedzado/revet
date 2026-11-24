@@ -89,18 +89,24 @@ struct Registered {
     web::Response finish;
     std::string body;
 };
-auto register_via_http(Fixture& fx, const soft::Authenticator& a, const std::string& bearer = "",
-                       const std::string& origin = "") -> web::Response {
+// Starts a ceremony as `bearer` (empty: a new account) and returns the finish request's body.
+auto registration_body(Fixture& fx, const soft::Authenticator& a, const std::string& bearer = "",
+                       const std::string& origin = "") -> std::string {
     const auto opts = http::register_options(post(R"({"display_name":"Alex"})", bearer), fx.open());
     REQUIRE(opts.status.code == 200);
     Parsed o(opts.body);
     revet::json::Document doc(opts.body);
     const auto raw = *wa::base64url_decode(static_cast<std::string>(doc.at("options").at("challenge")));
     const auto r = a.registration(raw, {.origin = origin});
-    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" +
-                      b64(r.client_data_json) + R"(","attestation_object":")" + b64(r.attestation_object) +
-                      R"(","label":"iPhone","device":"Alex's iPhone"})";
-    return http::register_finish(post(body, ""), fx.open());
+    return R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" + b64(r.client_data_json) +
+           R"(","attestation_object":")" + b64(r.attestation_object) +
+           R"(","label":"iPhone","device":"Alex's iPhone"})";
+}
+
+auto register_via_http(Fixture& fx, const soft::Authenticator& a, const std::string& bearer = "",
+                       const std::string& origin = "") -> web::Response {
+    const auto body = registration_body(fx, a, bearer, origin);
+    return http::register_finish(post(body, bearer), fx.open());
 }
 
 auto login_via_http(Fixture& fx, soft::Authenticator& a, const soft::Tweaks& t = {}) -> web::Response {
@@ -217,6 +223,82 @@ TEST_CASE("passkey http: a signed-out session cannot add a passkey with its unex
     REQUIRE(opts.status.code == 401); // ...but the session behind it is gone
     W w(fx.pool);
     REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_challenges").value_or(-1) == 0);
+}
+
+TEST_CASE("passkey http: only the caller who started a ceremony can finish it", "[auth][http]") {
+    Fixture fx;
+    const soft::Authenticator alice_phone;
+    soft::Authenticator bob_phone;
+    bob_phone.credential_id = std::string(32, '\x33');
+    soft::Authenticator laptop;
+    laptop.credential_id = std::string(32, '\x22');
+    const auto alice = register_via_http(fx, alice_phone);
+    const auto bob = register_via_http(fx, bob_phone);
+    const auto alice_token = access_token(alice);
+    const auto bob_token = access_token(bob);
+    Parsed ap(alice.body);
+    // A write handle is held only for the call: the handlers under test need one from the same pool.
+    const auto passkeys = [&](const std::string& user) -> std::size_t {
+        W w(fx.pool);
+        return web::auth::passkeys::list_passkeys(w, user).size();
+    };
+    const auto users = [&] -> long long {
+        W w(fx.pool);
+        return w.scalar<long long>("SELECT COUNT(*) FROM auth_users").value_or(-1);
+    };
+
+    // Alice starts adding a laptop. Each wrong finish spends that challenge, so each starts fresh.
+    const auto wrong = [&](const std::string& as, int status, const char* error) -> void {
+        const auto body = registration_body(fx, laptop, alice_token);
+        const auto resp = http::register_finish(post(body, as), fx.open());
+        INFO(as.substr(0, 8));
+        REQUIRE(resp.status.code == status);
+        REQUIRE(error_of(resp) == error);
+        REQUIRE(passkeys(ap.str("user_id")) == 1);
+    };
+    wrong("", 400, "bad_request");         // not signed in: an add-passkey challenge is not theirs to finish
+    wrong(bob_token, 400, "bad_request");  // another user
+    wrong("garbage", 401, "unauthorized"); // a bad token is refused, not ignored
+
+    // A new-account ceremony cannot be finished as a signed-in user either.
+    const auto fresh = registration_body(fx, laptop, "");
+    const auto before = users();
+    const auto as_alice = http::register_finish(post(fresh, alice_token), fx.open());
+    REQUIRE(as_alice.status.code == 400);
+    REQUIRE(users() == before);
+
+    // A stale or invalid bearer on a new-account finish is refused too, like on register_options.
+    const auto stale = http::register_finish(post(registration_body(fx, laptop, ""), "garbage"), fx.open());
+    REQUIRE(stale.status.code == 401);
+    REQUIRE(users() == before);
+
+    // Alice, signed in, finishes her own.
+    const auto done = http::register_finish(post(registration_body(fx, laptop, alice_token), alice_token), fx.open());
+    REQUIRE(done.status.code == 200);
+    REQUIRE(passkeys(ap.str("user_id")) == 2);
+    REQUIRE(passkeys(Parsed(bob.body).str("user_id")) == 1);
+}
+
+TEST_CASE("passkey http: a signed-out session cannot finish adding a passkey", "[auth][http]") {
+    Fixture fx;
+    const soft::Authenticator phone;
+    soft::Authenticator laptop;
+    laptop.credential_id = std::string(32, '\x22');
+    const auto first = register_via_http(fx, phone);
+    const auto token = access_token(first);
+    revet::json::Document fd(first.body);
+    const auto user = static_cast<std::string>(fd.at("user_id"));
+    const auto session = static_cast<std::string>(fd.at("tokens").at("session_id"));
+
+    const auto body = registration_body(fx, laptop, token); // started while signed in
+    {
+        W w(fx.pool);
+        REQUIRE(tok::revoke_session(w, user, session));
+    }
+    const auto resp = http::register_finish(post(body, token), fx.open());
+    REQUIRE(resp.status.code == 401);
+    W w(fx.pool);
+    REQUIRE(web::auth::passkeys::list_passkeys(w, user).size() == 1);
 }
 
 TEST_CASE("passkey http: an oversized device name is cut to 128 bytes", "[auth][http]") {

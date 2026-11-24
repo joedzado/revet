@@ -8,7 +8,8 @@
 //
 //   // Registration (a new account, or another passkey for a signed-in user)
 //   auto opts = begin_registration(db, std::nullopt, "Alex");      // send opts->options_json to the app
-//   auto reg  = finish_registration(db, opts->challenge_id, client_data_json, attestation_object, "iPhone");
+//   auto reg  = finish_registration(db, opts->challenge_id, client_data_json, attestation_object, "iPhone",
+//                                   Expect::new_account());   // or Expect::user(id) when adding a passkey
 //
 //   // Sign in (no username: the app picks a passkey from the device)
 //   auto req  = begin_login(db);
@@ -20,12 +21,14 @@
 // Challenges are single use: finish_* consumes the challenge whether or not verification succeeds.
 
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <optional>
 #include <sodium.h>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "../crypto.hpp"
@@ -93,7 +96,7 @@ struct Failure {
         verification_failed, // the authenticator's answer did not check out; see `detail`
         unknown_credential,  // no passkey with that id
         credential_taken,    // registering a passkey that already exists
-        user_mismatch,       // the user handle does not match the passkey's owner
+        user_mismatch,       // login: the user handle is not the owner; registration: not the expected caller
         no_such_user,        // adding a passkey to a user that does not exist
     };
     Kind kind;
@@ -109,6 +112,48 @@ struct Registered {
     std::string user_id;
     std::string credential_id; // base64url
     bool new_user = false;
+};
+
+// Which ceremony the caller may finish. finish_registration refuses any other challenge with
+// user_mismatch before anything is stored (the challenge is spent, like any tried challenge).
+//
+// A challenge id is a secret, but it is only a bearer secret: without this, whoever presents it
+// finishes it, signed in as someone else or not signed in at all. A route that knows who is calling
+// should say so:
+//   signed in            -> Expect::user(their id): only a challenge issued for them to add a passkey
+//   not signed in        -> Expect::new_account(): only a challenge that creates an account
+//   checked another way  -> Expect::any() (the default)
+class Expect {
+public:
+    static auto any() -> Expect {
+        return {Mode::any, {}};
+    }
+    static auto new_account() -> Expect {
+        return {Mode::new_account, {}};
+    }
+    // An empty id matches nothing, so a missing id cannot switch the check off.
+    static auto user(std::string_view id) -> Expect {
+        return {Mode::user, std::string(id)};
+    }
+
+    // `challenge_user` is the user id the challenge was issued for (a fresh random one for a new account).
+    [[nodiscard]] auto permits(bool challenge_is_new_account, std::string_view challenge_user) const -> bool {
+        switch (mode_) {
+            case Mode::any:
+                return true;
+            case Mode::new_account:
+                return challenge_is_new_account;
+            case Mode::user:
+                return !challenge_is_new_account && !user_.empty() && user_ == challenge_user;
+        }
+        return false;
+    }
+
+private:
+    enum class Mode : std::uint8_t { any, new_account, user };
+    Expect(Mode m, std::string user) : mode_(m), user_(std::move(user)) {}
+    Mode mode_;
+    std::string user_;
 };
 
 struct LoggedIn {
@@ -296,11 +341,13 @@ inline auto too_big(std::string_view base64url, std::size_t max_decoded) -> bool
 
 } // namespace detail
 
-// The three fields are what the app got back from the OS, base64url encoded.
+// The three fields are what the app got back from the OS, base64url encoded. Pass `expect` whenever
+// the route knows who is calling (see Expect); the default accepts any challenge.
 template<typename H>
 auto finish_registration(H& h, std::string_view challenge_id, std::string_view client_data_json_b64,
                          std::string_view attestation_object_b64, std::string_view label,
-                         long long now = detail::unix_now()) -> std::expected<Registered, Failure> {
+                         long long now = detail::unix_now(),
+                         const Expect& expect = Expect::any()) -> std::expected<Registered, Failure> {
     if (detail::too_big(client_data_json_b64, detail::k_max_client_data) ||
         detail::too_big(attestation_object_b64, detail::k_max_attestation)) {
         return detail::fail(Failure::Kind::bad_request);
@@ -318,6 +365,10 @@ auto finish_registration(H& h, std::string_view challenge_id, std::string_view c
         return detail::fail(Failure::Kind::challenge_invalid);
     }
     const bool is_new = ch->purpose == detail::k_register_new;
+    if (!expect.permits(is_new, ch->user_id)) {
+        tx.commit();
+        return detail::fail(Failure::Kind::user_mismatch);
+    }
 
     const auto verified = webauthn::verify_registration(config().rp, ch->challenge, *cdj, *att);
     if (!verified) {
@@ -352,6 +403,15 @@ auto finish_registration(H& h, std::string_view challenge_id, std::string_view c
            verified->backup_state ? 1 : 0, std::string(label), now, 0LL);
     tx.commit();
     return Registered{ch->user_id, credential_id, is_new};
+}
+
+// finish_registration at the current time, for a caller that knows who it is: the usual call.
+template<typename H>
+auto finish_registration(H& h, std::string_view challenge_id, std::string_view client_data_json_b64,
+                         std::string_view attestation_object_b64, std::string_view label,
+                         const Expect& expect) -> std::expected<Registered, Failure> {
+    return finish_registration(h, challenge_id, client_data_json_b64, attestation_object_b64, label, detail::unix_now(),
+                               expect);
 }
 
 // ── sign in ──────────────────────────────────────────────────────────────────
