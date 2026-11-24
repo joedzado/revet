@@ -1,108 +1,72 @@
-// Passkey sign-in, sign-up and "add a passkey" for the browser. No libraries.
-// A button with data-passkey="signin" | "signup" | "add" starts the flow; the status line is #passkey-status.
-// The page root carries data-csrf; requests go to the cookie-session routes under /passkey/.
-(function () {
-  "use strict";
+// Passkey sign-in, sign-up and "add a passkey". A button with data-passkey="signin" | "signup" | "add" starts it;
+// status goes to #passkey-status. The page root carries data-csrf. The browser's own JSON helpers
+// (parse…FromJSON, toJSON) do the base64url work, so this needs Chrome 129, Safari 18.4 or Firefox 135.
+(() => {
+  const say = (msg) => { const el = document.getElementById("passkey-status"); if (el) el.textContent = msg; };
 
-  const enc = (buf) =>
-    btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const dec = (s) => {
-    s = s.replace(/-/g, "+").replace(/_/g, "/");
-    const bin = atob(s + "=".repeat((4 - (s.length % 4)) % 4));
-    return Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer;
-  };
-
-  const root = () => document.querySelector("[data-csrf]");
-  const say = (msg) => {
-    const el = document.getElementById("passkey-status");
-    if (el) el.textContent = msg;
-  };
-
-  async function post(url, body) {
+  const post = async (url, body) => {
     const res = await fetch(url, {
       method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", "x-csrf-token": root().dataset.csrf },
+      headers: { "content-type": "application/json", "x-csrf-token": document.querySelector("[data-csrf]").dataset.csrf },
       body: JSON.stringify(body),
     });
-    let json = {};
-    try { json = await res.json(); } catch (_) {}
-    return { ok: res.ok, status: res.status, json };
-  }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(json.error || "Could not complete that."), { status: res.status });
+    return json;
+  };
 
-  function creationOptions(o) {
-    return {
-      ...o,
-      challenge: dec(o.challenge),
-      user: { ...o.user, id: dec(o.user.id) },
-      excludeCredentials: (o.excludeCredentials || []).map((c) => ({ ...c, id: dec(c.id) })),
-    };
-  }
-
-  async function register(label) {
+  const register = async (label) => {
     const start = await post("/passkey/register/options", { display_name: label });
-    if (!start.ok) throw new Error("Could not start. Try again.");
-    const cred = await navigator.credentials.create({ publicKey: creationOptions(start.json.options) });
-    const done = await post("/passkey/register/finish", {
-      challenge_id: start.json.challenge_id,
-      client_data_json: enc(cred.response.clientDataJSON),
-      attestation_object: enc(cred.response.attestationObject),
-      label: label,
+    const { response: r } = (await navigator.credentials.create({
+      publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(start.options),
+    })).toJSON();
+    await post("/passkey/register/finish", {
+      challenge_id: start.challenge_id,
+      client_data_json: r.clientDataJSON,
+      attestation_object: r.attestationObject,
+      label,
     });
-    if (!done.ok) throw new Error(done.json.error === "credential_taken" ? "That passkey is already registered." : "Could not save the passkey.");
-    return done.json;
-  }
+  };
 
-  async function signIn() {
+  const signIn = async () => {
     const start = await post("/passkey/login/options", {});
-    if (!start.ok) throw new Error("Could not start. Try again.");
-    const o = start.json.options;
-    const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: dec(o.challenge) } });
-    const r = cred.response;
-    const done = await post("/passkey/login/finish", {
-      challenge_id: start.json.challenge_id,
-      credential_id: enc(cred.rawId),
-      client_data_json: enc(r.clientDataJSON),
-      authenticator_data: enc(r.authenticatorData),
-      signature: enc(r.signature),
-      user_handle: r.userHandle ? enc(r.userHandle) : "",
+    const c = (await navigator.credentials.get({
+      publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(start.options),
+    })).toJSON();
+    await post("/passkey/login/finish", {
+      challenge_id: start.challenge_id,
+      credential_id: c.rawId,
+      client_data_json: c.response.clientDataJSON,
+      authenticator_data: c.response.authenticatorData,
+      signature: c.response.signature,
+      user_handle: c.response.userHandle || "",
     });
-    if (!done.ok) throw new Error("Sign-in failed.");
-    return done.json;
-  }
+  };
 
-  async function run(kind) {
-    if (!window.PublicKeyCredential) return say("This browser does not support passkeys.");
-    const name = document.getElementById("passkey-name");
-    const label = (name && name.value.trim()) || "This device";
+  const messages = {
+    NotAllowedError: "Cancelled.",
+    InvalidStateError: "This device already has a passkey for this account.",
+    credential_taken: "That passkey is already registered.",
+  };
+
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-passkey]");
+    if (!btn) return;
+    ev.preventDefault();
+    if (!window.PublicKeyCredential?.parseCreationOptionsFromJSON) return say("This browser does not support passkeys.");
+    const kind = btn.dataset.passkey;
+    const label = document.getElementById("passkey-name")?.value.trim() || "This device";
     say("Waiting for your device…");
     try {
-      if (kind === "signin") {
-        await signIn();
-        location.assign("/");
-      } else if (kind === "signup") {
-        await register(label);
-        location.assign("/");
-      } else {
-        await register(label);
-        say("Passkey added.");
-        if (window.htmx) htmx.ajax("GET", "/account/passkeys/list", { target: "#passkey-list", swap: "outerHTML" });
-      }
+      await (kind === "signin" ? signIn() : register(label));
+      if (kind !== "add") return location.assign("/");
+      say("Passkey added.");
+      window.htmx?.ajax("GET", "/account/passkeys/list", { target: "#passkey-list", swap: "outerHTML" });
     } catch (e) {
-      say(e && e.name === "NotAllowedError" ? "Cancelled."
-        : e && e.name === "InvalidStateError" ? "This device already has a passkey for this account."
-        : (e && e.message) || "Something went wrong.");
-    }
-  }
-
-  // The server sends HX-Trigger {"passkey-note": "..."} when it declines a removal.
-  document.addEventListener("passkey-note", (ev) => say(ev.detail && ev.detail.value));
-
-  document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("[data-passkey]");
-    if (btn) {
-      ev.preventDefault();
-      run(btn.dataset.passkey);
+      say(messages[e.name] || messages[e.message] || "Something went wrong. Try again.");
     }
   });
+
+  // The server sends HX-Trigger {"passkey-note": "..."} when it declines a removal.
+  document.addEventListener("passkey-note", (ev) => say(ev.detail?.value));
 })();

@@ -219,7 +219,7 @@ The template ships a passkey sign-in page and a passkey management page, for web
 
 - **`/login`**: "Sign in with a passkey", and "Create an account with a passkey" with a name field. Replaces the demo username/password form.
 - **`/account/passkeys`**: lists the user's passkeys, with Add and Remove. Redirects to `/login` when signed out. Add and Remove swap the list in place with htmx.
-- **`app/scripts/passkey.js`**: about 110 lines, no libraries; it only converts between base64url and the `ArrayBuffer`s `navigator.credentials` wants, and posts the results.
+- **`app/scripts/passkey.js`**: about 70 lines, no libraries; it hands the server's options to `navigator.credentials` through the browser's own `parse…FromJSON` and `toJSON` helpers and posts the results. Needs Chrome 129, Safari 18.4 or Firefox 135; older browsers get "This browser does not support passkeys."
 - **Cookie routes** under `/passkey/` (`login/options`, `login/finish`, `register/options`, `register/finish`) mirror the JSON API but start a cookie session instead of returning tokens. They are ordinary routes, so the global CSRF check applies; the page passes its token in `data-csrf`.
 - The cookie holds the user id in `Session.username`. Read it with `web::State<Session>`.
 
