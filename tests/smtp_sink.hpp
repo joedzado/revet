@@ -24,6 +24,10 @@
 #include <unistd.h>
 #include <vector>
 
+// NOLINTBEGIN(bugprone-unused-return-value,cert-err33-c,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-owning-memory,cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-special-member-functions,modernize-avoid-c-arrays):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace smtp_sink {
 
 struct Received {
@@ -343,3 +347,4 @@ private:
 };
 
 } // namespace smtp_sink
+// NOLINTEND(bugprone-unused-return-value,cert-err33-c,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-owning-memory,cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-special-member-functions,modernize-avoid-c-arrays)

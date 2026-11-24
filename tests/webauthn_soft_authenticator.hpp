@@ -12,6 +12,10 @@
 #include <sodium.h>
 #include <string>
 
+// NOLINTBEGIN(bugprone-signed-bitwise,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-type-reinterpret-cast,modernize-avoid-c-arrays):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace soft {
 
 inline auto sha256(const std::string& s) -> std::string {
@@ -186,3 +190,4 @@ struct Authenticator {
 };
 
 } // namespace soft
+// NOLINTEND(bugprone-signed-bitwise,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-type-reinterpret-cast,modernize-avoid-c-arrays)

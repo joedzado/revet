@@ -9,6 +9,10 @@
 #include <revet/db/sqlite.hpp>
 #include <revet/json.hpp>
 
+// NOLINTBEGIN(bugprone-exception-escape,bugprone-unchecked-optional-access,bugprone-unused-return-value,cert-err33-c,cppcoreguidelines-special-member-functions):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace http = web::auth::magic::http;
 namespace magic = web::auth::magic;
 namespace tok = web::auth::tokens;
@@ -200,3 +204,4 @@ TEST_CASE("magic http: adding an address that is someone else's is a 409", "[aut
     REQUIRE(r.status.code == 409);
     REQUIRE(error_of(r) == "email_taken");
 }
+// NOLINTEND(bugprone-exception-escape,bugprone-unchecked-optional-access,bugprone-unused-return-value,cert-err33-c,cppcoreguidelines-special-member-functions)

@@ -11,6 +11,10 @@
 #include <thread>
 #include <vector>
 
+// NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace auth = web::auth;
 namespace magic = web::auth::magic;
 
@@ -373,3 +377,4 @@ TEST_CASE("magic: peeking shows what a link would do without spending it", "[aut
     REQUIRE_FALSE(magic::peek(w, "nope", T0).has_value());
     REQUIRE_FALSE(magic::peek(w, "", T0).has_value());
 }
+// NOLINTEND(bugprone-implicit-widening-of-multiplication-result,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header)

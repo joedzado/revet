@@ -6,6 +6,8 @@
 #include <revet/auth/users.hpp>
 #include <revet/db/sqlite.hpp>
 
+// NOLINTBEGIN(bugprone-exception-escape,cert-err33-c,cppcoreguidelines-macro-usage,cppcoreguidelines-special-member-functions):
+
 namespace {
 
 using W = db::sqlite::Handle<db::Write>;
@@ -45,3 +47,6 @@ auto count(W& h, const char* table) -> long long {
 
 #define AUTH_REQUIRE_DB() ((void)0)
 #include "auth_passkeys_cases.hpp"
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// NOLINTEND(bugprone-exception-escape,cert-err33-c,cppcoreguidelines-macro-usage,cppcoreguidelines-special-member-functions)

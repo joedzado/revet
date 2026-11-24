@@ -7,6 +7,10 @@
 #include "webauthn_soft_authenticator.hpp"
 #include "webauthn_vectors.hpp"
 
+// NOLINTBEGIN(bugprone-signed-bitwise,bugprone-throwing-static-initialization,cert-err58-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace wa = web::webauthn;
 using namespace std::string_literals;
 
@@ -345,3 +349,4 @@ TEST_CASE("webauthn: error names exist for logging", "[webauthn]") {
     REQUIRE(wa::error_name(wa::Error::bad_signature) == "bad_signature");
     REQUIRE(wa::error_name(wa::Error::sign_count_regressed) == "sign_count_regressed");
 }
+// NOLINTEND(bugprone-signed-bitwise,bugprone-throwing-static-initialization,cert-err58-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)

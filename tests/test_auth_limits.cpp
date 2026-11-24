@@ -2,6 +2,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/auth/limits.hpp>
 
+// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test code: REQUIRE guards optionals and sizes,
+
+// fixtures use C APIs, static vectors and skip macros
+
 namespace lim = web::auth::limits;
 namespace tok = web::auth::tokens;
 
@@ -167,3 +171,4 @@ TEST_CASE("auth limits: a request that names no valid address is only limited by
     REQUIRE(lim::detail::email_key(from("1.1.1.1", "[]")).empty());
     REQUIRE(lim::detail::email_key(from("1.1.1.1", R"({"email":"A@B.CO"})")) == "email:a@b.co");
 }
+// NOLINTEND(bugprone-throwing-static-initialization,cert-err58-cpp)

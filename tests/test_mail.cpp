@@ -9,6 +9,10 @@
 
 #include "smtp_sink.hpp"
 
+// NOLINTBEGIN(bugprone-random-generator-seed,bugprone-string-literal-with-embedded-nul,bugprone-throwing-static-initialization,cert-err58-cpp,cert-msc32-c,cert-msc51-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-type-reinterpret-cast):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace mail = web::mail;
 using namespace std::chrono_literals;
 using namespace std::string_literals;
@@ -412,3 +416,4 @@ TEST_CASE("mail: random text never yields an address that could break a header",
     }
     SUCCEED("accepted " << accepted);
 }
+// NOLINTEND(bugprone-random-generator-seed,bugprone-string-literal-with-embedded-nul,bugprone-throwing-static-initialization,cert-err58-cpp,cert-msc32-c,cert-msc51-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-type-reinterpret-cast)

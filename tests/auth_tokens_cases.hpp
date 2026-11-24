@@ -8,6 +8,10 @@
 #include <thread>
 #include <vector>
 
+// NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header,readability-math-missing-parentheses):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace auth = web::auth;
 namespace tok = web::auth::tokens;
 
@@ -368,3 +372,4 @@ TEST_CASE("tokens: lifetimes come from config", "[auth][db]") {
     REQUIRE(pair.access_expires_at == T0 + 60);
     REQUIRE(pair.refresh_expires_at == T0 + 3600);
 }
+// NOLINTEND(bugprone-implicit-widening-of-multiplication-result,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header,readability-math-missing-parentheses)

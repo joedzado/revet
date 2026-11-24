@@ -8,6 +8,10 @@
 #include <revet/db/sqlite.hpp>
 #include <revet/json.hpp>
 
+// NOLINTBEGIN(bugprone-exception-escape,bugprone-unchecked-optional-access,cert-err33-c,cppcoreguidelines-special-member-functions):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace sess = web::auth::session::http;
 namespace tok = web::auth::tokens;
 namespace auth = web::auth;
@@ -221,3 +225,4 @@ TEST_CASE("session http: deleting an account removes everything", "[auth][sessio
     });
     REQUIRE(again.status.code == 404);
 }
+// NOLINTEND(bugprone-exception-escape,bugprone-unchecked-optional-access,cert-err33-c,cppcoreguidelines-special-member-functions)

@@ -11,6 +11,10 @@
 
 #include "webauthn_soft_authenticator.hpp"
 
+// NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result,bugprone-signed-bitwise,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header,readability-math-missing-parentheses):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace auth = web::auth;
 namespace pk = web::auth::passkeys;
 namespace wa = web::webauthn;
@@ -317,12 +321,12 @@ TEST_CASE("passkeys: the same credential cannot be registered twice", "[auth][db
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto a = new_credential('a');
+    const auto a = new_credential('a');
     const auto first = register_new(w, a);
     REQUIRE(first.has_value());
     REQUIRE(fails(register_new(w, a, T0 + 50), pk::Failure::Kind::credential_taken));
 
-    auto other = new_credential('z');
+    const auto other = new_credential('z');
     const auto second = register_new(w, other, T0 + 60);
     REQUIRE(second.has_value());
     REQUIRE(fails(register_add(w, second->user_id, a, T0 + 70), pk::Failure::Kind::credential_taken));
@@ -347,7 +351,7 @@ TEST_CASE("passkeys: sign in with an unknown credential", "[auth][db]") {
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto known = new_credential('a');
+    const auto known = new_credential('a');
     REQUIRE(register_new(w, known).has_value());
     auto stranger = new_credential('s');
     REQUIRE(fails(sign_in(w, stranger), pk::Failure::Kind::unknown_credential));
@@ -358,7 +362,7 @@ TEST_CASE("passkeys: a signature from another key is refused", "[auth][db]") {
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto real = new_credential('a');
+    const auto real = new_credential('a');
     REQUIRE(register_new(w, real).has_value());
 
     soft::Authenticator impostor; // same credential id, different key
@@ -440,7 +444,7 @@ TEST_CASE("passkeys: another login method lets the last passkey go", "[auth][db]
     use_test_config();
     AuthDb fx;
     W w(fx.pool);
-    auto a = new_credential('a');
+    const auto a = new_credential('a');
     const auto reg = register_new(w, a);
     REQUIRE(reg.has_value());
     REQUIRE(auth::link_identity(w, reg->user_id, "google", "g-1") == auth::LinkResult::linked);
@@ -455,7 +459,7 @@ TEST_CASE("passkeys: removing someone else's passkey does nothing", "[auth][db]"
     AuthDb fx;
     W w(fx.pool);
     auto a = new_credential('a');
-    auto b = new_credential('b');
+    const auto b = new_credential('b');
     const auto alice = register_new(w, a);
     const auto bob = register_new(w, b, T0 + 50);
     REQUIRE(pk::remove_passkey(w, bob->user_id, alice->credential_id) == pk::RemoveResult::not_found);
@@ -487,3 +491,4 @@ TEST_CASE("passkeys: sign in feeds the token layer", "[auth][db]") {
     const auto pair = auth::tokens::issue(w, in->user_id, "iPhone");
     REQUIRE(auth::tokens::verify_access(pair.access_token)->user_id == in->user_id);
 }
+// NOLINTEND(bugprone-implicit-widening-of-multiplication-result,bugprone-signed-bitwise,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header,readability-math-missing-parentheses)

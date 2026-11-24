@@ -9,6 +9,10 @@
 #include <set>
 #include <vector>
 
+// NOLINTBEGIN(cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace auth = web::auth;
 namespace tok = web::auth::tokens;
 
@@ -197,3 +201,4 @@ TEST_CASE("model: random token operations match a simple model", "[auth][db][mod
         run_model(seed, 1500);
     }
 }
+// NOLINTEND(cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header)

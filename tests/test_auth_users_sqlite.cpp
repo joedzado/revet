@@ -5,6 +5,8 @@
 #include <revet/auth/users.hpp>
 #include <revet/db/sqlite.hpp>
 
+// NOLINTBEGIN(bugprone-exception-escape,cert-err33-c,cppcoreguidelines-macro-usage,cppcoreguidelines-special-member-functions):
+
 namespace {
 
 struct AuthDb {
@@ -42,6 +44,8 @@ auto count(W& h, const char* table) -> long long {
 #define AUTH_REQUIRE_DB() ((void)0)
 #include "auth_users_cases.hpp"
 
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 TEST_CASE("auth users: a failed create leaves no half-made user", "[auth][sqlite]") {
     AuthDb fx;
     W w(fx.pool);
@@ -49,3 +53,4 @@ TEST_CASE("auth users: a failed create leaves no half-made user", "[auth][sqlite
     REQUIRE_THROWS(auth::find_or_create_user(w, "google", "alice"));
     REQUIRE(count(w, "auth_users") == 0);
 }
+// NOLINTEND(bugprone-exception-escape,cert-err33-c,cppcoreguidelines-macro-usage,cppcoreguidelines-special-member-functions)

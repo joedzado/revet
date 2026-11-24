@@ -7,6 +7,10 @@
 
 #include "webauthn_browser_vectors.hpp"
 
+// NOLINTBEGIN(bugprone-signed-bitwise,bugprone-throwing-static-initialization,cert-err58-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace wa = web::webauthn;
 namespace bv = webauthn_browser_vectors;
 
@@ -103,3 +107,4 @@ TEST_CASE("browser vectors: direct attestation is parsed and accepted", "[webaut
 TEST_CASE("browser vectors: a synced (backup eligible, backed up) passkey", "[webauthn][browser]") {
     check_variant<bv::synced>(true, "none");
 }
+// NOLINTEND(bugprone-signed-bitwise,bugprone-throwing-static-initialization,cert-err58-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)

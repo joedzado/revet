@@ -11,6 +11,10 @@
 
 #include "webauthn_soft_authenticator.hpp"
 
+// NOLINTBEGIN(bugprone-exception-escape,bugprone-unchecked-optional-access,cert-err33-c,cppcoreguidelines-special-member-functions):
+
+// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+
 namespace http = web::auth::passkeys::http;
 namespace tok = web::auth::tokens;
 namespace wa = web::webauthn;
@@ -167,7 +171,7 @@ TEST_CASE("passkey http: options responses are the platform's JSON form", "[auth
 
 TEST_CASE("passkey http: a signed-in user adds a passkey and does not get new tokens", "[auth][http]") {
     Fixture fx;
-    soft::Authenticator phone;
+    const soft::Authenticator phone;
     const auto first = register_via_http(fx, phone);
     const auto token = access_token(first);
     Parsed fp(first.body);
@@ -198,7 +202,7 @@ TEST_CASE("passkey http: a bad bearer token on register_options is refused, not 
 
 TEST_CASE("passkey http: a signed-out session cannot add a passkey with its unexpired access token", "[auth][http]") {
     Fixture fx;
-    soft::Authenticator phone;
+    const soft::Authenticator phone;
     const auto first = register_via_http(fx, phone);
     const auto token = access_token(first);
     revet::json::Document fd(first.body);
@@ -233,7 +237,7 @@ TEST_CASE("passkey http: an oversized device name is cut to 128 bytes", "[auth][
 
 TEST_CASE("passkey http: registration says why it failed", "[auth][http]") {
     Fixture fx;
-    soft::Authenticator a;
+    const soft::Authenticator a;
     const auto bad = register_via_http(fx, a, "", "https://evil.example.com");
     REQUIRE(bad.status.code == 400);
     Parsed p(bad.body);
@@ -288,7 +292,7 @@ TEST_CASE("passkey http: malformed requests are 400s", "[auth][http]") {
 
 TEST_CASE("passkey http: list and remove sit behind the token guard", "[auth][http]") {
     Fixture fx;
-    soft::Authenticator phone;
+    const soft::Authenticator phone;
     const auto reg = register_via_http(fx, phone);
     const auto token = access_token(reg);
     const Parsed rp(reg.body);
@@ -370,3 +374,4 @@ TEST_CASE("passkey http: app association files", "[auth][http]") {
     c.apple_app_ids = {};
     c.android_apps = {};
 }
+// NOLINTEND(bugprone-exception-escape,bugprone-unchecked-optional-access,cert-err33-c,cppcoreguidelines-special-member-functions)

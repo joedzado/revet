@@ -3,6 +3,10 @@
 #include <initializer_list>
 #include <string>
 
+// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test code: REQUIRE guards optionals and sizes,
+
+// fixtures use C APIs, static vectors and skip macros
+
 namespace webauthn_vectors {
 
 inline auto bytes(std::initializer_list<unsigned char> b) -> std::string {
@@ -66,3 +70,4 @@ inline const std::string get_signature =
 inline constexpr unsigned get_sign_count = 7;
 
 } // namespace webauthn_vectors
+// NOLINTEND(bugprone-throwing-static-initialization,cert-err58-cpp)
