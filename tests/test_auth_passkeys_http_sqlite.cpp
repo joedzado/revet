@@ -13,7 +13,7 @@
 
 // NOLINTBEGIN(bugprone-exception-escape,bugprone-unchecked-optional-access,cert-err33-c,cppcoreguidelines-special-member-functions):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace http = web::auth::passkeys::http;
 namespace tok = web::auth::tokens;

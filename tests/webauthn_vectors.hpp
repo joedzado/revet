@@ -3,9 +3,7 @@
 #include <initializer_list>
 #include <string>
 
-// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test code: REQUIRE guards optionals and sizes,
-
-// fixtures use C APIs, static vectors and skip macros
+// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test fixtures
 
 namespace webauthn_vectors {
 

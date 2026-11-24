@@ -46,5 +46,5 @@ auto count(W& h, const char* table) -> long long {
 #define AUTH_REQUIRE_DB() ((void)0)
 #include "auth_tokens_cases.hpp"
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 // NOLINTEND(bugprone-exception-escape,cert-err33-c,cppcoreguidelines-macro-usage,cppcoreguidelines-special-member-functions)

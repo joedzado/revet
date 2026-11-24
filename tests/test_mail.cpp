@@ -11,7 +11,7 @@
 
 // NOLINTBEGIN(bugprone-random-generator-seed,bugprone-string-literal-with-embedded-nul,bugprone-throwing-static-initialization,cert-err58-cpp,cert-msc32-c,cert-msc51-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-type-reinterpret-cast):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace mail = web::mail;
 using namespace std::chrono_literals;

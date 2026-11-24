@@ -11,7 +11,7 @@
 
 // NOLINTBEGIN(cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace auth = web::auth;
 namespace tok = web::auth::tokens;

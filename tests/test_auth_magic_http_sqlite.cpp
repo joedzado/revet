@@ -11,7 +11,7 @@
 
 // NOLINTBEGIN(bugprone-exception-escape,bugprone-unchecked-optional-access,bugprone-unused-return-value,cert-err33-c,cppcoreguidelines-special-member-functions):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace http = web::auth::magic::http;
 namespace magic = web::auth::magic;

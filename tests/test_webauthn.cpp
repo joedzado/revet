@@ -9,7 +9,7 @@
 
 // NOLINTBEGIN(bugprone-signed-bitwise,bugprone-throwing-static-initialization,cert-err58-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace wa = web::webauthn;
 using namespace std::string_literals;

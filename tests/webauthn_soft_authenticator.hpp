@@ -14,7 +14,7 @@
 
 // NOLINTBEGIN(bugprone-signed-bitwise,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-type-reinterpret-cast,modernize-avoid-c-arrays):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace soft {
 

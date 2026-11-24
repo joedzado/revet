@@ -2,9 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <revet/auth/limits.hpp>
 
-// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test code: REQUIRE guards optionals and sizes,
-
-// fixtures use C APIs, static vectors and skip macros
+// NOLINTBEGIN(bugprone-throwing-static-initialization,cert-err58-cpp): test fixtures
 
 namespace lim = web::auth::limits;
 namespace tok = web::auth::tokens;

@@ -10,7 +10,7 @@
 
 // NOLINTBEGIN(bugprone-random-generator-seed,bugprone-throwing-static-initialization,bugprone-unused-return-value,cert-err58-cpp,cert-msc32-c,cert-msc51-cpp,cppcoreguidelines-avoid-c-arrays,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,cppcoreguidelines-pro-bounds-constant-array-index,modernize-avoid-c-arrays):
 
-// test code: REQUIRE guards optionals and sizes, fixtures use C APIs, static vectors and skip macros
+// test fixtures
 
 namespace wa = web::webauthn;
 namespace bv = webauthn_browser_vectors;
