@@ -201,7 +201,7 @@ TEST_CASE("magic: a signed-in user adds an email address", "[auth][db][magic]") 
 
     REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::link, user, T0) == magic::RequestResult::sent);
     REQUIRE(out.sent[0].subject == "Confirm your email address for Example");
-    const auto done = magic::complete(w, token_in(out.sent[0]), T0 + 5);
+    const auto done = magic::complete(w, token_in(out.sent[0]), T0 + 5, user);
     REQUIRE(done.has_value());
     REQUIRE(done->linked);
     REQUIRE_FALSE(done->new_user);
@@ -225,7 +225,7 @@ TEST_CASE("magic: adding an address that belongs to someone else is refused", "[
     const auto other = auth::find_or_create_user(w, "test", "other");
 
     magic::request(w, "ann@example.com", magic::Purpose::link, other, T0 + 10);
-    const auto done = magic::complete(w, token_in(out.sent[1]), T0 + 11);
+    const auto done = magic::complete(w, token_in(out.sent[1]), T0 + 11, other);
     REQUIRE_FALSE(done.has_value());
     REQUIRE(done.error() == magic::CompleteError::email_taken);
     REQUIRE(auth::find_user(w, "email", "ann@example.com") == ann->user_id);
@@ -246,7 +246,7 @@ TEST_CASE("magic: linking needs a user that exists", "[auth][db][magic]") {
     const auto user = auth::find_or_create_user(w, "test", "gone");
     magic::request(w, "ann@example.com", magic::Purpose::link, user, T0);
     REQUIRE(auth::delete_user(w, user));
-    REQUIRE(magic::complete(w, token_in(out.sent[0]), T0 + 5).error() == magic::CompleteError::invalid_link);
+    REQUIRE(magic::complete(w, token_in(out.sent[0]), T0 + 5, user).error() == magic::CompleteError::invalid_link);
     REQUIRE_FALSE(auth::find_user(w, "email", "ann@example.com").has_value());
 }
 
@@ -298,7 +298,7 @@ TEST_CASE("magic: an email address lets a user back in after losing every passke
            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
            std::string("credential-1"), user, std::string("AAAA"), 0LL, 0, 0, std::string("old phone"), T0, 0LL);
     magic::request(w, "ann@example.com", magic::Purpose::link, user, T0);
-    REQUIRE(magic::complete(w, token_in(out.sent[0]), T0 + 1).has_value());
+    REQUIRE(magic::complete(w, token_in(out.sent[0]), T0 + 1, user).has_value());
 
     // The only passkey can now be removed, because another way in exists...
     REQUIRE(auth::passkeys::remove_passkey(w, user, "credential-1") == auth::passkeys::RemoveResult::removed);
@@ -376,5 +376,26 @@ TEST_CASE("magic: peeking shows what a link would do without spending it", "[aut
     REQUIRE_FALSE(magic::peek(w, token_in(out.sent[1]), T0 + 900).has_value()); // expired
     REQUIRE_FALSE(magic::peek(w, "nope", T0).has_value());
     REQUIRE_FALSE(magic::peek(w, "", T0).has_value());
+}
+TEST_CASE("magic: a link that adds an address works only for the account it was requested for", "[auth][db][magic]") {
+    AUTH_REQUIRE_DB();
+    AuthDb fx;
+    Outbox out;
+    capture(out);
+    W w(fx.pool);
+    const auto attacker = auth::find_or_create_user(w, "test", "attacker");
+    const auto victim = auth::find_or_create_user(w, "test", "victim");
+
+    // The attacker asks for a "confirm this address" mail to be sent to someone else's address.
+    REQUIRE(magic::request(w, "victim@example.com", magic::Purpose::link, attacker, T0) == magic::RequestResult::sent);
+    const auto token = token_in(out.sent[0]);
+
+    // The person who receives it opens it signed out, or as themselves: nothing is attached, nothing is spent.
+    REQUIRE(magic::complete(w, token, T0 + 1).error() == magic::CompleteError::invalid_link);
+    REQUIRE(magic::complete(w, token, T0 + 2, victim).error() == magic::CompleteError::invalid_link);
+    REQUIRE_FALSE(auth::find_user(w, "email", "victim@example.com").has_value());
+
+    // Only the account that asked can use it.
+    REQUIRE(magic::complete(w, token, T0 + 3, attacker).has_value());
 }
 // NOLINTEND(bugprone-implicit-widening-of-multiplication-result,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header)

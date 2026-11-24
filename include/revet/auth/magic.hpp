@@ -260,10 +260,12 @@ auto peek(H& h, std::string_view token, long long now = web::auth::detail::now()
 }
 
 // Spend a token. A sign-in token signs in the address's user, creating the account if the address is new.
-// A link token adds the address to the user it was requested for.
+// A link token adds the address to the user it was requested for, and only when that user is the one
+// completing it (`signed_in_user`): otherwise anyone could mail a stranger a link that attaches the
+// stranger's address to their own account. A link token opened by anyone else is refused and not spent.
 template<typename H>
-auto complete(H& h, std::string_view token,
-              long long now = web::auth::detail::now()) -> std::expected<Completed, CompleteError> {
+auto complete(H& h, std::string_view token, long long now = web::auth::detail::now(),
+              std::string_view signed_in_user = {}) -> std::expected<Completed, CompleteError> {
     if (token.empty() || token.size() > 128) {
         return std::unexpected(CompleteError::invalid_link);
     }
@@ -280,6 +282,9 @@ auto complete(H& h, std::string_view token,
     Completed out;
     out.email = email;
     if (purpose == "link") {
+        if (signed_in_user.empty() || signed_in_user != owner) {
+            return std::unexpected(CompleteError::invalid_link); // not committed: the token stays unspent
+        }
         switch (web::auth::link_identity_within(h, owner, "email", email)) {
             case LinkResult::linked:
             case LinkResult::already_linked:

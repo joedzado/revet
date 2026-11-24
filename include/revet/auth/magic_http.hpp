@@ -100,9 +100,19 @@ auto verify(const web::Request& req, Open open) -> web::Response {
         device.resize(128);
     }
 
+    // A link token (adding an address) completes only for the account it was requested for, so the caller
+    // must send that account's access token. A sign-in token needs no header.
+    std::string signed_in;
+    if (const auto header = req.headers.get("authorization");
+        !header.empty() && std::string_view(header).starts_with("Bearer ")) {
+        if (const auto who = tokens::verify_access(std::string_view(header).substr(7))) {
+            signed_in = who->user_id;
+        }
+    }
+
     auto h = open();
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access): index checked above
-    const auto done = magic::complete(h, (*f)[0]);
+    const auto done = magic::complete(h, (*f)[0], web::auth::detail::now(), signed_in);
     if (!done) {
         return done.error() == CompleteError::email_taken ? web::api::error(web::status::conflict, "email_taken")
                                                           : web::api::error(web::status::unauthorized, "invalid_link");

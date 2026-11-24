@@ -10,12 +10,12 @@ static auto route_guards() -> std::vector<web::Middleware> {
     return web::auth::limits::anonymous();
 }
 
-static auto render_post(const web::Request& req) -> web::Response {
+static auto render_post(const web::Request& req, web::State<Session> session) -> web::Response {
     namespace magic = web::auth::magic;
     std::expected<magic::Completed, magic::CompleteError> done = std::unexpected(magic::CompleteError::invalid_link);
     {
         auto db = resources::users_db<db::Write>();
-        done = magic::complete(db, req.form.get("token"));
+        done = magic::complete(db, req.form.get("token"), web::auth::detail::now(), session ? session->username : "");
     }
     if (!done) {
         const bool taken = done.error() == magic::CompleteError::email_taken;

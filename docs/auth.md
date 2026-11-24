@@ -234,7 +234,7 @@ magic::config().base_url = "https://app.example.com";   // or REVET_BASE_URL (re
 magic::create_schema(db);                               // after users::create_schema
 
 magic::request(db, "ann@example.com");                  // queues the mail
-auto done = magic::complete(db, token);                 // Completed{user_id, new_user, linked} or invalid_link
+auto done = magic::complete(db, token, now, signed_in_user); // Completed{user_id, new_user, linked} or invalid_link
 ```
 
 **Configuration** (environment): `REVET_BASE_URL` (the site's own address; links are built from this, never from the request's Host header), `REVET_APP_NAME` (in the mail), `REVET_MAGIC_TTL_SECONDS` (default 900), and the mail server: `REVET_SMTP_URL` (`smtps://host:465` or `smtp://host:587` with STARTTLS), `REVET_SMTP_USER`, `REVET_SMTP_PASS`, `REVET_MAIL_FROM` (`"My App <login@example.com>"`), optionally `REVET_SMTP_CA_FILE`.
@@ -258,7 +258,7 @@ The mail's link is `https://app.example.com/auth/magic?token=...`. Register that
 - An address is validated to a strict ASCII form before anything is built; nothing a user types can add a header or an SMTP command. Bodies are base64 so nothing in them is read as protocol.
 - Mail goes out from a background thread with retries (4 tries, pausing 2 s, 8 s, 32 s), so a slow mail server never holds up a request. Failures are logged with the recipient's domain only.
 - Plain `smtp://` without TLS is refused unless the server is on this machine or `REVET_SMTP_ALLOW_PLAINTEXT=1`. Certificates are verified. `REVET_SMTP_CA_FILE` (a private relay's CA) works where libcurl uses OpenSSL (Linux); on macOS libcurl uses SecureTransport and trusts only the system keychain, so install the CA there.
-- A signed-in user adding an address needs to click the link too, so nobody can add an address they cannot read. Adding an address never hands out a session.
+- A signed-in user adding an address needs to click the link too, so nobody can add an address they cannot read. The link works only for the account that asked (`signed_in_user`; the JSON endpoint reads it from the `Authorization` header): anyone else opening it, signed out or as another account, gets `invalid_link` and the link stays unspent. Without that, a user could mail a stranger a "confirm this address" link and attach the stranger's address to their own account. Adding an address never hands out a session.
 - In development with no mail server and a `http://localhost` base URL, the template prints the link to the log instead of sending. It never does that otherwise: a link in a log is a login for anyone who can read the log.
 
 **Before you launch:** set up SPF, DKIM and DMARC for the sender's domain (or use a mail provider that does), or sign-in mail lands in spam. Send a test to Gmail and iCloud. Check the sender address can receive replies or bounces.

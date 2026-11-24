@@ -168,7 +168,18 @@ TEST_CASE("magic http: a signed-in user adds an address with a link", "[auth][ma
     REQUIRE(http::request(post(R"({"email":"ann@example.com"})", access), fx.open()).status.code == 200);
     REQUIRE(fx.sent.back().subject.find("Confirm") == 0);
 
-    const auto r = http::verify(post(R"({"token":")" + fx.last_token() + R"("})"), fx.open());
+    // Opened without the account's token, or with another account's, the link does nothing and is not spent.
+    const auto link_body = R"({"token":")" + fx.last_token() + R"("})";
+    REQUIRE(http::verify(post(link_body), fx.open()).status.code == 401);
+    std::string stranger;
+    {
+        W w(fx.pool);
+        stranger = tok::issue(w, auth::find_or_create_user(w, "passkey", "stranger"), "x", tok::detail::unix_now())
+                       .access_token;
+    }
+    REQUIRE(http::verify(post(link_body, stranger), fx.open()).status.code == 401);
+
+    const auto r = http::verify(post(link_body, access), fx.open());
     REQUIRE(r.status.code == 200);
     revet::json::Document doc(r.body);
     REQUIRE(static_cast<std::string>(doc.root().at("user_id")) == user);
@@ -200,7 +211,7 @@ TEST_CASE("magic http: adding an address that is someone else's is a 409", "[aut
         access = tok::issue(w, other, "x", tok::detail::unix_now()).access_token;
     }
     http::request(post(R"({"email":"ann@example.com"})", access), fx.open());
-    const auto r = http::verify(post(R"({"token":")" + fx.last_token() + R"("})"), fx.open());
+    const auto r = http::verify(post(R"({"token":")" + fx.last_token() + R"("})", access), fx.open());
     REQUIRE(r.status.code == 409);
     REQUIRE(error_of(r) == "email_taken");
 }
