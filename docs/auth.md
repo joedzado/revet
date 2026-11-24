@@ -115,7 +115,7 @@ Both return `std::expected<..., web::webauthn::Error>`; `error_name(e)` gives a 
 - **Android.** Android apps report their origin as `android:apk-key-hash:<hash>`. List that exact string in `origins`.
 - **Synced passkeys** (iCloud Keychain, Google Password Manager) report a counter of 0 every time. That passes; a counter that was non-zero and falls back to 0 does not.
 - **base64url.** `web::webauthn::base64url_encode` / `base64url_decode` use the unpadded form WebAuthn uses; decoding is strict.
-- **`web::cbor`.** `decode(bytes)` / `decode_prefix(bytes)` handle the CBOR subset WebAuthn uses and refuse the rest (tags, floats, indefinite lengths, duplicate map keys, more than 16 levels of nesting, invalid UTF-8, counts larger than the input) without allocating or recursing unboundedly.
+- **`web::cbor`.** `decode(bytes)` / `decode_prefix(bytes)` handle the CBOR subset WebAuthn uses and refuse the rest (tags, floats, indefinite lengths, duplicate map keys, more than 16 levels of nesting, invalid UTF-8, arrays or maps over 256 entries, counts larger than the input) without allocating or recursing unboundedly.
 - **OpenSSL.** Signature checking uses OpenSSL (a Conan dependency, built from source the first time). The OpenSSL headers are included only from `src/webauthn.cpp`.
 
 ## Passkeys (`<revet/auth/passkeys.hpp>`, `<revet/auth/passkeys_http.hpp>`, namespace `web::auth::passkeys`)
