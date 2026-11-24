@@ -280,11 +280,31 @@ auto begin_registration(H& h, const std::optional<std::string>& user_id, std::st
     return Options{issued.challenge_id, std::move(w).str()};
 }
 
+namespace detail {
+
+// A real ceremony sends a few hundred bytes (a long attestation certificate chain, a few KiB). Without a cap a
+// request could carry tens of MiB of CBOR, which decodes into gigabytes of nodes. Checked on the encoded
+// text, before anything is decoded.
+constexpr std::size_t k_max_client_data = 4096;
+constexpr std::size_t k_max_attestation = 32768;
+constexpr std::size_t k_max_authenticator_data = 4096;
+constexpr std::size_t k_max_signature = 1024;
+
+inline auto too_big(std::string_view base64url, std::size_t max_decoded) -> bool {
+    return base64url.size() > ((max_decoded * 4) / 3) + 4;
+}
+
+} // namespace detail
+
 // The three fields are what the app got back from the OS, base64url encoded.
 template<typename H>
 auto finish_registration(H& h, std::string_view challenge_id, std::string_view client_data_json_b64,
                          std::string_view attestation_object_b64, std::string_view label,
                          long long now = detail::unix_now()) -> std::expected<Registered, Failure> {
+    if (detail::too_big(client_data_json_b64, detail::k_max_client_data) ||
+        detail::too_big(attestation_object_b64, detail::k_max_attestation)) {
+        return detail::fail(Failure::Kind::bad_request);
+    }
     const auto cdj = webauthn::base64url_decode(client_data_json_b64);
     const auto att = webauthn::base64url_decode(attestation_object_b64);
     if (!cdj || !att || cdj->empty() || att->empty()) {
@@ -357,6 +377,11 @@ auto finish_login(H& h, std::string_view challenge_id, std::string_view credenti
                   std::string_view client_data_json_b64, std::string_view authenticator_data_b64,
                   std::string_view signature_b64, std::string_view user_handle_b64 = {},
                   long long now = detail::unix_now()) -> std::expected<LoggedIn, Failure> {
+    if (detail::too_big(client_data_json_b64, detail::k_max_client_data) ||
+        detail::too_big(authenticator_data_b64, detail::k_max_authenticator_data) ||
+        detail::too_big(signature_b64, detail::k_max_signature) || user_handle_b64.size() > 256) {
+        return detail::fail(Failure::Kind::bad_request);
+    }
     const auto cdj = webauthn::base64url_decode(client_data_json_b64);
     const auto ad = webauthn::base64url_decode(authenticator_data_b64);
     const auto sig = webauthn::base64url_decode(signature_b64);

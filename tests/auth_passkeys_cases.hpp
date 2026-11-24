@@ -491,4 +491,24 @@ TEST_CASE("passkeys: sign in feeds the token layer", "[auth][db]") {
     const auto pair = auth::tokens::issue(w, in->user_id, "iPhone");
     REQUIRE(auth::tokens::verify_access(pair.access_token)->user_id == in->user_id);
 }
+TEST_CASE("passkeys: oversized ceremony blobs are refused before they are decoded", "[auth][db]") {
+    AUTH_REQUIRE_DB();
+    AuthDb fx;
+    W w(fx.pool);
+    const std::string huge(200'000, 'A'); // valid base64url, far past anything a real device sends
+
+    const auto opts = pk::begin_registration(w, std::nullopt, "Alex", T0);
+    REQUIRE(opts.has_value());
+    const auto reg = pk::finish_registration(w, opts->challenge_id, b64("{}"), huge, "x", T0 + 1);
+    REQUIRE_FALSE(reg.has_value());
+    REQUIRE(reg.error().kind == pk::Failure::Kind::bad_request);
+
+    const auto login = pk::begin_login(w, T0 + 2);
+    for (const auto& sizes :
+         {std::array<std::string, 3>{huge, "AAAA", "AAAA"}, {"AAAA", huge, "AAAA"}, {"AAAA", "AAAA", huge}}) {
+        const auto r = pk::finish_login(w, login.challenge_id, "cred", sizes[0], sizes[1], sizes[2], "", T0 + 3);
+        REQUIRE_FALSE(r.has_value());
+        REQUIRE(r.error().kind == pk::Failure::Kind::bad_request);
+    }
+}
 // NOLINTEND(bugprone-implicit-widening-of-multiplication-result,bugprone-signed-bitwise,bugprone-unchecked-optional-access,cert-dcl59-cpp,cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,google-build-namespaces,misc-anonymous-namespace-in-header,readability-math-missing-parentheses)
