@@ -1,5 +1,6 @@
 // app/routes/**/*.cpp -> routes.hpp (urls::) and routes.cpp (route table).
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <iostream>
 #include <iterator>
@@ -51,8 +52,12 @@ auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
                               if (auto p = param(part)) {
                                   return "_" + *p + "_";
                               }
+                              // Dots and other non-ident chars show up in real paths
+                              // (/.well-known/assetlinks.json); C++ namespaces cannot hold them.
                               std::string ns = part;
-                              std::ranges::replace(ns, '-', '_');
+                              std::ranges::transform(ns, ns.begin(), [](char c) -> char {
+                                  return (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_') ? c : '_';
+                              });
                               return ns;
                           }) |
                           std::ranges::to<Lines>();

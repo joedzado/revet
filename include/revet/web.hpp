@@ -430,6 +430,7 @@ struct Request {
     std::vector<UploadedFile> files; // populated at parse time; use Context::current().files for post-guard paths
     bool body_too_large = false;
     std::string raw_body; // populated for Content-Type: application/json bodies (POST, PUT, PATCH, DELETE)
+    std::string peer_ip; // socket peer address (IPv4/IPv6 text); empty when unknown. Not the end client behind a proxy.
 };
 
 struct Response {
@@ -588,9 +589,17 @@ inline auto mime_for(std::string_view path) -> std::string_view {
     return "application/octet-stream";
 }
 
+// The file a request path names, inside the public root. Empty (so a 404) for anything that could leave
+// it: an absolute path (`root / "/etc/passwd"` is `/etc/passwd`), a `..` component, or a NUL. Route params
+// are percent-decoded, so `serve_file(req.params.get("file"))` receives all of these straight from a client.
 inline auto resolve_path(std::string_view path) -> std::filesystem::path {
+    const std::filesystem::path rel{std::string(path)};
+    if (path.empty() || path.find('\0') != std::string_view::npos || rel.has_root_path() ||
+        std::ranges::any_of(rel, [](const std::filesystem::path& part) -> bool { return part == ".."; })) {
+        return {};
+    }
     const auto& root = public_root();
-    return root.empty() ? std::filesystem::path(path) : root / path;
+    return root.empty() ? rel : root / rel;
 }
 
 inline auto read_file(const std::filesystem::path& full_path, std::string_view content_type) -> Response {
@@ -870,6 +879,33 @@ inline auto parse_params(std::string_view s, char pair_sep = '&', bool url_decod
     }
     return out;
 }
+
+namespace detail {
+// Text form of the remote address of a connected socket; "" for non-IP sockets or on error.
+inline auto peer_ip(int fd) -> std::string {
+    sockaddr_storage ss{};
+    socklen_t len = sizeof(ss);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
+    if (getpeername(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) {
+        return {};
+    }
+    std::array<char, INET6_ADDRSTRLEN> buf{};
+    if (ss.ss_family == AF_INET) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
+        const auto* a = reinterpret_cast<const sockaddr_in*>(&ss);
+        if (inet_ntop(AF_INET, &a->sin_addr, buf.data(), buf.size()) != nullptr) {
+            return buf.data();
+        }
+    } else if (ss.ss_family == AF_INET6) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): sockaddr casts for getpeername/inet_ntop
+        const auto* a = reinterpret_cast<const sockaddr_in6*>(&ss);
+        if (inet_ntop(AF_INET6, &a->sin6_addr, buf.data(), buf.size()) != nullptr) {
+            return buf.data();
+        }
+    }
+    return {};
+}
+} // namespace detail
 
 // `leftover`, when given, receives any bytes read past the header section (WebSocket upgrades need them).
 inline auto parse_request(int fd, std::string* leftover = nullptr) -> Request {
@@ -1404,6 +1440,7 @@ inline void on_client(int client_fd, const std::vector<Route>& all_routes) {
     Context::current().reset();
     std::string leftover;
     auto req = parse_request(client_fd, &leftover);
+    req.peer_ip = detail::peer_ip(client_fd);
     if (req.path.path.empty()) {
         close(client_fd);
         return;

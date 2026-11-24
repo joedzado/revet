@@ -7,7 +7,7 @@
 | **C++23 compiler** | All framework code is C++23. | gcc 15, or clang 20 with libc++ 20 / libstdc++ 15 (`<flat_map>`); macOS: Apple clang (tested with Xcode 27) |
 | **CMake** | Configure + build. | 3.20 |
 | **Ninja** (optional) | Faster builds. revet auto-picks it if installed. | any |
-| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libcurl, Catch2 and app dependencies; needs Python, which pip or Homebrew brings. libsodium, simdjson, CTRE and FTXUI are vendored. | 2.21 (libcurl recipes need it) |
+| **Conan 2** | C++ package manager (think `npm` / `cargo` for C++). Installs libcurl, Catch2, openssl (WebAuthn) and app dependencies; needs Python, which pip or Homebrew brings. libsodium, simdjson, CTRE and FTXUI are vendored. | 2.21 (libcurl recipes need it) |
 | **libcurl-dev** | Outbound HTTP client. | 7.x |
 | **libsqlite3-dev** | SQLite resource backend. | 3.x |
 | **libpq-dev** *(optional; macOS: `brew install libpq`)* | Postgres resource backend. Skip if not using postgres. | 14 |

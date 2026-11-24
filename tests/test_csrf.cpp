@@ -174,3 +174,20 @@ TEST_CASE("CSRF Field Helper", "[csrf]") {
     REQUIRE(html.contains("name=\"csrf_token\""));
     REQUIRE(html.contains("value=\"my-token\""));
 }
+
+TEST_CASE("CSRF: /api routes are exempt, other paths are not", "[csrf][security]") {
+    web::Handler handler = [](const web::Request&) { return web::to_response("OK"); };
+    for (const char* path : {"/api/v1/things", "/api/login", "/api"}) {
+        web::Request req;
+        req.method = web::Method::POST;
+        req.path.path = path;
+        REQUIRE(web::dispatch(req, handler, {web::csrf::middleware}).status.code == 200);
+    }
+    // Look-alikes stay protected.
+    for (const char* path : {"/apiary", "/apis/v1", "/x/api/v1", "/"}) {
+        web::Request req;
+        req.method = web::Method::POST;
+        req.path.path = path;
+        REQUIRE(web::dispatch(req, handler, {web::csrf::middleware}).status.code == 403);
+    }
+}

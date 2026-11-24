@@ -20,7 +20,7 @@ This wipes `~/.revet/current/` and copies the source over. Re-run `revet dev` af
 
 ## `conan: command not found`
 
-Conan is the C++ package manager revet uses to install libsodium, libcurl, simdjson, ctre. Install it:
+Conan is the C++ package manager revet uses to install libcurl, Catch2, openssl (and app deps). libsodium, simdjson and ctre are vendored. Install Conan:
 
 ```bash
 pip3 install conan          # or: pip3 install --break-system-packages conan

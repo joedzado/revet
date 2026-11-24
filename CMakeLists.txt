@@ -49,13 +49,14 @@ install(TARGETS simdjson_vendor ARCHIVE DESTINATION lib)
 install(FILES ${REVET_SODIUM_PREFIX}/lib/libsodium.a DESTINATION lib)
 install(DIRECTORY ${REVET_SODIUM_PREFIX}/include/ DESTINATION include)
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/conan")
+find_package(OpenSSL REQUIRED CONFIG)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 
 # ── Target: revet_core (Framework library) ──────────────────────────────────
-add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp)
+add_library(revet_core src/http_client.cpp src/json.cpp src/rails_encryption.cpp src/webauthn.cpp src/mail.cpp)
 target_include_directories(revet_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB)
+target_link_libraries(revet_core PUBLIC libsodium::libsodium CURL::libcurl simdjson::simdjson ctre::ctre ZLIB::ZLIB OpenSSL::Crypto)
 target_compile_options(revet_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 install(TARGETS revet_core ARCHIVE DESTINATION lib)  # prebuilt/lib: apps link it instead of compiling src/*.cpp
 
@@ -108,21 +109,21 @@ if(Catch2_FOUND)
 
     # libpq is optional: without it the Postgres e2e test is not built.
     # Homebrew's libpq is keg-only, so it is not on the default search paths.
-    find_library(REVET_TEST_PQ_LIB pq HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
+    find_library(REVET_TEST_PQ_LIB pq HINTS /opt/homebrew/opt/libpq/lib /opt/homebrew/lib/postgresql@17 /usr/local/opt/libpq/lib)
     find_path(REVET_TEST_PQ_INCLUDE libpq-fe.h
-        HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+        HINTS /opt/homebrew/opt/libpq/include /opt/homebrew/include/postgresql@17 /usr/local/opt/libpq/include
         PATH_SUFFIXES postgresql)
 
     foreach(test_src ${test_sources})
         get_filename_component(test_name ${test_src} NAME_WE)
 
-        if(${test_name} STREQUAL "test_postgres_e2e" AND NOT (REVET_TEST_PQ_LIB AND REVET_TEST_PQ_INCLUDE))
-            message(STATUS "libpq not found: skipping test_postgres_e2e")
+        if((${test_name} STREQUAL "test_postgres_e2e" OR ${test_name} MATCHES "_postgres$") AND NOT (REVET_TEST_PQ_LIB AND REVET_TEST_PQ_INCLUDE))
+            message(STATUS "libpq not found: skipping ${test_name}")
             continue()
         endif()
 
         add_executable(${test_name} ${test_src})
-        if(${test_name} STREQUAL "test_postgres_e2e")
+        if(${test_name} STREQUAL "test_postgres_e2e" OR ${test_name} MATCHES "_postgres$")
             target_compile_definitions(${test_name} PRIVATE REVET_DB_POSTGRES)
             target_include_directories(${test_name} PRIVATE ${REVET_TEST_PQ_INCLUDE})
             target_link_libraries(${test_name} PRIVATE ${REVET_TEST_PQ_LIB})
@@ -131,11 +132,21 @@ if(Catch2_FOUND)
         if(${test_name} STREQUAL "test_cli")
             target_link_libraries(${test_name} PRIVATE revet_cli_core)
         endif()
+        if(${test_name} MATCHES "mail")
+            # The test SMTP server speaks TLS (tests/smtp_sink.hpp).
+            target_link_libraries(${test_name} PRIVATE OpenSSL::SSL)
+        endif()
         if(${test_name} MATCHES "sqlite")
             target_compile_definitions(${test_name} PRIVATE REVET_DB_SQLITE)
             target_link_libraries(${test_name} PRIVATE sqlite3)
         endif()
         add_test(NAME ${test_name} COMMAND ${test_name})
+        if(${test_name} STREQUAL "test_postgres_e2e" OR ${test_name} MATCHES "_postgres$")
+            # Catch2 exits 4 when every case skips (no REVET_TEST_PG_URL); CTest should report that as skipped.
+            set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 4)
+            # They all drop and recreate the same tables in one database, so `ctest -j` must not overlap them.
+            set_tests_properties(${test_name} PROPERTIES RESOURCE_LOCK revet_test_postgres)
+        endif()
     endforeach()
 endif()
 

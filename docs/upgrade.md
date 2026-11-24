@@ -43,6 +43,15 @@ The CLI and codegen are now C++; revet itself no longer needs Python (Conan stil
 - **The logger is `web::log`.** `log::` still works in `app/routes` and on macOS. On Linux, glibc's math function `::log` takes that name at global scope, so code outside `app/routes` writes `web::log::`.
 - **An invalid `port` in `revet.toml`** (not 1-65535) stops the CLI with an error naming it.
 
+## 0.4 → 0.4.1 (adds `revet/auth`)
+
+New: users, login sessions, passkeys, magic links and auth rate limits (see [auth.md](auth.md)). Apps that do not use it build as they are. If you ran an earlier build of the auth branch:
+
+- **Refresh tokens changed format** to `<sid>.<gen>.<secret>.<mac>`. Tokens issued before the change stop working, so native-app sessions sign in again once.
+- **Rotating `REVET_COOKIE_KEY` signs every device out**, because refresh tokens carry a MAC under a key derived from it.
+- **`register_options` needs a live session.** A signed-out session with an unexpired access token can no longer add a passkey.
+- **CBOR arrays and maps are capped at 256 entries**; a larger attestation is rejected.
+
 ## Cookie key behavior across upgrades
 
 The framework uses `REVET_COOKIE_KEY` for AEAD on state cookies and the CSRF cookie. Upgrades **do not** rotate this key — old cookies remain valid. The same key produces the same ciphertext format across framework versions.
