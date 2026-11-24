@@ -27,11 +27,10 @@
 #include <expected>
 #include <functional>
 #include <optional>
+#include <sodium.h>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <sodium.h>
 
 #include "../crypto.hpp"
 #include "../web.hpp"
@@ -40,8 +39,9 @@
 namespace web::auth::tokens {
 
 struct Config {
-    std::chrono::seconds access_ttl{15 * 60};         // REVET_ACCESS_TTL_SECONDS
-    std::chrono::seconds refresh_ttl{60 * 24 * 3600}; // REVET_REFRESH_TTL_SECONDS: a session lasts this long from sign-in
+    std::chrono::seconds access_ttl{15 * 60}; // REVET_ACCESS_TTL_SECONDS
+    std::chrono::seconds refresh_ttl{60 * 24 *
+                                     3600}; // REVET_REFRESH_TTL_SECONDS: a session lasts this long from sign-in
 };
 
 // Defaults, overridden by the environment on first use. Assign to the fields to set them in code.
@@ -138,11 +138,12 @@ inline auto refresh_mac(std::string_view body) -> std::string {
     web::crypto::get_key(cookie_key);
     std::array<unsigned char, crypto_generichash_KEYBYTES> key{};
     constexpr std::string_view k_context = "revet-refresh-mac-v1";
-    crypto_generichash(key.data(), key.size(), reinterpret_cast<const unsigned char*>(k_context.data()), k_context.size(),
-                       cookie_key.data(), cookie_key.size());
+    crypto_generichash(key.data(), key.size(), reinterpret_cast<const unsigned char*>(k_context.data()),
+                       k_context.size(), cookie_key.data(), cookie_key.size());
     sodium_memzero(cookie_key.data(), cookie_key.size());
     std::array<unsigned char, 16> mac{};
-    crypto_generichash(mac.data(), mac.size(), reinterpret_cast<const unsigned char*>(body.data()), body.size(), key.data(), key.size());
+    crypto_generichash(mac.data(), mac.size(), reinterpret_cast<const unsigned char*>(body.data()), body.size(),
+                       key.data(), key.size());
     sodium_memzero(key.data(), key.size());
     std::string out(sodium_base64_ENCODED_LEN(mac.size(), sodium_base64_VARIANT_URLSAFE_NO_PADDING), '\0');
     sodium_bin2base64(out.data(), out.size(), mac.data(), mac.size(), sodium_base64_VARIANT_URLSAFE_NO_PADDING);
@@ -151,7 +152,8 @@ inline auto refresh_mac(std::string_view body) -> std::string {
 }
 
 // <session id>.<generation>.<secret>.<mac>
-inline auto make_refresh_token(std::string_view session_id, long long generation, std::string_view secret) -> std::string {
+inline auto make_refresh_token(std::string_view session_id, long long generation,
+                               std::string_view secret) -> std::string {
     auto body = std::string(session_id) + "." + std::to_string(generation) + "." + std::string(secret);
     auto mac = refresh_mac(body);
     return body + "." + mac;
@@ -164,27 +166,42 @@ struct ParsedRefresh {
 };
 
 inline auto is_hex32(std::string_view s) -> bool {
-    return s.size() == 32 && std::ranges::all_of(s, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+    return s.size() == 32 &&
+           std::ranges::all_of(s, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
 inline auto parse_refresh_token(std::string_view token) -> std::optional<ParsedRefresh> {
-    if (token.size() > k_max_token_len) return std::nullopt;
+    if (token.size() > k_max_token_len) {
+        return std::nullopt;
+    }
     const auto d1 = token.find('.');
-    if (d1 == std::string_view::npos) return std::nullopt;
+    if (d1 == std::string_view::npos) {
+        return std::nullopt;
+    }
     const auto d2 = token.find('.', d1 + 1);
-    if (d2 == std::string_view::npos) return std::nullopt;
+    if (d2 == std::string_view::npos) {
+        return std::nullopt;
+    }
     const auto d3 = token.find('.', d2 + 1);
-    if (d3 == std::string_view::npos || token.find('.', d3 + 1) != std::string_view::npos) return std::nullopt;
+    if (d3 == std::string_view::npos || token.find('.', d3 + 1) != std::string_view::npos) {
+        return std::nullopt;
+    }
     // A token this server did not mint is refused before it can touch the session (and so cannot revoke it).
-    if (!web::crypto::secure_eq(refresh_mac(token.substr(0, d3)), token.substr(d3 + 1))) return std::nullopt;
+    if (!web::crypto::secure_eq(refresh_mac(token.substr(0, d3)), token.substr(d3 + 1))) {
+        return std::nullopt;
+    }
     ParsedRefresh p;
     p.session_id = std::string(token.substr(0, d1));
     const auto gen = token.substr(d1 + 1, d2 - d1 - 1);
     p.secret = std::string(token.substr(d2 + 1, d3 - d2 - 1));
-    if (!is_hex32(p.session_id) || gen.empty() || gen.size() > 12 || p.secret.empty()) return std::nullopt;
+    if (!is_hex32(p.session_id) || gen.empty() || gen.size() > 12 || p.secret.empty()) {
+        return std::nullopt;
+    }
     long long g = 0;
     for (char c : gen) {
-        if (c < '0' || c > '9') return std::nullopt;
+        if (c < '0' || c > '9') {
+            return std::nullopt;
+        }
         g = g * 10 + (c - '0');
     }
     p.generation = g;
@@ -192,7 +209,8 @@ inline auto parse_refresh_token(std::string_view token) -> std::optional<ParsedR
 }
 
 inline auto make_access_token(const Principal& p, long long expires_at) -> std::string {
-    return web::crypto::encrypt(std::string(k_access_tag) + "|" + p.user_id + "|" + p.session_id + "|" + std::to_string(expires_at));
+    return web::crypto::encrypt(std::string(k_access_tag) + "|" + p.user_id + "|" + p.session_id + "|" +
+                                std::to_string(expires_at));
 }
 
 inline auto unix_now() -> long long {
@@ -218,13 +236,18 @@ void create_schema(H& h) {
 }
 
 // Check an access token. No database read. Expired, tampered, or foreign tokens give nullopt.
-[[nodiscard]] inline auto verify_access(std::string_view token, long long now = detail::unix_now()) -> std::optional<Principal> {
-    if (token.empty() || token.size() > detail::k_max_token_len) return std::nullopt;
+[[nodiscard]] inline auto verify_access(std::string_view token,
+                                        long long now = detail::unix_now()) -> std::optional<Principal> {
+    if (token.empty() || token.size() > detail::k_max_token_len) {
+        return std::nullopt;
+    }
     const auto plain = web::crypto::decrypt(token);
     std::string_view rest = plain;
     auto next = [&rest]() -> std::optional<std::string_view> {
         const auto bar = rest.find('|');
-        if (bar == std::string_view::npos) return std::nullopt;
+        if (bar == std::string_view::npos) {
+            return std::nullopt;
+        }
         const auto part = rest.substr(0, bar);
         rest.remove_prefix(bar + 1);
         return part;
@@ -236,25 +259,34 @@ void create_schema(H& h) {
         return std::nullopt;
     }
     long long exp = 0;
-    if (rest.empty() || rest.size() > 18) return std::nullopt;
+    if (rest.empty() || rest.size() > 18) {
+        return std::nullopt;
+    }
     for (char c : rest) {
-        if (c < '0' || c > '9') return std::nullopt;
+        if (c < '0' || c > '9') {
+            return std::nullopt;
+        }
         exp = exp * 10 + (c - '0');
     }
-    if (exp <= now) return std::nullopt;
+    if (exp <= now) {
+        return std::nullopt;
+    }
     return Principal{std::string(*user), std::string(*session)};
 }
 
 // Start a session for a user who has just proven who they are.
 template<typename H>
-auto issue(H& h, std::string_view user_id, std::string_view device_label = "", long long now = detail::unix_now()) -> TokenPair {
+auto issue(H& h, std::string_view user_id, std::string_view device_label = "",
+           long long now = detail::unix_now()) -> TokenPair {
     const auto cfg = config();
     const auto session_id = detail::random_hex(16);
     const auto secret = detail::random_secret();
     const long long refresh_exp = now + cfg.refresh_ttl.count();
-    h.exec("INSERT INTO auth_sessions (id, user_id, token_hash, generation, label, created_at, last_used_at, expires_at)"
-           " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-           session_id, std::string(user_id), detail::hash_secret(secret), 1LL, std::string(device_label), now, now, refresh_exp);
+    h.exec(
+        "INSERT INTO auth_sessions (id, user_id, token_hash, generation, label, created_at, last_used_at, expires_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        session_id, std::string(user_id), detail::hash_secret(secret), 1LL, std::string(device_label), now, now,
+        refresh_exp);
     const long long access_exp = now + cfg.access_ttl.count();
     return {.access_token = detail::make_access_token({std::string(user_id), session_id}, access_exp),
             .refresh_token = detail::make_refresh_token(session_id, 1, secret),
@@ -266,18 +298,28 @@ auto issue(H& h, std::string_view user_id, std::string_view device_label = "", l
 // Trade a refresh token for a new pair. The presented token stops working. Presenting a token that
 // was already traded revokes the session, because two parties now hold copies.
 template<typename H>
-auto refresh(H& h, std::string_view refresh_token, long long now = detail::unix_now()) -> std::expected<TokenPair, RefreshError> {
+auto refresh(H& h, std::string_view refresh_token,
+             long long now = detail::unix_now()) -> std::expected<TokenPair, RefreshError> {
     const auto parsed = detail::parse_refresh_token(refresh_token);
-    if (!parsed) return std::unexpected(RefreshError::invalid);
+    if (!parsed) {
+        return std::unexpected(RefreshError::invalid);
+    }
 
     detail::Tx<H> tx(h);
     const auto rows = h.template query_as<std::string, std::string, long long, long long, std::optional<long long>>(
-        "SELECT user_id, token_hash, generation, expires_at, revoked_at FROM auth_sessions WHERE id = ?", parsed->session_id);
-    if (rows.empty()) return std::unexpected(RefreshError::invalid);
+        "SELECT user_id, token_hash, generation, expires_at, revoked_at FROM auth_sessions WHERE id = ?",
+        parsed->session_id);
+    if (rows.empty()) {
+        return std::unexpected(RefreshError::invalid);
+    }
     const auto& [user_id, token_hash, generation, expires_at, revoked_at] = rows.front();
 
-    if (revoked_at) return std::unexpected(RefreshError::revoked);
-    if (expires_at <= now) return std::unexpected(RefreshError::expired);
+    if (revoked_at) {
+        return std::unexpected(RefreshError::revoked);
+    }
+    if (expires_at <= now) {
+        return std::unexpected(RefreshError::expired);
+    }
 
     if (parsed->generation < generation) {
         // The caller holds a token we already replaced. Cut the session off, and keep that change.
@@ -295,7 +337,9 @@ auto refresh(H& h, std::string_view refresh_token, long long now = detail::unix_
         "UPDATE auth_sessions SET token_hash = ?, generation = generation + 1, last_used_at = ?"
         " WHERE id = ? AND generation = ? AND revoked_at IS NULL RETURNING generation",
         detail::hash_secret(secret), now, parsed->session_id, generation);
-    if (!won) return std::unexpected(RefreshError::invalid);
+    if (!won) {
+        return std::unexpected(RefreshError::invalid);
+    }
     tx.commit();
 
     const long long access_exp = now + config().access_ttl.count();
@@ -309,26 +353,35 @@ auto refresh(H& h, std::string_view refresh_token, long long now = detail::unix_
 // True while the session exists, is not revoked, and has not outlived refresh_ttl.
 template<typename H>
 [[nodiscard]] auto session_active(H& h, std::string_view session_id, long long now = detail::unix_now()) -> bool {
-    return h.template scalar<long long>("SELECT COUNT(*) FROM auth_sessions WHERE id = ? AND revoked_at IS NULL AND expires_at > ?",
-                                        std::string(session_id), now).value_or(0) > 0;
+    return h.template scalar<long long>(
+                "SELECT COUNT(*) FROM auth_sessions WHERE id = ? AND revoked_at IS NULL AND expires_at > ?",
+                std::string(session_id), now)
+               .value_or(0) > 0;
 }
 
 // Sign out one device. Scoped to the user, so one user cannot end another's session.
 template<typename H>
-auto revoke_session(H& h, std::string_view user_id, std::string_view session_id, long long now = detail::unix_now()) -> bool {
-    return !h.query("UPDATE auth_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL RETURNING id",
-                    now, std::string(session_id), std::string(user_id)).empty();
+auto revoke_session(H& h, std::string_view user_id, std::string_view session_id,
+                    long long now = detail::unix_now()) -> bool {
+    return !h.query("UPDATE auth_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL "
+                    "RETURNING id",
+                    now, std::string(session_id), std::string(user_id))
+                .empty();
 }
 
 // Sign out everywhere. Returns how many sessions were ended.
 template<typename H>
 auto revoke_all(H& h, std::string_view user_id, long long now = detail::unix_now()) -> std::size_t {
-    return h.query("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL RETURNING id", now, std::string(user_id)).size();
+    return h
+        .query("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL RETURNING id", now,
+               std::string(user_id))
+        .size();
 }
 
 // The user's signed-in devices, most recently used first.
 template<typename H>
-[[nodiscard]] auto list_devices(H& h, std::string_view user_id, long long now = detail::unix_now()) -> std::vector<Device> {
+[[nodiscard]] auto list_devices(H& h, std::string_view user_id,
+                                long long now = detail::unix_now()) -> std::vector<Device> {
     std::vector<Device> out;
     for (auto& [id, label, created, used] : h.template query_as<std::string, std::string, long long, long long>(
              "SELECT id, label, created_at, last_used_at FROM auth_sessions"
@@ -342,7 +395,8 @@ template<typename H>
 // Forget sessions that ended (revoked or expired) before `before`. Run now and then.
 template<typename H>
 auto purge_ended(H& h, long long before) -> std::size_t {
-    return h.query("DELETE FROM auth_sessions WHERE expires_at < ? OR revoked_at < ? RETURNING id", before, before).size();
+    return h.query("DELETE FROM auth_sessions WHERE expires_at < ? OR revoked_at < ? RETURNING id", before, before)
+        .size();
 }
 
 // Route guard: 401 unless the request carries a valid access token. No database read.
@@ -358,9 +412,13 @@ auto guard_checked(Open open) -> Middleware {
     return web::api::bearer<Principal>(std::function<std::optional<Principal>(std::string_view)>(
         [open = std::move(open)](std::string_view token) -> std::optional<Principal> {
             auto p = verify_access(token);
-            if (!p) return std::nullopt;
+            if (!p) {
+                return std::nullopt;
+            }
             auto h = open();
-            if (!session_active(h, p->session_id)) return std::nullopt;
+            if (!session_active(h, p->session_id)) {
+                return std::nullopt;
+            }
             return p;
         }));
 }

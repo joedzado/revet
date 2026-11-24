@@ -2,15 +2,14 @@
 // fixture with a `pool` and the users, tokens, passkeys and magic-link schemas), W (Write handle),
 // count(), and AUTH_REQUIRE_DB().
 #pragma once
-#include <mutex>
-#include <set>
-#include <thread>
-#include <vector>
-
 #include <catch2/catch_test_macros.hpp>
+#include <mutex>
 #include <revet/auth/magic.hpp>
 #include <revet/auth/passkeys.hpp>
 #include <revet/auth/tokens.hpp>
+#include <set>
+#include <thread>
+#include <vector>
 
 namespace auth = web::auth;
 namespace magic = web::auth::magic;
@@ -72,7 +71,8 @@ TEST_CASE("magic: a link is mailed and only its hash is stored", "[auth][db][mag
     REQUIRE(std::get<0>(rows[0]).find(token) == std::string::npos);
     REQUIRE(std::get<1>(rows[0]) == "ann@example.com");
     // No copy of the token in any column.
-    REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_magic_links WHERE email = ? OR user_id = ?", token, token).value_or(-1) == 0);
+    REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_magic_links WHERE email = ? OR user_id = ?", token, token)
+                .value_or(-1) == 0);
 }
 
 TEST_CASE("magic: the link signs in once and creates the account", "[auth][db][magic]") {
@@ -143,8 +143,8 @@ TEST_CASE("magic: an expired, unknown or malformed token is refused", "[auth][db
     REQUIRE(late.error() == magic::CompleteError::invalid_link);
     REQUIRE(magic::complete(w, token, T0 + 899).has_value()); // an expired attempt did not spend it
 
-    for (const std::string bad : {std::string(), std::string("nope"), std::string(43, 'A'), std::string(500, 'x'), token + "x", token.substr(1),
-                                  std::string("' OR 1=1 --")}) {
+    for (const std::string bad : {std::string(), std::string("nope"), std::string(43, 'A'), std::string(500, 'x'),
+                                  token + "x", token.substr(1), std::string("' OR 1=1 --")}) {
         INFO(bad);
         REQUIRE_FALSE(magic::complete(w, bad, T0 + 10).has_value());
     }
@@ -157,8 +157,9 @@ TEST_CASE("magic: addresses that cannot be mailed are refused without a trace", 
     Outbox out;
     capture(out);
     W w(fx.pool);
-    for (const std::string bad : {std::string(), std::string("ann"), std::string("ann@example"), std::string("ann@example.com\r\nBcc: x@y.com"),
-                                  std::string("a@b.c"), std::string("<ann@example.com>"), std::string(300, 'a')}) {
+    for (const std::string bad :
+         {std::string(), std::string("ann"), std::string("ann@example"), std::string("ann@example.com\r\nBcc: x@y.com"),
+          std::string("a@b.c"), std::string("<ann@example.com>"), std::string(300, 'a')}) {
         INFO(bad);
         REQUIRE(magic::request(w, bad, magic::Purpose::sign_in, {}, T0) == magic::RequestResult::invalid_email);
     }
@@ -172,13 +173,18 @@ TEST_CASE("magic: an address gets a bounded number of links per hour", "[auth][d
     Outbox out;
     capture(out);
     W w(fx.pool);
-    for (int i = 0; i < 5; ++i) REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + i) == magic::RequestResult::sent);
-    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + 10) == magic::RequestResult::throttled);
+    for (int i = 0; i < 5; ++i) {
+        REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + i) ==
+                magic::RequestResult::sent);
+    }
+    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + 10) ==
+            magic::RequestResult::throttled);
     REQUIRE(out.sent.size() == 5);
     REQUIRE(count(w, "auth_magic_links") == 5);
     // Other addresses are unaffected, and the allowance comes back.
     REQUIRE(magic::request(w, "bob@example.com", magic::Purpose::sign_in, {}, T0 + 11) == magic::RequestResult::sent);
-    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + 3601 + 4) == magic::RequestResult::sent);
+    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::sign_in, {}, T0 + 3601 + 4) ==
+            magic::RequestResult::sent);
 }
 
 TEST_CASE("magic: a signed-in user adds an email address", "[auth][db][magic]") {
@@ -228,7 +234,8 @@ TEST_CASE("magic: linking needs a user that exists", "[auth][db][magic]") {
     Outbox out;
     capture(out);
     W w(fx.pool);
-    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::link, std::string(32, 'f'), T0) == magic::RequestResult::no_such_user);
+    REQUIRE(magic::request(w, "ann@example.com", magic::Purpose::link, std::string(32, 'f'), T0) ==
+            magic::RequestResult::no_such_user);
     REQUIRE(out.sent.empty());
 
     // The user is deleted between the request and the click.
@@ -258,9 +265,13 @@ TEST_CASE("magic: of many racing clicks on one link exactly one wins", "[auth][d
             won[i] = magic::complete(w, token, T0 + 5).has_value() ? 1 : 0;
         });
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
     int total = 0;
-    for (int v : won) total += v;
+    for (int v : won) {
+        total += v;
+    }
     REQUIRE(total == 1);
     W w(fx.pool);
     REQUIRE(w.scalar<long long>("SELECT COUNT(*) FROM auth_users").value_or(-1) == 1);
@@ -277,7 +288,8 @@ TEST_CASE("magic: an email address lets a user back in after losing every passke
     auto& pk = auth::passkeys::config();
     pk.rp = {.rp_id = "app.example.com", .origins = {"https://app.example.com"}};
     const auto user = auth::find_or_create_user(w, "passkey", "credential-1");
-    w.exec("INSERT INTO auth_passkeys (credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, label, created_at, last_used_at)"
+    w.exec("INSERT INTO auth_passkeys (credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, "
+           "label, created_at, last_used_at)"
            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
            std::string("credential-1"), user, std::string("AAAA"), 0LL, 0, 0, std::string("old phone"), T0, 0LL);
     magic::request(w, "ann@example.com", magic::Purpose::link, user, T0);
@@ -355,7 +367,7 @@ TEST_CASE("magic: peeking shows what a link would do without spending it", "[aut
 
     REQUIRE(magic::peek(w, token_in(out.sent[0]), T0 + 1).has_value()); // still there
     REQUIRE(magic::complete(w, token_in(out.sent[0]), T0 + 2).has_value());
-    REQUIRE_FALSE(magic::peek(w, token_in(out.sent[0]), T0 + 3).has_value()); // spent
+    REQUIRE_FALSE(magic::peek(w, token_in(out.sent[0]), T0 + 3).has_value());   // spent
     REQUIRE_FALSE(magic::peek(w, token_in(out.sent[1]), T0 + 900).has_value()); // expired
     REQUIRE_FALSE(magic::peek(w, "nope", T0).has_value());
     REQUIRE_FALSE(magic::peek(w, "", T0).has_value());

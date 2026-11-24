@@ -430,7 +430,7 @@ struct Request {
     std::vector<UploadedFile> files; // populated at parse time; use Context::current().files for post-guard paths
     bool body_too_large = false;
     std::string raw_body; // populated for Content-Type: application/json bodies (POST, PUT, PATCH, DELETE)
-    std::string peer_ip;  // socket peer address (IPv4/IPv6 text); empty when unknown. Not the end client behind a proxy.
+    std::string peer_ip; // socket peer address (IPv4/IPv6 text); empty when unknown. Not the end client behind a proxy.
 };
 
 struct Response {

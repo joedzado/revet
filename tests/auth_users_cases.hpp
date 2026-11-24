@@ -2,12 +2,11 @@
 // AuthDb (fixture with a `pool` and the schema created), W (the Write handle type), count(), and
 // AUTH_REQUIRE_DB() (a SKIP when no database is available).
 #pragma once
+#include <catch2/catch_test_macros.hpp>
+#include <revet/auth/users.hpp>
 #include <set>
 #include <thread>
 #include <vector>
-
-#include <catch2/catch_test_macros.hpp>
-#include <revet/auth/users.hpp>
 
 namespace auth = web::auth;
 
@@ -36,7 +35,9 @@ TEST_CASE("auth users: different identities are different users, ids are unique"
     AuthDb fx;
     W w(fx.pool);
     std::set<std::string> ids;
-    for (int i = 0; i < 50; ++i) ids.insert(auth::find_or_create_user(w, "google", "sub-" + std::to_string(i)));
+    for (int i = 0; i < 50; ++i) {
+        ids.insert(auth::find_or_create_user(w, "google", "sub-" + std::to_string(i)));
+    }
     REQUIRE(ids.size() == 50);
     // Same subject under another provider is a different person.
     REQUIRE(auth::find_or_create_user(w, "apple", "sub-1") != auth::find_or_create_user(w, "google", "sub-1"));
@@ -161,10 +162,11 @@ TEST_CASE("auth users: concurrent creation of one identity yields one user", "[a
             ids[i] = auth::find_or_create_user(w, "google", "same");
         });
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
     REQUIRE(std::set<std::string>(ids.begin(), ids.end()).size() == 1);
     W w(fx.pool);
     REQUIRE(count(w, "auth_users") == 1);
     REQUIRE(count(w, "auth_identities") == 1);
 }
-

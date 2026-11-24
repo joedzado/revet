@@ -1,6 +1,7 @@
 #include <revet/auth/limits.hpp>
 #include <revet/auth/passkeys.hpp>
 #include <revet/json.hpp>
+
 #include "json_models.hpp"
 
 // POST /passkey/login/finish: verify the passkey and start a cookie session.
@@ -11,12 +12,12 @@ static auto render_post(const web::Request& req) -> web::Response {
     try {
         revet::json::Document doc(req.raw_body);
         auto root = doc.root();
-        challenge_id  = root.get("challenge_id", "");
+        challenge_id = root.get("challenge_id", "");
         credential_id = root.get("credential_id", "");
-        client_data   = root.get("client_data_json", "");
-        auth_data     = root.get("authenticator_data", "");
-        signature     = root.get("signature", "");
-        handle        = root.get("user_handle", "");
+        client_data = root.get("client_data_json", "");
+        auth_data = root.get("authenticator_data", "");
+        signature = root.get("signature", "");
+        handle = root.get("user_handle", "");
     } catch (const std::exception&) {
         return web::api::error(web::status::bad_request, "bad_request");
     }

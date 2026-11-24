@@ -1,10 +1,9 @@
 // Tests for web::rate_limit — token buckets, client address resolution behind a
 // proxy, and the 429 middleware.
-#include <catch2/catch_test_macros.hpp>
-#include <revet/rate_limit.hpp>
-
 #include <arpa/inet.h>
+#include <catch2/catch_test_macros.hpp>
 #include <netinet/in.h>
+#include <revet/rate_limit.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -17,18 +16,21 @@ const rl::Clock::time_point t0 = rl::Clock::time_point{} + 1000s;
 auto request_from(std::string peer, std::string xff = {}) -> web::Request {
     web::Request req;
     req.peer_ip = std::move(peer);
-    if (!xff.empty()) req.headers.data["x-forwarded-for"] = std::move(xff);
+    if (!xff.empty()) {
+        req.headers.data["x-forwarded-for"] = std::move(xff);
+    }
     return req;
 }
 
 auto run(const web::Middleware& mw, const web::Request& req, bool* reached = nullptr) -> web::Response {
-    return web::dispatch(
-        req,
-        [&](const web::Request&) {
-            if (reached != nullptr) *reached = true;
-            return web::Response{.body = "ok"};
-        },
-        {mw});
+    return web::dispatch(req,
+                         [&](const web::Request&) {
+                             if (reached != nullptr) {
+                                 *reached = true;
+                             }
+                             return web::Response{.body = "ok"};
+                         },
+                         {mw});
 }
 } // namespace
 
@@ -87,7 +89,9 @@ TEST_CASE("limiter: memory is bounded and least recently used keys go first", "[
     REQUIRE_FALSE(lim.take("a", t0 + 5s).allowed); // a kept its spent bucket
     REQUIRE(lim.take("b", t0 + 5s).allowed);       // b was dropped, so it starts fresh
 
-    for (int i = 0; i < 1000; ++i) lim.take("flood" + std::to_string(i), t0 + 6s);
+    for (int i = 0; i < 1000; ++i) {
+        lim.take("flood" + std::to_string(i), t0 + 6s);
+    }
     REQUIRE(lim.size() <= 3);
 }
 

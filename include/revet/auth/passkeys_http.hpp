@@ -76,31 +76,42 @@ private:
 };
 
 inline auto tokens_json(revet::json::Writer& w, const tokens::TokenPair& t) -> void {
-    w.key("tokens").object()
-        .key("access_token").value(t.access_token)
-        .key("refresh_token").value(t.refresh_token)
-        .key("access_expires_at").value(t.access_expires_at)
-        .key("refresh_expires_at").value(t.refresh_expires_at)
-        .key("session_id").value(t.session_id)
+    w.key("tokens")
+        .object()
+        .key("access_token")
+        .value(t.access_token)
+        .key("refresh_token")
+        .value(t.refresh_token)
+        .key("access_expires_at")
+        .value(t.access_expires_at)
+        .key("refresh_expires_at")
+        .value(t.refresh_expires_at)
+        .key("session_id")
+        .value(t.session_id)
         .end();
 }
 
 // Registration may say why it failed: it is the developer's own app on the other end.
 inline auto registration_failure(const Failure& f) -> web::Response {
     switch (f.kind) {
-    case Failure::Kind::bad_request: return web::api::error(web::status::bad_request, "bad_request");
-    case Failure::Kind::challenge_invalid: return web::api::error(web::status::bad_request, "challenge_invalid");
-    case Failure::Kind::credential_taken: return web::api::error(web::status::conflict, "credential_taken");
-    case Failure::Kind::no_such_user: return web::api::error(web::status::unauthorized, "unauthorized");
-    case Failure::Kind::verification_failed: {
-        const auto reason = f.detail ? std::string(webauthn::error_name(*f.detail)) : std::string("unknown");
-        log::warn("passkey registration refused: {}", reason);
-        revet::json::Writer w;
-        w.object().key("error").value("verification_failed").key("reason").value(reason).end();
-        return json_response(std::move(w).str(), web::status::bad_request);
-    }
-    case Failure::Kind::unknown_credential:
-    case Failure::Kind::user_mismatch: break;
+        case Failure::Kind::bad_request:
+            return web::api::error(web::status::bad_request, "bad_request");
+        case Failure::Kind::challenge_invalid:
+            return web::api::error(web::status::bad_request, "challenge_invalid");
+        case Failure::Kind::credential_taken:
+            return web::api::error(web::status::conflict, "credential_taken");
+        case Failure::Kind::no_such_user:
+            return web::api::error(web::status::unauthorized, "unauthorized");
+        case Failure::Kind::verification_failed: {
+            const auto reason = f.detail ? std::string(webauthn::error_name(*f.detail)) : std::string("unknown");
+            log::warn("passkey registration refused: {}", reason);
+            revet::json::Writer w;
+            w.object().key("error").value("verification_failed").key("reason").value(reason).end();
+            return json_response(std::move(w).str(), web::status::bad_request);
+        }
+        case Failure::Kind::unknown_credential:
+        case Failure::Kind::user_mismatch:
+            break;
     }
     return web::api::error(web::status::bad_request, "bad_request");
 }
@@ -108,9 +119,12 @@ inline auto registration_failure(const Failure& f) -> web::Response {
 // Login says as little as it can: one code for every way the answer can be wrong.
 inline auto login_failure(const Failure& f) -> web::Response {
     switch (f.kind) {
-    case Failure::Kind::bad_request: return web::api::error(web::status::bad_request, "bad_request");
-    case Failure::Kind::challenge_invalid: return web::api::error(web::status::bad_request, "challenge_invalid");
-    default: break;
+        case Failure::Kind::bad_request:
+            return web::api::error(web::status::bad_request, "bad_request");
+        case Failure::Kind::challenge_invalid:
+            return web::api::error(web::status::bad_request, "challenge_invalid");
+        default:
+            break;
     }
     log::warn("passkey login refused: {}{}", static_cast<int>(f.kind),
               f.detail ? std::string(" ") + std::string(webauthn::error_name(*f.detail)) : std::string());
@@ -120,12 +134,16 @@ inline auto login_failure(const Failure& f) -> web::Response {
 // No Authorization header: nullopt, fine. One that does not verify: an error response.
 inline auto optional_user(const web::Request& req) -> std::expected<std::optional<tokens::Principal>, web::Response> {
     const auto header = req.headers.get("authorization");
-    if (header.empty()) return std::optional<tokens::Principal>{};
+    if (header.empty()) {
+        return std::optional<tokens::Principal>{};
+    }
     if (!std::string_view(header).starts_with("Bearer ")) {
         return std::unexpected(web::api::error(web::status::unauthorized, "unauthorized"));
     }
     auto p = tokens::verify_access(std::string_view(header).substr(7));
-    if (!p) return std::unexpected(web::api::error(web::status::unauthorized, "unauthorized"));
+    if (!p) {
+        return std::unexpected(web::api::error(web::status::unauthorized, "unauthorized"));
+    }
     return p;
 }
 
@@ -134,12 +152,18 @@ inline auto optional_user(const web::Request& req) -> std::expected<std::optiona
 template<typename Open>
 auto register_options(const web::Request& req, Open open) -> web::Response {
     const auto who = detail::optional_user(req);
-    if (!who) return who.error();
+    if (!who) {
+        return who.error();
+    }
     std::string name = "user";
     if (!req.raw_body.empty()) {
         auto body = detail::Body::parse(req);
-        if (!body) return body.error();
-        if (auto n = body->str("display_name"); !n.empty() && n.size() <= 128) name = std::move(n);
+        if (!body) {
+            return body.error();
+        }
+        if (auto n = body->str("display_name"); !n.empty() && n.size() <= 128) {
+            name = std::move(n);
+        }
     }
     auto h = open();
     // Adding a passkey is a lasting grant, so a signed-out (revoked) session must not do it, even
@@ -149,7 +173,9 @@ auto register_options(const web::Request& req, Open open) -> web::Response {
     }
     const auto user = *who ? std::optional<std::string>((*who)->user_id) : std::nullopt;
     const auto opts = begin_registration(h, user, name);
-    if (!opts) return detail::registration_failure(opts.error());
+    if (!opts) {
+        return detail::registration_failure(opts.error());
+    }
     revet::json::Writer w;
     w.object().key("challenge_id").value(opts->challenge_id).key("options").raw(opts->options_json).end();
     return detail::json_response(std::move(w).str());
@@ -158,19 +184,36 @@ auto register_options(const web::Request& req, Open open) -> web::Response {
 template<typename Open>
 auto register_finish(const web::Request& req, Open open) -> web::Response {
     auto body = detail::Body::parse(req);
-    if (!body) return body.error();
+    if (!body) {
+        return body.error();
+    }
     auto label = body->str("label");
-    if (label.size() > 128) label.resize(128);
+    if (label.size() > 128) {
+        label.resize(128);
+    }
     auto h = open();
-    const auto done = finish_registration(h, body->str("challenge_id"), body->str("client_data_json"), body->str("attestation_object"), label);
-    if (!done) return detail::registration_failure(done.error());
+    const auto done = finish_registration(h, body->str("challenge_id"), body->str("client_data_json"),
+                                          body->str("attestation_object"), label);
+    if (!done) {
+        return detail::registration_failure(done.error());
+    }
 
     revet::json::Writer w;
-    w.object().key("user_id").value(done->user_id).key("credential_id").value(done->credential_id).key("new_user").value(done->new_user);
+    w.object()
+        .key("user_id")
+        .value(done->user_id)
+        .key("credential_id")
+        .value(done->credential_id)
+        .key("new_user")
+        .value(done->new_user);
     if (done->new_user) {
         auto device = body->str("device");
-        if (device.empty()) device = label;
-        if (device.size() > 128) device.resize(128);
+        if (device.empty()) {
+            device = label;
+        }
+        if (device.size() > 128) {
+            device.resize(128);
+        }
         detail::tokens_json(w, tokens::issue(h, done->user_id, device));
     }
     w.end();
@@ -189,14 +232,21 @@ auto login_options(const web::Request& /*req*/, Open open) -> web::Response {
 template<typename Open>
 auto login_finish(const web::Request& req, Open open) -> web::Response {
     auto body = detail::Body::parse(req);
-    if (!body) return body.error();
+    if (!body) {
+        return body.error();
+    }
     auto h = open();
-    const auto in = finish_login(h, body->str("challenge_id"), body->str("credential_id"), body->str("client_data_json"),
-                                 body->str("authenticator_data"), body->str("signature"), body->str("user_handle"));
-    if (!in) return detail::login_failure(in.error());
+    const auto in =
+        finish_login(h, body->str("challenge_id"), body->str("credential_id"), body->str("client_data_json"),
+                     body->str("authenticator_data"), body->str("signature"), body->str("user_handle"));
+    if (!in) {
+        return detail::login_failure(in.error());
+    }
 
     auto device = body->str("device");
-    if (device.size() > 128) device.resize(128);
+    if (device.size() > 128) {
+        device.resize(128);
+    }
     revet::json::Writer w;
     w.object().key("user_id").value(in->user_id);
     detail::tokens_json(w, tokens::issue(h, in->user_id, device));
@@ -213,12 +263,18 @@ auto list(const web::Request& /*req*/, Open open) -> web::Response {
     w.object().key("passkeys").array();
     for (const auto& p : list_passkeys(h, who.user_id)) {
         w.object()
-            .key("credential_id").value(p.credential_id)
-            .key("label").value(p.label)
-            .key("created_at").value(p.created_at)
-            .key("last_used_at").value(p.last_used_at)
-            .key("backup_eligible").value(p.backup_eligible)
-            .key("backup_state").value(p.backup_state)
+            .key("credential_id")
+            .value(p.credential_id)
+            .key("label")
+            .value(p.label)
+            .key("created_at")
+            .value(p.created_at)
+            .key("last_used_at")
+            .value(p.last_used_at)
+            .key("backup_eligible")
+            .value(p.backup_eligible)
+            .key("backup_state")
+            .value(p.backup_state)
             .end();
     }
     w.end().end();
@@ -230,12 +286,17 @@ template<typename Open>
 auto remove(const web::Request& req, Open open) -> web::Response {
     const auto& who = web::api::principal<tokens::Principal>();
     auto body = detail::Body::parse(req);
-    if (!body) return body.error();
+    if (!body) {
+        return body.error();
+    }
     auto h = open();
     switch (remove_passkey(h, who.user_id, body->str("credential_id"))) {
-    case RemoveResult::removed: return detail::json_response(R"({"removed":true})");
-    case RemoveResult::not_found: return web::api::error(web::status::not_found, "not_found");
-    case RemoveResult::last_login_method: return web::api::error(web::status::conflict, "last_login_method");
+        case RemoveResult::removed:
+            return detail::json_response(R"({"removed":true})");
+        case RemoveResult::not_found:
+            return web::api::error(web::status::not_found, "not_found");
+        case RemoveResult::last_login_method:
+            return web::api::error(web::status::conflict, "last_login_method");
     }
     return web::api::error(web::status::internal_error, "internal_error");
 }
@@ -247,16 +308,24 @@ auto remove(const web::Request& req, Open open) -> web::Response {
 // until config().apple_app_ids is set. No redirects, no auth.
 inline auto apple_app_site_association(const web::Request& /*req*/) -> web::Response {
     const auto& ids = config().apple_app_ids;
-    if (ids.empty()) return web::api::error(web::status::not_found, "not_found");
+    if (ids.empty()) {
+        return web::api::error(web::status::not_found, "not_found");
+    }
     revet::json::Writer w;
     w.object().key("webcredentials").object().key("apps").array();
-    for (const auto& id : ids) w.value(id);
+    for (const auto& id : ids) {
+        w.value(id);
+    }
     w.end().end();
     if (!config().app_link_paths.empty()) {
         w.key("applinks").object().key("details").array().object().key("appIDs").array();
-        for (const auto& id : ids) w.value(id);
+        for (const auto& id : ids) {
+            w.value(id);
+        }
         w.end().key("components").array();
-        for (const auto& path : config().app_link_paths) w.object().key("/").value(path).end();
+        for (const auto& path : config().app_link_paths) {
+            w.object().key("/").value(path).end();
+        }
         w.end().end().end().end();
     }
     w.end();
@@ -268,16 +337,28 @@ inline auto apple_app_site_association(const web::Request& /*req*/) -> web::Resp
 // Returns 404 until config().android_apps is set.
 inline auto asset_links(const web::Request& /*req*/) -> web::Response {
     const auto& apps = config().android_apps;
-    if (apps.empty()) return web::api::error(web::status::not_found, "not_found");
+    if (apps.empty()) {
+        return web::api::error(web::status::not_found, "not_found");
+    }
     revet::json::Writer w;
     w.array();
     for (const auto& app : apps) {
         w.object().key("relation").array().value("delegate_permission/common.get_login_creds");
-        if (!config().app_link_paths.empty()) w.value("delegate_permission/common.handle_all_urls");
+        if (!config().app_link_paths.empty()) {
+            w.value("delegate_permission/common.handle_all_urls");
+        }
         w.end();
-        w.key("target").object().key("namespace").value("android_app").key("package_name").value(app.package_name)
-            .key("sha256_cert_fingerprints").array();
-        for (const auto& fp : app.sha256_cert_fingerprints) w.value(fp);
+        w.key("target")
+            .object()
+            .key("namespace")
+            .value("android_app")
+            .key("package_name")
+            .value(app.package_name)
+            .key("sha256_cert_fingerprints")
+            .array();
+        for (const auto& fp : app.sha256_cert_fingerprints) {
+            w.value(fp);
+        }
         w.end().end().end();
     }
     w.end();

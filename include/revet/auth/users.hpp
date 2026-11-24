@@ -17,13 +17,12 @@
 #include <array>
 #include <ctime>
 #include <optional>
+#include <sodium.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
-
-#include <sodium.h>
 
 #include "../db.hpp"
 
@@ -102,7 +101,8 @@ void create_schema(H& h) {
 
 template<typename H>
 [[nodiscard]] auto user_exists(H& h, std::string_view user_id) -> bool {
-    return h.template scalar<long long>("SELECT COUNT(*) FROM auth_users WHERE id = ?", std::string(user_id)).value_or(0) > 0;
+    return h.template scalar<long long>("SELECT COUNT(*) FROM auth_users WHERE id = ?", std::string(user_id))
+               .value_or(0) > 0;
 }
 
 // The user an identity belongs to, if any.
@@ -158,7 +158,8 @@ auto create_user_within(H& h, std::string_view user_id, std::string_view provide
 }
 
 template<typename H>
-auto link_identity_within(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> LinkResult {
+auto link_identity_within(H& h, std::string_view user_id, std::string_view provider,
+                          std::string_view subject) -> LinkResult {
     if (!user_exists(h, user_id)) {
         return LinkResult::no_such_user;
     }
@@ -176,17 +177,20 @@ auto link_identity_within(H& h, std::string_view user_id, std::string_view provi
 }
 
 template<typename H>
-auto unlink_identity_within(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> UnlinkResult {
+auto unlink_identity_within(H& h, std::string_view user_id, std::string_view provider,
+                            std::string_view subject) -> UnlinkResult {
     const auto owner = find_user(h, provider, subject);
     if (!owner || *owner != user_id) {
         return UnlinkResult::not_found;
     }
-    const auto count = h.template scalar<long long>("SELECT COUNT(*) FROM auth_identities WHERE user_id = ?",
-                                                    std::string(user_id)).value_or(0);
+    const auto count =
+        h.template scalar<long long>("SELECT COUNT(*) FROM auth_identities WHERE user_id = ?", std::string(user_id))
+            .value_or(0);
     if (count <= 1) {
         return UnlinkResult::last_identity;
     }
-    h.exec("DELETE FROM auth_identities WHERE provider = ? AND subject = ?", std::string(provider), std::string(subject));
+    h.exec("DELETE FROM auth_identities WHERE provider = ? AND subject = ?", std::string(provider),
+           std::string(subject));
     return UnlinkResult::unlinked;
 }
 
@@ -203,7 +207,8 @@ template<typename H>
 [[nodiscard]] auto identities_of(H& h, std::string_view user_id) -> std::vector<Identity> {
     std::vector<Identity> out;
     for (auto& [provider, subject, created] : h.template query_as<std::string, std::string, long long>(
-             "SELECT provider, subject, created_at FROM auth_identities WHERE user_id = ? ORDER BY created_at, provider, subject",
+             "SELECT provider, subject, created_at FROM auth_identities WHERE user_id = ? ORDER BY created_at, "
+             "provider, subject",
              std::string(user_id))) {
         out.push_back({std::move(provider), std::move(subject), created});
     }
@@ -212,7 +217,8 @@ template<typename H>
 
 // Remove one identity. The last remaining identity is kept so the user can still sign in.
 template<typename H>
-auto unlink_identity(H& h, std::string_view user_id, std::string_view provider, std::string_view subject) -> UnlinkResult {
+auto unlink_identity(H& h, std::string_view user_id, std::string_view provider,
+                     std::string_view subject) -> UnlinkResult {
     detail::Tx<H> tx(h);
     const auto result = unlink_identity_within(h, user_id, provider, subject);
     if (result == UnlinkResult::unlinked) {

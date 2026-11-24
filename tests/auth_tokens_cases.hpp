@@ -2,12 +2,11 @@
 // fixture with a `pool`, auth_users and auth_sessions created), W and R (Write and Read handle types), count(),
 // and AUTH_REQUIRE_DB().
 #pragma once
+#include <catch2/catch_test_macros.hpp>
+#include <revet/auth/tokens.hpp>
 #include <set>
 #include <thread>
 #include <vector>
-
-#include <catch2/catch_test_macros.hpp>
-#include <revet/auth/tokens.hpp>
 
 namespace auth = web::auth;
 namespace tok = web::auth::tokens;
@@ -99,7 +98,8 @@ TEST_CASE("tokens: tampered, truncated, empty and foreign access tokens are refu
     REQUIRE_FALSE(tok::verify_access(std::string(2000, 'A'), T0).has_value());
     // Sealed with the right key but not an access token (what a state cookie looks like).
     REQUIRE_FALSE(tok::verify_access(web::crypto::encrypt("some cookie payload"), T0).has_value());
-    REQUIRE_FALSE(tok::verify_access(web::crypto::encrypt("revet-at1|u|" + std::string(32, 'a') + "|99999999999x"), T0).has_value());
+    REQUIRE_FALSE(tok::verify_access(web::crypto::encrypt("revet-at1|u|" + std::string(32, 'a') + "|99999999999x"), T0)
+                      .has_value());
     // The refresh token is not an access token.
     REQUIRE_FALSE(tok::verify_access(pair.refresh_token, T0).has_value());
 }
@@ -173,10 +173,10 @@ TEST_CASE("tokens: wrong, malformed and unknown refresh tokens are invalid", "[a
     const auto secret = secret_of(pair.refresh_token);
     REQUIRE(bad(signed_token(pair.session_id + ".1.wrongsecret")));
     REQUIRE(bad(signed_token(std::string(32, 'a') + ".1." + secret)));
-    REQUIRE(bad(signed_token(pair.session_id + ".5." + secret))); // a generation not issued yet
-    REQUIRE(bad(pair.session_id + ".1." + secret));               // no MAC
+    REQUIRE(bad(signed_token(pair.session_id + ".5." + secret)));               // a generation not issued yet
+    REQUIRE(bad(pair.session_id + ".1." + secret));                             // no MAC
     REQUIRE(bad(pair.session_id + ".1." + secret + ".AAAAAAAAAAAAAAAAAAAAAA")); // wrong MAC
-    REQUIRE(bad(pair.refresh_token + ".x"));                      // extra part
+    REQUIRE(bad(pair.refresh_token + ".x"));                                    // extra part
     REQUIRE(bad(""));
     REQUIRE(bad("garbage"));
     REQUIRE(bad("a.b.c"));
@@ -343,9 +343,13 @@ TEST_CASE("tokens: of many racing refreshes with one token, exactly one wins", "
             won[i] = tok::refresh(w, refresh_token).has_value() ? 1 : 0;
         });
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
     int total = 0;
-    for (int v : won) total += v;
+    for (int v : won) {
+        total += v;
+    }
     REQUIRE(total == 1);
 }
 

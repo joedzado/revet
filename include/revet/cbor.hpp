@@ -23,13 +23,13 @@
 namespace web::cbor {
 
 enum class Error {
-    truncated,       // input ended inside an item
-    trailing_bytes,  // decode(): bytes left over after the item
-    unsupported,     // tags, floats, indefinite length, simple values other than false/true/null
-    too_deep,        // nested more than max_depth levels
-    too_large,       // an integer outside int64, a count larger than the input can hold, or above max_items
-    duplicate_key,   // the same key twice in one map
-    bad_text,        // text string that is not valid UTF-8
+    truncated,      // input ended inside an item
+    trailing_bytes, // decode(): bytes left over after the item
+    unsupported,    // tags, floats, indefinite length, simple values other than false/true/null
+    too_deep,       // nested more than max_depth levels
+    too_large,      // an integer outside int64, a count larger than the input can hold, or above max_items
+    duplicate_key,  // the same key twice in one map
+    bad_text,       // text string that is not valid UTF-8
 };
 
 struct Bytes {
@@ -47,13 +47,25 @@ struct Value {
     // Integer, byte string, text string, array, map, bool, null.
     std::variant<std::int64_t, Bytes, Text, std::vector<Value>, std::vector<Entry>, bool, Null> v;
 
-    [[nodiscard]] auto is_int() const -> bool { return std::holds_alternative<std::int64_t>(v); }
-    [[nodiscard]] auto is_bytes() const -> bool { return std::holds_alternative<Bytes>(v); }
-    [[nodiscard]] auto is_text() const -> bool { return std::holds_alternative<Text>(v); }
-    [[nodiscard]] auto is_array() const -> bool { return std::holds_alternative<std::vector<Value>>(v); }
-    [[nodiscard]] auto is_map() const -> bool { return std::holds_alternative<std::vector<Entry>>(v); }
+    [[nodiscard]] auto is_int() const -> bool {
+        return std::holds_alternative<std::int64_t>(v);
+    }
+    [[nodiscard]] auto is_bytes() const -> bool {
+        return std::holds_alternative<Bytes>(v);
+    }
+    [[nodiscard]] auto is_text() const -> bool {
+        return std::holds_alternative<Text>(v);
+    }
+    [[nodiscard]] auto is_array() const -> bool {
+        return std::holds_alternative<std::vector<Value>>(v);
+    }
+    [[nodiscard]] auto is_map() const -> bool {
+        return std::holds_alternative<std::vector<Entry>>(v);
+    }
 
-    [[nodiscard]] auto as_int() const -> const std::int64_t* { return std::get_if<std::int64_t>(&v); }
+    [[nodiscard]] auto as_int() const -> const std::int64_t* {
+        return std::get_if<std::int64_t>(&v);
+    }
     [[nodiscard]] auto as_bytes() const -> const std::string* {
         const auto* b = std::get_if<Bytes>(&v);
         return b != nullptr ? &b->data : nullptr;
@@ -62,8 +74,12 @@ struct Value {
         const auto* t = std::get_if<Text>(&v);
         return t != nullptr ? &t->data : nullptr;
     }
-    [[nodiscard]] auto as_array() const -> const std::vector<Value>* { return std::get_if<std::vector<Value>>(&v); }
-    [[nodiscard]] auto as_map() const -> const std::vector<Entry>* { return std::get_if<std::vector<Entry>>(&v); }
+    [[nodiscard]] auto as_array() const -> const std::vector<Value>* {
+        return std::get_if<std::vector<Value>>(&v);
+    }
+    [[nodiscard]] auto as_map() const -> const std::vector<Entry>* {
+        return std::get_if<std::vector<Entry>>(&v);
+    }
 
     // Map lookups: the value under a text or integer key, or nullptr (also when this is not a map).
     [[nodiscard]] inline auto find(std::string_view key) const -> const Value*;
@@ -78,7 +94,9 @@ struct Entry {
 inline auto Value::find(std::string_view key) const -> const Value* {
     if (const auto* m = as_map()) {
         for (const auto& e : *m) {
-            if (const auto* t = e.key.as_text(); t != nullptr && *t == key) return &e.value;
+            if (const auto* t = e.key.as_text(); t != nullptr && *t == key) {
+                return &e.value;
+            }
         }
     }
     return nullptr;
@@ -87,7 +105,9 @@ inline auto Value::find(std::string_view key) const -> const Value* {
 inline auto Value::find(std::int64_t key) const -> const Value* {
     if (const auto* m = as_map()) {
         for (const auto& e : *m) {
-            if (const auto* i = e.key.as_int(); i != nullptr && *i == key) return &e.value;
+            if (const auto* i = e.key.as_int(); i != nullptr && *i == key) {
+                return &e.value;
+            }
         }
     }
     return nullptr;
@@ -126,17 +146,32 @@ inline auto valid_utf8(std::string_view s) -> bool {
             ++i;
             continue;
         }
-        if (c >= 0xC2 && c <= 0xDF) { len = 2; cp = c & 0x1FU; }
-        else if (c >= 0xE0 && c <= 0xEF) { len = 3; cp = c & 0x0FU; }
-        else if (c >= 0xF0 && c <= 0xF4) { len = 4; cp = c & 0x07U; }
-        else return false;
-        if (i + len > s.size()) return false;
+        if (c >= 0xC2 && c <= 0xDF) {
+            len = 2;
+            cp = c & 0x1FU;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            len = 3;
+            cp = c & 0x0FU;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            len = 4;
+            cp = c & 0x07U;
+        } else {
+            return false;
+        }
+        if (i + len > s.size()) {
+            return false;
+        }
         for (std::size_t k = 1; k < len; ++k) {
             const auto cc = static_cast<unsigned char>(s[i + k]);
-            if ((cc & 0xC0U) != 0x80U) return false;
+            if ((cc & 0xC0U) != 0x80U) {
+                return false;
+            }
             cp = (cp << 6) | (cc & 0x3FU);
         }
-        if ((len == 3 && cp < 0x800) || (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        if ((len == 3 && cp < 0x800) || (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) ||
+            (cp >= 0xD800 && cp <= 0xDFFF)) {
+            return false;
+        }
         i += len;
     }
     return true;
@@ -146,83 +181,131 @@ class Reader {
 public:
     explicit Reader(std::string_view in) : in_(in) {}
 
-    [[nodiscard]] auto consumed() const -> std::size_t { return pos_; }
+    [[nodiscard]] auto consumed() const -> std::size_t {
+        return pos_;
+    }
 
     auto item(int depth) -> std::expected<Value, Error> {
-        if (depth > max_depth) return std::unexpected(Error::too_deep);
-        if (pos_ >= in_.size()) return std::unexpected(Error::truncated);
+        if (depth > max_depth) {
+            return std::unexpected(Error::too_deep);
+        }
+        if (pos_ >= in_.size()) {
+            return std::unexpected(Error::truncated);
+        }
         const auto initial = static_cast<unsigned char>(in_[pos_++]);
         const unsigned major = initial >> 5U;
         const unsigned info = initial & 0x1FU;
 
         if (major == 7) {
-            if (info == 20) return Value{false};
-            if (info == 21) return Value{true};
-            if (info == 22) return Value{Null{}};
+            if (info == 20) {
+                return Value{.v = false};
+            }
+            if (info == 21) {
+                return Value{.v = true};
+            }
+            if (info == 22) {
+                return Value{.v = Null{}};
+            }
             return std::unexpected(Error::unsupported);
         }
-        if (major == 6) return std::unexpected(Error::unsupported); // tags
+        if (major == 6) {
+            return std::unexpected(Error::unsupported); // tags
+        }
 
         auto arg = argument(info);
-        if (!arg) return std::unexpected(arg.error());
+        if (!arg) {
+            return std::unexpected(arg.error());
+        }
         const std::uint64_t n = *arg;
 
         switch (major) {
-        case 0:
-            if (n > static_cast<std::uint64_t>(INT64_MAX)) return std::unexpected(Error::too_large);
-            return Value{static_cast<std::int64_t>(n)};
-        case 1:
-            if (n > static_cast<std::uint64_t>(INT64_MAX)) return std::unexpected(Error::too_large);
-            return Value{-1 - static_cast<std::int64_t>(n)};
-        case 2:
-        case 3: {
-            if (n > in_.size() - pos_) return std::unexpected(Error::truncated);
-            std::string data(in_.substr(pos_, static_cast<std::size_t>(n)));
-            pos_ += static_cast<std::size_t>(n);
-            if (major == 2) return Value{Bytes{std::move(data)}};
-            if (!valid_utf8(data)) return std::unexpected(Error::bad_text);
-            return Value{Text{std::move(data)}};
-        }
-        case 4: {
-            if (n > max_items || n > in_.size() - pos_) return std::unexpected(Error::too_large); // every item takes a byte
-            std::vector<Value> items;
-            items.reserve(static_cast<std::size_t>(n));
-            for (std::uint64_t i = 0; i < n; ++i) {
-                auto v = item(depth + 1);
-                if (!v) return std::unexpected(v.error());
-                items.push_back(std::move(*v));
-            }
-            return Value{std::move(items)};
-        }
-        default: { // 5: map
-            if (n > max_items || n > (in_.size() - pos_) / 2) return std::unexpected(Error::too_large); // a pair takes two bytes
-            std::vector<Entry> entries;
-            entries.reserve(static_cast<std::size_t>(n));
-            for (std::uint64_t i = 0; i < n; ++i) {
-                auto k = item(depth + 1);
-                if (!k) return std::unexpected(k.error());
-                auto v = item(depth + 1);
-                if (!v) return std::unexpected(v.error());
-                for (const auto& e : entries) {
-                    if (same_key(e.key, *k)) return std::unexpected(Error::duplicate_key);
+            case 0:
+                if (n > static_cast<std::uint64_t>(INT64_MAX)) {
+                    return std::unexpected(Error::too_large);
                 }
-                entries.push_back({std::move(*k), std::move(*v)});
+                return Value{.v = static_cast<std::int64_t>(n)};
+            case 1:
+                if (n > static_cast<std::uint64_t>(INT64_MAX)) {
+                    return std::unexpected(Error::too_large);
+                }
+                return Value{.v = -1 - static_cast<std::int64_t>(n)};
+            case 2:
+            case 3: {
+                if (n > in_.size() - pos_) {
+                    return std::unexpected(Error::truncated);
+                }
+                std::string data(in_.substr(pos_, static_cast<std::size_t>(n)));
+                pos_ += static_cast<std::size_t>(n);
+                if (major == 2) {
+                    return Value{.v = Bytes{.data = std::move(data)}};
+                }
+                if (!valid_utf8(data)) {
+                    return std::unexpected(Error::bad_text);
+                }
+                return Value{.v = Text{.data = std::move(data)}};
             }
-            return Value{std::move(entries)};
-        }
+            case 4: {
+                if (n > max_items || n > in_.size() - pos_) {
+                    return std::unexpected(Error::too_large); // every item takes a byte
+                }
+                std::vector<Value> items;
+                items.reserve(static_cast<std::size_t>(n));
+                for (std::uint64_t i = 0; i < n; ++i) {
+                    auto v = item(depth + 1);
+                    if (!v) {
+                        return std::unexpected(v.error());
+                    }
+                    items.push_back(std::move(*v));
+                }
+                return Value{.v = std::move(items)};
+            }
+            default: { // 5: map
+                if (n > max_items || n > (in_.size() - pos_) / 2) {
+                    return std::unexpected(Error::too_large); // a pair takes two bytes
+                }
+                std::vector<Entry> entries;
+                entries.reserve(static_cast<std::size_t>(n));
+                for (std::uint64_t i = 0; i < n; ++i) {
+                    auto k = item(depth + 1);
+                    if (!k) {
+                        return std::unexpected(k.error());
+                    }
+                    auto v = item(depth + 1);
+                    if (!v) {
+                        return std::unexpected(v.error());
+                    }
+                    for (const auto& e : entries) {
+                        if (same_key(e.key, *k)) {
+                            return std::unexpected(Error::duplicate_key);
+                        }
+                    }
+                    entries.push_back({.key = std::move(*k), .value = std::move(*v)});
+                }
+                return Value{.v = std::move(entries)};
+            }
         }
     }
 
 private:
     auto argument(unsigned info) -> std::expected<std::uint64_t, Error> {
-        if (info < 24) return info;
+        if (info < 24) {
+            return info;
+        }
         std::size_t width = 0;
-        if (info == 24) width = 1;
-        else if (info == 25) width = 2;
-        else if (info == 26) width = 4;
-        else if (info == 27) width = 8;
-        else return std::unexpected(Error::unsupported); // 28-30 reserved, 31 indefinite length
-        if (width > in_.size() - pos_) return std::unexpected(Error::truncated);
+        if (info == 24) {
+            width = 1;
+        } else if (info == 25) {
+            width = 2;
+        } else if (info == 26) {
+            width = 4;
+        } else if (info == 27) {
+            width = 8;
+        } else {
+            return std::unexpected(Error::unsupported); // 28-30 reserved, 31 indefinite length
+        }
+        if (width > in_.size() - pos_) {
+            return std::unexpected(Error::truncated);
+        }
         std::uint64_t v = 0;
         for (std::size_t i = 0; i < width; ++i) {
             v = (v << 8U) | static_cast<unsigned char>(in_[pos_++]);
@@ -245,15 +328,21 @@ struct Decoded {
 [[nodiscard]] inline auto decode_prefix(std::string_view in) -> std::expected<Decoded, Error> {
     detail::Reader r(in);
     auto v = r.item(0);
-    if (!v) return std::unexpected(v.error());
-    return Decoded{std::move(*v), r.consumed()};
+    if (!v) {
+        return std::unexpected(v.error());
+    }
+    return Decoded{.value = std::move(*v), .consumed = r.consumed()};
 }
 
 // The whole input must be exactly one item.
 [[nodiscard]] inline auto decode(std::string_view in) -> std::expected<Value, Error> {
     auto d = decode_prefix(in);
-    if (!d) return std::unexpected(d.error());
-    if (d->consumed != in.size()) return std::unexpected(Error::trailing_bytes);
+    if (!d) {
+        return std::unexpected(d.error());
+    }
+    if (d->consumed != in.size()) {
+        return std::unexpected(Error::trailing_bytes);
+    }
     return std::move(d->value);
 }
 

@@ -18,8 +18,7 @@ const bool configured = [] {
 }();
 
 auto call(const std::vector<web::Middleware>& guards, const web::Request& req) -> web::Response {
-    return web::dispatch(
-        req, [](const web::Request&) { return web::Response{.body = "ok"}; }, guards);
+    return web::dispatch(req, [](const web::Request&) { return web::Response{.body = "ok"}; }, guards);
 }
 
 auto from(const std::string& ip, const std::string& body = "") -> web::Request {
@@ -43,7 +42,9 @@ auto with_token(const std::string& user, const std::string& ip = "10.9.9.9") -> 
 TEST_CASE("auth limits: anonymous endpoints are limited per client address", "[auth][limits]") {
     REQUIRE(configured);
     const auto guards = lim::anonymous();
-    for (int i = 0; i < 3; ++i) REQUIRE(call(guards, from("198.51.100.1")).body == "ok");
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(call(guards, from("198.51.100.1")).body == "ok");
+    }
     const auto refused = call(guards, from("198.51.100.1"));
     REQUIRE(refused.status.code == 429);
     REQUIRE_FALSE(refused.headers.get("Retry-After").empty());
@@ -65,7 +66,9 @@ TEST_CASE("auth limits: a credential is limited across addresses", "[auth][limit
 TEST_CASE("auth limits: a session's refresh tokens are limited by session id", "[auth][limits]") {
     const auto guards = lim::anonymous();
     const std::string sid(32, 'c');
-    const auto body = [&](const std::string& secret) { return R"({"refresh_token":")" + sid + ".7." + secret + R"("})"; };
+    const auto body = [&](const std::string& secret) {
+        return R"({"refresh_token":")" + sid + ".7." + secret + R"("})";
+    };
     REQUIRE(call(guards, from("192.0.2.1", body("a"))).body == "ok");
     REQUIRE(call(guards, from("192.0.2.2", body("b"))).body == "ok");
     REQUIRE(call(guards, from("192.0.2.3", body("c"))).status.code == 429);
@@ -86,7 +89,9 @@ TEST_CASE("auth limits: signed-in endpoints need a token and then limit per user
     const auto guards = lim::signed_in();
     REQUIRE(call(guards, from("10.1.1.1")).status.code == 401);
 
-    for (int i = 0; i < 4; ++i) REQUIRE(call(guards, with_token("alice")).body == "ok");
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(call(guards, with_token("alice")).body == "ok");
+    }
     REQUIRE(call(guards, with_token("alice")).status.code == 429);
     // The limit follows the user, not the address.
     REQUIRE(call(guards, with_token("alice", "10.8.8.8")).status.code == 429);
@@ -95,8 +100,12 @@ TEST_CASE("auth limits: signed-in endpoints need a token and then limit per user
 
 TEST_CASE("auth limits: refused unauthenticated requests do not spend a user's allowance", "[auth][limits]") {
     const auto guards = lim::signed_in();
-    for (int i = 0; i < 10; ++i) REQUIRE(call(guards, from("10.2.2.2")).status.code == 401);
-    for (int i = 0; i < 4; ++i) REQUIRE(call(guards, with_token("carol")).body == "ok");
+    for (int i = 0; i < 10; ++i) {
+        REQUIRE(call(guards, from("10.2.2.2")).status.code == 401);
+    }
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(call(guards, with_token("carol")).body == "ok");
+    }
 }
 
 namespace {
@@ -138,9 +147,13 @@ TEST_CASE("auth limits: all the mail the app sends has a ceiling", "[auth][limit
     int allowed = 0;
     int ip = 0;
     for (int i = 0; i < 20; ++i) {
-        const auto r = call(guards, mail_request("198.19.0." + std::to_string(++ip), "user" + std::to_string(i) + "@example.com"));
-        if (r.body == "ok") ++allowed;
-        else REQUIRE(r.status.code == 429);
+        const auto r =
+            call(guards, mail_request("198.19.0." + std::to_string(++ip), "user" + std::to_string(i) + "@example.com"));
+        if (r.body == "ok") {
+            ++allowed;
+        } else {
+            REQUIRE(r.status.code == 429);
+        }
     }
     REQUIRE(allowed == 6);
     REQUIRE(call(guards, mail_request("198.19.9.9", "late@example.com")).status.code == 429);

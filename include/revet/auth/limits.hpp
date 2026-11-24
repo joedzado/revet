@@ -25,11 +25,15 @@
 namespace web::auth::limits {
 
 struct Config {
-    rate_limit::Rule per_ip{.burst = 20, .per_second = 1.0 / 3, .max_keys = 100'000};     // 20 at once, then one per 3 s
-    rate_limit::Rule per_name{.burst = 10, .per_second = 1.0 / 30, .max_keys = 100'000};  // a credential or session id: 10, then one per 30 s
-    rate_limit::Rule per_user{.burst = 60, .per_second = 1.0, .max_keys = 100'000};       // a signed-in user: 60, then one per second
-    rate_limit::Rule per_email{.burst = 3, .per_second = 1.0 / 1200, .max_keys = 100'000}; // mail to one address: 3, then one per 20 min
-    rate_limit::Rule all_mail{.burst = 60, .per_second = 0.5, .max_keys = 1};              // mail from this app: 60, then 30 a minute
+    rate_limit::Rule per_ip{.burst = 20, .per_second = 1.0 / 3, .max_keys = 100'000}; // 20 at once, then one per 3 s
+    rate_limit::Rule per_name{
+        .burst = 10, .per_second = 1.0 / 30, .max_keys = 100'000}; // a credential or session id: 10, then one per 30 s
+    rate_limit::Rule per_user{
+        .burst = 60, .per_second = 1.0, .max_keys = 100'000}; // a signed-in user: 60, then one per second
+    rate_limit::Rule per_email{
+        .burst = 3, .per_second = 1.0 / 1200, .max_keys = 100'000}; // mail to one address: 3, then one per 20 min
+    rate_limit::Rule all_mail{
+        .burst = 60, .per_second = 0.5, .max_keys = 1}; // mail from this app: 60, then 30 a minute
 };
 
 // Read when the limiters are first built, so set it at startup.
@@ -61,14 +65,20 @@ inline void reset() {
 // A JSON body's credential_id, else refresh_token's session part. Empty when the body names neither,
 // which leaves only the per-address limit.
 inline auto body_key(const Request& req) -> std::string {
-    if (req.raw_body.empty() || req.raw_body.size() > 64 * 1024) return {};
+    if (req.raw_body.empty() || req.raw_body.size() > 64 * 1024) {
+        return {};
+    }
     try {
         revet::json::Document doc(req.raw_body);
         auto root = doc.root();
-        if (auto id = root.get("credential_id", ""); !id.empty() && id.size() <= 1400) return "cred:" + id;
+        if (auto id = root.get("credential_id", ""); !id.empty() && id.size() <= 1400) {
+            return "cred:" + id;
+        }
         if (auto rt = root.get("refresh_token", ""); !rt.empty()) {
             const auto dot = rt.find('.');
-            if (dot != std::string::npos && dot <= 64) return "sess:" + rt.substr(0, dot);
+            if (dot != std::string::npos && dot <= 64) {
+                return "sess:" + rt.substr(0, dot);
+            }
         }
     } catch (const std::exception&) {
     }
@@ -86,7 +96,9 @@ inline auto email_key(const Request& req) -> std::string {
         } catch (const std::exception&) {
         }
     }
-    if (raw.empty()) raw = req.form.get("email");
+    if (raw.empty()) {
+        raw = req.form.get("email");
+    }
     const auto normal = mail::normalize_address(raw);
     return normal ? "email:" + *normal : std::string();
 }
@@ -109,7 +121,9 @@ inline auto magic_request() -> std::vector<Middleware> {
 
 inline auto signed_in() -> std::vector<Middleware> {
     auto& l = detail::limiters();
-    return {tokens::guard(), rate_limit::by_key(l.user, [](const Request&) { return "user:" + web::api::principal<tokens::Principal>().user_id; })};
+    return {tokens::guard(), rate_limit::by_key(l.user, [](const Request&) {
+                return "user:" + web::api::principal<tokens::Principal>().user_id;
+            })};
 }
 
 } // namespace web::auth::limits

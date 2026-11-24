@@ -5,14 +5,12 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
-
 #include <openssl/core_names.h>
 #include <openssl/ec.h>
 #include <openssl/evp.h>
-#include <sodium.h>
-
 #include <revet/webauthn.hpp>
+#include <sodium.h>
+#include <string>
 
 namespace soft {
 
@@ -38,24 +36,38 @@ inline auto head(unsigned major, std::uint64_t n) -> std::string {
         out += static_cast<char>(n & 0xFF);
     } else {
         out += static_cast<char>(m | 26);
-        for (int s = 24; s >= 0; s -= 8) out += static_cast<char>((n >> s) & 0xFF);
+        for (int s = 24; s >= 0; s -= 8) {
+            out += static_cast<char>((n >> s) & 0xFF);
+        }
     }
     return out;
 }
-inline auto uint(std::uint64_t n) -> std::string { return head(0, n); }
-inline auto nint(std::int64_t n) -> std::string { return head(1, static_cast<std::uint64_t>(-1 - n)); }
-inline auto bstr(const std::string& b) -> std::string { return head(2, b.size()) + b; }
-inline auto tstr(const std::string& s) -> std::string { return head(3, s.size()) + s; }
+inline auto uint(std::uint64_t n) -> std::string {
+    return head(0, n);
+}
+inline auto nint(std::int64_t n) -> std::string {
+    return head(1, static_cast<std::uint64_t>(-1 - n));
+}
+inline auto bstr(const std::string& b) -> std::string {
+    return head(2, b.size()) + b;
+}
+inline auto tstr(const std::string& s) -> std::string {
+    return head(3, s.size()) + s;
+}
 inline auto map(std::initializer_list<std::pair<std::string, std::string>> kv) -> std::string {
     std::string out = head(5, kv.size());
-    for (const auto& [k, v] : kv) out += k + v;
+    for (const auto& [k, v] : kv) {
+        out += k + v;
+    }
     return out;
 }
 
 // ── keys ─────────────────────────────────────────────────────────────────────
 
 struct PkeyFree {
-    void operator()(EVP_PKEY* p) const { EVP_PKEY_free(p); }
+    void operator()(EVP_PKEY* p) const {
+        EVP_PKEY_free(p);
+    }
 };
 
 struct Key {
@@ -76,7 +88,8 @@ struct Key {
         std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
         EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, pkey.get());
         std::size_t len = 0;
-        EVP_DigestSign(ctx.get(), nullptr, &len, reinterpret_cast<const unsigned char*>(message.data()), message.size());
+        EVP_DigestSign(ctx.get(), nullptr, &len, reinterpret_cast<const unsigned char*>(message.data()),
+                       message.size());
         std::string sig(len, '\0');
         EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char*>(sig.data()), &len,
                        reinterpret_cast<const unsigned char*>(message.data()), message.size());
@@ -102,16 +115,16 @@ struct Assertion {
 
 // Fields a test can bend. Defaults produce a correct message.
 struct Tweaks {
-    std::string type;             // clientData type; empty = the right one
-    std::string origin;           // empty = the authenticator's origin
-    std::string challenge_text;   // override the challenge text in clientDataJSON (base64url)
-    std::string rp_id;            // empty = the authenticator's RP ID (hashed into authData)
-    int flags = -1;               // -1 = UP|UV (+AT on registration)
-    int sign_count = -1;          // -1 = the authenticator's counter
+    std::string type;           // clientData type; empty = the right one
+    std::string origin;         // empty = the authenticator's origin
+    std::string challenge_text; // override the challenge text in clientDataJSON (base64url)
+    std::string rp_id;          // empty = the authenticator's RP ID (hashed into authData)
+    int flags = -1;             // -1 = UP|UV (+AT on registration)
+    int sign_count = -1;        // -1 = the authenticator's counter
     bool cross_origin = false;
     std::string fmt = "none";
-    std::string extra_json;       // raw members appended to clientDataJSON, e.g. R"(,"x":1)"
-    bool break_cose = false;      // wrong algorithm in the COSE key
+    std::string extra_json;  // raw members appended to clientDataJSON, e.g. R"(,"x":1)"
+    bool break_cose = false; // wrong algorithm in the COSE key
 };
 
 struct Authenticator {
@@ -122,8 +135,8 @@ struct Authenticator {
     std::uint32_t counter = 0;
 
     static auto be32(std::uint32_t v) -> std::string {
-        return std::string{static_cast<char>(v >> 24), static_cast<char>((v >> 16) & 0xFF), static_cast<char>((v >> 8) & 0xFF),
-                           static_cast<char>(v & 0xFF)};
+        return std::string{static_cast<char>(v >> 24), static_cast<char>((v >> 16) & 0xFF),
+                           static_cast<char>((v >> 8) & 0xFF), static_cast<char>(v & 0xFF)};
     }
 
     [[nodiscard]] auto cose_key(bool broken = false) const -> std::string {
@@ -134,11 +147,12 @@ struct Authenticator {
                     {nint(-3), bstr(key.point.substr(33, 32))}});
     }
 
-    [[nodiscard]] auto client_data(const std::string& challenge, const std::string& default_type, const Tweaks& t) const -> std::string {
+    [[nodiscard]] auto client_data(const std::string& challenge, const std::string& default_type,
+                                   const Tweaks& t) const -> std::string {
         const auto text = t.challenge_text.empty() ? web::webauthn::base64url_encode(challenge) : t.challenge_text;
         return std::string(R"({"type":")") + (t.type.empty() ? default_type : t.type) + R"(","challenge":")" + text +
-               R"(","origin":")" + (t.origin.empty() ? origin : t.origin) + R"(","crossOrigin":)" + (t.cross_origin ? "true" : "false") +
-               t.extra_json + "}";
+               R"(","origin":")" + (t.origin.empty() ? origin : t.origin) + R"(","crossOrigin":)" +
+               (t.cross_origin ? "true" : "false") + t.extra_json + "}";
     }
 
     [[nodiscard]] auto registration(const std::string& challenge, const Tweaks& t = {}) -> Registration {
@@ -149,11 +163,13 @@ struct Authenticator {
         auth += be32(count);
         if ((flags & AT) != 0) {
             auth += std::string(16, '\0');
-            auth += std::string{static_cast<char>(credential_id.size() >> 8), static_cast<char>(credential_id.size() & 0xFF)};
+            auth += std::string{static_cast<char>(credential_id.size() >> 8),
+                                static_cast<char>(credential_id.size() & 0xFF)};
             auth += credential_id;
             auth += cose_key(t.break_cose);
         }
-        return {client_data(challenge, "webauthn.create", t), map({{tstr("fmt"), tstr(t.fmt)}, {tstr("attStmt"), map({})}, {tstr("authData"), bstr(auth)}})};
+        return {client_data(challenge, "webauthn.create", t),
+                map({{tstr("fmt"), tstr(t.fmt)}, {tstr("attStmt"), map({})}, {tstr("authData"), bstr(auth)}})};
     }
 
     // Each call advances the counter, like a real authenticator, unless the test pins it.

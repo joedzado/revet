@@ -28,15 +28,18 @@ auto enroll(const soft::Tweaks& t = {}) -> std::expected<Enrolled, wa::Error> {
     Enrolled e;
     const auto r = e.auth.registration(challenge, t);
     auto v = wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object);
-    if (!v) return std::unexpected(v.error());
+    if (!v) {
+        return std::unexpected(v.error());
+    }
     e.reg = *v;
     return e;
 }
 
-auto login(Enrolled& e, const soft::Tweaks& t = {}, std::uint32_t stored = 0, const std::string& chal = challenge)
-    -> std::expected<wa::Assertion, wa::Error> {
+auto login(Enrolled& e, const soft::Tweaks& t = {}, std::uint32_t stored = 0,
+           const std::string& chal = challenge) -> std::expected<wa::Assertion, wa::Error> {
     const auto a = e.auth.assertion(chal, t);
-    return wa::verify_assertion(config(), challenge, e.reg.public_key, stored, a.client_data_json, a.authenticator_data, a.signature);
+    return wa::verify_assertion(config(), challenge, e.reg.public_key, stored, a.client_data_json, a.authenticator_data,
+                                a.signature);
 }
 
 template<typename T>
@@ -58,12 +61,12 @@ TEST_CASE("base64url: round trip without padding", "[webauthn]") {
 }
 
 TEST_CASE("base64url: strict decoding", "[webauthn]") {
-    REQUIRE_FALSE(wa::base64url_decode("Zm9v=").has_value());   // padding
-    REQUIRE_FALSE(wa::base64url_decode("Zm+/").has_value());    // standard alphabet
-    REQUIRE_FALSE(wa::base64url_decode("Zm9v ").has_value());   // whitespace
+    REQUIRE_FALSE(wa::base64url_decode("Zm9v=").has_value()); // padding
+    REQUIRE_FALSE(wa::base64url_decode("Zm+/").has_value());  // standard alphabet
+    REQUIRE_FALSE(wa::base64url_decode("Zm9v ").has_value()); // whitespace
     REQUIRE_FALSE(wa::base64url_decode("Zm9\n").has_value());
-    REQUIRE_FALSE(wa::base64url_decode("Z").has_value());       // impossible length
-    REQUIRE_FALSE(wa::base64url_decode("Zh").has_value());      // non-zero trailing bits
+    REQUIRE_FALSE(wa::base64url_decode("Z").has_value());  // impossible length
+    REQUIRE_FALSE(wa::base64url_decode("Zh").has_value()); // non-zero trailing bits
 }
 
 // ── known-answer vectors ─────────────────────────────────────────────────────
@@ -82,18 +85,19 @@ TEST_CASE("webauthn: a registration made outside this code verifies", "[webauthn
 TEST_CASE("webauthn: a login signed by the openssl tool verifies", "[webauthn]") {
     namespace v = webauthn_vectors;
     const wa::Config cfg{.rp_id = v::rp_id, .origins = {v::origin}};
-    const auto a = wa::verify_assertion(cfg, v::get_challenge, v::public_key, 0, v::get_client_data_json, v::get_authenticator_data,
-                                        v::get_signature);
+    const auto a = wa::verify_assertion(cfg, v::get_challenge, v::public_key, 0, v::get_client_data_json,
+                                        v::get_authenticator_data, v::get_signature);
     REQUIRE(a.has_value());
     REQUIRE(a->sign_count == v::get_sign_count);
 
     // The same message does not verify for a different challenge or after a bit flips.
-    REQUIRE(fails_with(wa::verify_assertion(cfg, v::reg_challenge, v::public_key, 0, v::get_client_data_json, v::get_authenticator_data,
-                                            v::get_signature),
+    REQUIRE(fails_with(wa::verify_assertion(cfg, v::reg_challenge, v::public_key, 0, v::get_client_data_json,
+                                            v::get_authenticator_data, v::get_signature),
                        wa::Error::wrong_challenge));
     auto sig = v::get_signature;
     sig[sig.size() - 1] ^= 0x01;
-    REQUIRE(fails_with(wa::verify_assertion(cfg, v::get_challenge, v::public_key, 0, v::get_client_data_json, v::get_authenticator_data, sig),
+    REQUIRE(fails_with(wa::verify_assertion(cfg, v::get_challenge, v::public_key, 0, v::get_client_data_json,
+                                            v::get_authenticator_data, sig),
                        wa::Error::bad_signature));
 }
 
@@ -129,7 +133,8 @@ TEST_CASE("webauthn: registration from an Android app origin", "[webauthn]") {
 
 TEST_CASE("webauthn: registration is refused for every wrong field", "[webauthn]") {
     REQUIRE(fails_with(enroll({.type = "webauthn.get"}), wa::Error::wrong_type));
-    REQUIRE(fails_with(enroll({.challenge_text = wa::base64url_encode("another challenge of 32 bytes!!!!!!")}), wa::Error::wrong_challenge));
+    REQUIRE(fails_with(enroll({.challenge_text = wa::base64url_encode("another challenge of 32 bytes!!!!!!")}),
+                       wa::Error::wrong_challenge));
     REQUIRE(fails_with(enroll({.challenge_text = "!!not base64!!"}), wa::Error::wrong_challenge));
     REQUIRE(fails_with(enroll({.origin = "https://evil.example.com"}), wa::Error::wrong_origin));
     REQUIRE(fails_with(enroll({.origin = "https://app.example.com.evil.com"}), wa::Error::wrong_origin));
@@ -138,7 +143,8 @@ TEST_CASE("webauthn: registration is refused for every wrong field", "[webauthn]
     REQUIRE(fails_with(enroll({.rp_id = "evil.example.com"}), wa::Error::wrong_rp_id));
     REQUIRE(fails_with(enroll({.flags = soft::UV | soft::AT}), wa::Error::user_not_present));
     REQUIRE(fails_with(enroll({.flags = soft::UP | soft::AT}), wa::Error::user_not_verified));
-    REQUIRE(fails_with(enroll({.flags = soft::UP | soft::UV}), wa::Error::bad_credential_data)); // no attested credential
+    REQUIRE(
+        fails_with(enroll({.flags = soft::UP | soft::UV}), wa::Error::bad_credential_data)); // no attested credential
     REQUIRE(fails_with(enroll({.break_cose = true}), wa::Error::unsupported_algorithm));
 }
 
@@ -148,29 +154,35 @@ TEST_CASE("webauthn: user verification can be made optional", "[webauthn]") {
     soft::Authenticator a;
     const auto r = a.registration(challenge, {.flags = soft::UP | soft::AT});
     REQUIRE(wa::verify_registration(cfg, challenge, r.client_data_json, r.attestation_object).has_value());
-    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object), wa::Error::user_not_verified));
+    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object),
+                       wa::Error::user_not_verified));
 }
 
 TEST_CASE("webauthn: a challenge shorter than 16 bytes is never trusted", "[webauthn]") {
     soft::Authenticator a;
     const std::string weak = "short";
     const auto r = a.registration(weak);
-    REQUIRE(fails_with(wa::verify_registration(config(), weak, r.client_data_json, r.attestation_object), wa::Error::wrong_challenge));
-    REQUIRE(fails_with(wa::verify_registration(config(), "", r.client_data_json, r.attestation_object), wa::Error::wrong_challenge));
+    REQUIRE(fails_with(wa::verify_registration(config(), weak, r.client_data_json, r.attestation_object),
+                       wa::Error::wrong_challenge));
+    REQUIRE(fails_with(wa::verify_registration(config(), "", r.client_data_json, r.attestation_object),
+                       wa::Error::wrong_challenge));
 }
 
 TEST_CASE("webauthn: no origin is accepted when none are configured", "[webauthn]") {
     soft::Authenticator a;
     const auto r = a.registration(challenge);
     const wa::Config none{.rp_id = "app.example.com", .origins = {}};
-    REQUIRE(fails_with(wa::verify_registration(none, challenge, r.client_data_json, r.attestation_object), wa::Error::wrong_origin));
+    REQUIRE(fails_with(wa::verify_registration(none, challenge, r.client_data_json, r.attestation_object),
+                       wa::Error::wrong_origin));
 }
 
 TEST_CASE("webauthn: a public key that is not on the curve is refused", "[webauthn]") {
     soft::Authenticator a;
-    a.key.point = std::string(1, '\x04') + std::string(32, '\x01') + std::string(32, '\x02'); // (1, 2) is not a P-256 point
+    a.key.point =
+        std::string(1, '\x04') + std::string(32, '\x01') + std::string(32, '\x02'); // (1, 2) is not a P-256 point
     const auto r = a.registration(challenge);
-    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object), wa::Error::bad_public_key));
+    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object),
+                       wa::Error::bad_public_key));
 }
 
 TEST_CASE("webauthn: malformed registration inputs are errors, never crashes", "[webauthn]") {
@@ -183,11 +195,13 @@ TEST_CASE("webauthn: malformed registration inputs are errors, never crashes", "
     REQUIRE(fails_with(call("not json", r.attestation_object), wa::Error::bad_client_data));
     REQUIRE(fails_with(call("[]", r.attestation_object), wa::Error::bad_client_data));
     REQUIRE(fails_with(call(R"({"type":"webauthn.create"})", r.attestation_object), wa::Error::bad_client_data));
-    REQUIRE(fails_with(call(R"({"type":5,"challenge":"x","origin":"y"})", r.attestation_object), wa::Error::bad_client_data));
+    REQUIRE(fails_with(call(R"({"type":5,"challenge":"x","origin":"y"})", r.attestation_object),
+                       wa::Error::bad_client_data));
     REQUIRE(fails_with(call(r.client_data_json, ""), wa::Error::bad_attestation));
     REQUIRE(fails_with(call(r.client_data_json, "garbage"), wa::Error::bad_attestation));
     REQUIRE(fails_with(call(r.client_data_json, r.attestation_object + "x"), wa::Error::bad_attestation));
-    REQUIRE(fails_with(call(r.client_data_json, soft::map({{soft::tstr("fmt"), soft::tstr("none")}})), wa::Error::bad_attestation));
+    REQUIRE(fails_with(call(r.client_data_json, soft::map({{soft::tstr("fmt"), soft::tstr("none")}})),
+                       wa::Error::bad_attestation));
     REQUIRE(fails_with(call(r.client_data_json, soft::uint(1)), wa::Error::bad_attestation));
 
     // Cutting the attestation object short anywhere must fail cleanly.
@@ -248,7 +262,8 @@ TEST_CASE("webauthn: a signature from another key is refused", "[webauthn]") {
     soft::Authenticator other;
     other.credential_id = e->auth.credential_id;
     const auto a = other.assertion(challenge);
-    REQUIRE(fails_with(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json, a.authenticator_data, a.signature),
+    REQUIRE(fails_with(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json,
+                                            a.authenticator_data, a.signature),
                        wa::Error::bad_signature));
 }
 
@@ -273,7 +288,8 @@ TEST_CASE("webauthn: tampering after signing is caught", "[webauthn]") {
     sig[sig.size() / 2] ^= 0x40;
     REQUIRE_FALSE(verify(a.client_data_json, a.authenticator_data, sig).has_value());
     REQUIRE_FALSE(verify(a.client_data_json, a.authenticator_data, "").has_value());
-    REQUIRE_FALSE(verify(a.client_data_json, a.authenticator_data, a.signature.substr(0, a.signature.size() - 1)).has_value());
+    REQUIRE_FALSE(
+        verify(a.client_data_json, a.authenticator_data, a.signature.substr(0, a.signature.size() - 1)).has_value());
     REQUIRE_FALSE(verify(a.client_data_json, a.authenticator_data, a.signature + "x").has_value());
 }
 
@@ -285,7 +301,8 @@ TEST_CASE("webauthn: bad stored public keys are refused", "[webauthn]") {
         return wa::verify_assertion(config(), challenge, key, 0, a.client_data_json, a.authenticator_data, a.signature);
     };
     REQUIRE(fails_with(verify(""), wa::Error::bad_public_key));
-    REQUIRE(fails_with(verify(e->reg.public_key.substr(1)), wa::Error::bad_public_key));        // compressed form missing prefix
+    REQUIRE(
+        fails_with(verify(e->reg.public_key.substr(1)), wa::Error::bad_public_key)); // compressed form missing prefix
     REQUIRE(fails_with(verify("\x02"s + e->reg.public_key.substr(1, 32)), wa::Error::bad_public_key)); // compressed
     REQUIRE(fails_with(verify(std::string(65, '\0')), wa::Error::bad_public_key));
     REQUIRE(fails_with(verify("\x04"s + std::string(64, '\x07')), wa::Error::bad_public_key));
@@ -301,11 +318,12 @@ TEST_CASE("webauthn: malformed login inputs are errors, never crashes", "[webaut
         REQUIRE(fails_with(r, wa::Error::bad_auth_data));
     }
     // Extra bytes after authenticator data, with no extension flag.
-    REQUIRE(fails_with(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json, a.authenticator_data + "x", a.signature),
+    REQUIRE(fails_with(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json,
+                                            a.authenticator_data + "x", a.signature),
                        wa::Error::bad_auth_data));
     for (std::size_t n = 0; n < a.client_data_json.size(); n += 3) {
-        REQUIRE_FALSE(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json.substr(0, n), a.authenticator_data,
-                                           a.signature)
+        REQUIRE_FALSE(wa::verify_assertion(config(), challenge, e->reg.public_key, 0, a.client_data_json.substr(0, n),
+                                           a.authenticator_data, a.signature)
                           .has_value());
     }
 }
@@ -314,7 +332,8 @@ TEST_CASE("webauthn: credential ids longer than 1023 bytes are refused", "[webau
     soft::Authenticator a;
     a.credential_id = std::string(1024, '\x22');
     const auto r = a.registration(challenge);
-    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object), wa::Error::bad_credential_data));
+    REQUIRE(fails_with(wa::verify_registration(config(), challenge, r.client_data_json, r.attestation_object),
+                       wa::Error::bad_credential_data));
     a.credential_id = std::string(1023, '\x22');
     const auto ok = a.registration(challenge);
     REQUIRE(wa::verify_registration(config(), challenge, ok.client_data_json, ok.attestation_object).has_value());

@@ -2,10 +2,9 @@
 // Properties: nothing crashes (ASan and UBSan are on in the test build), and a login answer only
 // verifies when every input is byte-for-byte the original.
 #include <catch2/catch_test_macros.hpp>
+#include <random>
 #include <revet/cbor.hpp>
 #include <revet/webauthn.hpp>
-
-#include <random>
 
 #include "webauthn_browser_vectors.hpp"
 
@@ -21,39 +20,51 @@ auto mutate(const std::string& s, std::mt19937_64& rng) -> std::string {
     for (;;) {
         std::string out = s;
         switch (rng() % 6) {
-        case 0: // flip a few bytes to random values
-            for (int n = 1 + static_cast<int>(rng() % 4); n > 0 && !out.empty(); --n) out[rng() % out.size()] = static_cast<char>(rng());
-            break;
-        case 1: // truncate
-            if (!out.empty()) out.resize(rng() % out.size());
-            break;
-        case 2: // append junk
-            for (int n = 1 + static_cast<int>(rng() % 16); n > 0; --n) out.push_back(static_cast<char>(rng()));
-            break;
-        case 3: // delete a range
-            if (!out.empty()) {
-                const auto at = rng() % out.size();
-                out.erase(at, 1 + rng() % std::min<std::size_t>(8, out.size() - at));
-            }
-            break;
-        case 4: // duplicate a range
-            if (!out.empty()) {
-                const auto at = rng() % out.size();
-                const auto len = 1 + rng() % std::min<std::size_t>(8, out.size() - at);
-                out.insert(at, out.substr(at, len));
-            }
-            break;
-        default: // swap two bytes
-            if (out.size() > 1) std::swap(out[rng() % out.size()], out[rng() % out.size()]);
-            break;
+            case 0: // flip a few bytes to random values
+                for (int n = 1 + static_cast<int>(rng() % 4); n > 0 && !out.empty(); --n) {
+                    out[rng() % out.size()] = static_cast<char>(rng());
+                }
+                break;
+            case 1: // truncate
+                if (!out.empty()) {
+                    out.resize(rng() % out.size());
+                }
+                break;
+            case 2: // append junk
+                for (int n = 1 + static_cast<int>(rng() % 16); n > 0; --n) {
+                    out.push_back(static_cast<char>(rng()));
+                }
+                break;
+            case 3: // delete a range
+                if (!out.empty()) {
+                    const auto at = rng() % out.size();
+                    out.erase(at, 1 + rng() % std::min<std::size_t>(8, out.size() - at));
+                }
+                break;
+            case 4: // duplicate a range
+                if (!out.empty()) {
+                    const auto at = rng() % out.size();
+                    const auto len = 1 + rng() % std::min<std::size_t>(8, out.size() - at);
+                    out.insert(at, out.substr(at, len));
+                }
+                break;
+            default: // swap two bytes
+                if (out.size() > 1) {
+                    std::swap(out[rng() % out.size()], out[rng() % out.size()]);
+                }
+                break;
         }
-        if (out != s) return out;
+        if (out != s) {
+            return out;
+        }
     }
 }
 
 auto random_bytes(std::mt19937_64& rng, std::size_t max) -> std::string {
     std::string s(rng() % (max + 1), '\0');
-    for (auto& c : s) c = static_cast<char>(rng());
+    for (auto& c : s) {
+        c = static_cast<char>(rng());
+    }
     return s;
 }
 
@@ -63,11 +74,12 @@ TEST_CASE("fuzz: a login verifies only when every input is the original", "[weba
     using V = bv::plain;
     const auto reg = wa::verify_registration(cfg, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object);
     REQUIRE(reg.has_value());
-    const auto call = [&](const std::string& challenge, const std::string& key, const std::string& cdj, const std::string& ad,
-                          const std::string& sig) {
+    const auto call = [&](const std::string& challenge, const std::string& key, const std::string& cdj,
+                          const std::string& ad, const std::string& sig) {
         return wa::verify_assertion(cfg, challenge, key, 0, cdj, ad, sig).has_value();
     };
-    REQUIRE(call(V::get1_challenge, reg->public_key, V::get1_client_data_json, V::get1_authenticator_data, V::get1_signature));
+    REQUIRE(call(V::get1_challenge, reg->public_key, V::get1_client_data_json, V::get1_authenticator_data,
+                 V::get1_signature));
 
     std::mt19937_64 rng(0x5eed);
     int tried = 0;
@@ -79,11 +91,21 @@ TEST_CASE("fuzz: a login verifies only when every input is the original", "[weba
         auto ad = V::get1_authenticator_data;
         auto sig = V::get1_signature;
         switch (field) {
-        case 0: challenge = mutate(challenge, rng); break;
-        case 1: key = mutate(key, rng); break;
-        case 2: cdj = mutate(cdj, rng); break;
-        case 3: ad = mutate(ad, rng); break;
-        default: sig = mutate(sig, rng); break;
+            case 0:
+                challenge = mutate(challenge, rng);
+                break;
+            case 1:
+                key = mutate(key, rng);
+                break;
+            case 2:
+                cdj = mutate(cdj, rng);
+                break;
+            case 3:
+                ad = mutate(ad, rng);
+                break;
+            default:
+                sig = mutate(sig, rng);
+                break;
         }
         ++tried;
         REQUIRE_FALSE(call(challenge, key, cdj, ad, sig));
@@ -107,7 +129,8 @@ TEST_CASE("fuzz: pure noise is refused by every entry point", "[webauthn][fuzz]"
 
 TEST_CASE("fuzz: damaged registrations never crash and never yield a bad key", "[webauthn][fuzz]") {
     std::mt19937_64 rng(0xc0ffee);
-    for (const auto* original : {&bv::plain::reg_attestation_object, &bv::direct::reg_attestation_object, &bv::synced::reg_attestation_object}) {
+    for (const auto* original : {&bv::plain::reg_attestation_object, &bv::direct::reg_attestation_object,
+                                 &bv::synced::reg_attestation_object}) {
         for (int i = 0; i < 8000; ++i) {
             const auto att = mutate(*original, rng);
             const auto r = wa::verify_registration(cfg, bv::plain::reg_challenge, bv::plain::reg_client_data_json, att);
@@ -126,7 +149,8 @@ TEST_CASE("fuzz: damaged registrations never crash and never yield a bad key", "
         const auto cdj = mutate(bv::plain::reg_client_data_json, rng);
         const auto r = wa::verify_registration(cfg, bv::plain::reg_challenge, cdj, bv::plain::reg_attestation_object);
         if (r) {
-            // Only possible when the change left the JSON meaning intact (whitespace, key order); never a different challenge or origin.
+            // Only possible when the change left the JSON meaning intact (whitespace, key order); never a different
+            // challenge or origin.
             REQUIRE(r->credential_id == bv::plain::credential_id);
         }
     }
@@ -134,7 +158,8 @@ TEST_CASE("fuzz: damaged registrations never crash and never yield a bad key", "
 
 TEST_CASE("fuzz: the CBOR decoder survives damaged and random input", "[cbor][fuzz]") {
     std::mt19937_64 rng(0xcb02);
-    const std::string seeds[] = {bv::plain::reg_attestation_object, bv::direct::reg_attestation_object, bv::synced::reg_attestation_object};
+    const std::string seeds[] = {bv::plain::reg_attestation_object, bv::direct::reg_attestation_object,
+                                 bv::synced::reg_attestation_object};
     for (int i = 0; i < 30000; ++i) {
         const auto input = (i % 3 == 0) ? random_bytes(rng, 200) : mutate(seeds[static_cast<std::size_t>(i) % 3], rng);
         const auto r = web::cbor::decode_prefix(input);
@@ -146,6 +171,8 @@ TEST_CASE("fuzz: the CBOR decoder survives damaged and random input", "[cbor][fu
     }
     // Every prefix of a real object either decodes to a complete shorter item or reports an error.
     for (const auto& seed : seeds) {
-        for (std::size_t n = 0; n <= seed.size(); ++n) (void)web::cbor::decode_prefix(std::string_view(seed).substr(0, n));
+        for (std::size_t n = 0; n <= seed.size(); ++n) {
+            (void)web::cbor::decode_prefix(std::string_view(seed).substr(0, n));
+        }
     }
 }

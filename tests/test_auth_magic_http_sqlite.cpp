@@ -1,9 +1,8 @@
 // Magic-link JSON endpoints on SQLite.
 #include <atomic>
+#include <catch2/catch_test_macros.hpp>
 #include <cstdio>
 #include <mutex>
-
-#include <catch2/catch_test_macros.hpp>
 #include <revet/auth/magic_http.hpp>
 #include <revet/auth/passkeys.hpp>
 #include <revet/auth/tokens.hpp>
@@ -26,7 +25,9 @@ struct Fixture {
     static auto unique_path() -> std::string {
         static std::atomic<int> seq{0};
         const auto p = "/tmp/revet_auth_magichttp_" + std::to_string(seq++) + ".db";
-        for (const char* suffix : {"", "-wal", "-shm"}) std::remove((p + suffix).c_str());
+        for (const char* suffix : {"", "-wal", "-shm"}) {
+            std::remove((p + suffix).c_str());
+        }
         return p;
     }
     Fixture() : path(unique_path()), pool(path, 4) {
@@ -46,11 +47,15 @@ struct Fixture {
     }
     ~Fixture() {
         magic::config().send = nullptr;
-        for (const char* suffix : {"", "-wal", "-shm"}) std::remove((path + suffix).c_str());
+        for (const char* suffix : {"", "-wal", "-shm"}) {
+            std::remove((path + suffix).c_str());
+        }
     }
     Fixture(const Fixture&) = delete;
     Fixture& operator=(const Fixture&) = delete;
-    auto open() { return [this] { return W(pool); }; }
+    auto open() {
+        return [this] { return W(pool); };
+    }
     auto last_token() -> std::string {
         const auto& t = sent.back().text;
         const auto at = t.find("?token=") + 7;
@@ -62,7 +67,9 @@ auto post(const std::string& json, const std::string& bearer = "") -> web::Reque
     web::Request req;
     req.method = web::Method::POST;
     req.raw_body = json;
-    if (!bearer.empty()) req.headers.data["authorization"] = "Bearer " + bearer;
+    if (!bearer.empty()) {
+        req.headers.data["authorization"] = "Bearer " + bearer;
+    }
     return req;
 }
 
@@ -91,7 +98,9 @@ TEST_CASE("magic http: requesting a link answers the same for everyone", "[auth]
     REQUIRE(fx.sent.size() == 2);
 
     // Past the hourly cap nothing is sent, but the answer does not change.
-    for (int i = 0; i < 6; ++i) http::request(post(R"({"email":"stranger@example.com"})"), fx.open());
+    for (int i = 0; i < 6; ++i) {
+        http::request(post(R"({"email":"stranger@example.com"})"), fx.open());
+    }
     const auto throttled = http::request(post(R"({"email":"stranger@example.com"})"), fx.open());
     REQUIRE(throttled.status.code == 200);
     REQUIRE(throttled.body == known.body);

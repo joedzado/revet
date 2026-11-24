@@ -2,13 +2,12 @@
 // in-memory model of what should happen. The including file defines AuthDb, W, count() and
 // AUTH_REQUIRE_DB() as in the other shared cases.
 #pragma once
+#include <catch2/catch_test_macros.hpp>
 #include <map>
 #include <random>
+#include <revet/auth/tokens.hpp>
 #include <set>
 #include <vector>
-
-#include <catch2/catch_test_macros.hpp>
-#include <revet/auth/tokens.hpp>
 
 namespace auth = web::auth;
 namespace tok = web::auth::tokens;
@@ -35,30 +34,42 @@ void run_model(unsigned seed, int steps) {
     std::mt19937_64 rng(seed);
     Model m;
     std::vector<std::string> names = {"ann", "bob", "cy", "di"};
-    for (const auto& n : names) m.users[n] = auth::find_or_create_user(w, "model", n);
+    for (const auto& n : names) {
+        m.users[n] = auth::find_or_create_user(w, "model", n);
+    }
     long long now = 1'800'000'000;
 
     const auto pick_session = [&]() -> ModelSession* {
-        if (m.sessions.empty()) return nullptr;
+        if (m.sessions.empty()) {
+            return nullptr;
+        }
         auto it = m.sessions.begin();
         std::advance(it, static_cast<long>(rng() % m.sessions.size()));
         return &it->second;
     };
     const auto sid_of = [&](const ModelSession* s) {
-        for (const auto& [id, v] : m.sessions) if (&v == s) return id;
+        for (const auto& [id, v] : m.sessions) {
+            if (&v == s) {
+                return id;
+            }
+        }
         return std::string();
     };
     const auto active = [&](const ModelSession& s) { return !s.revoked && s.expires_at > now; };
 
     for (int step = 0; step < steps; ++step) {
         now += static_cast<long long>(rng() % 400); // time moves; some sessions will expire
-        if (rng() % 50 == 0) now += 20LL * 24 * 3600;
+        if (rng() % 50 == 0) {
+            now += 20LL * 24 * 3600;
+        }
         const auto op = rng() % 12;
         INFO("seed " << seed << " step " << step << " op " << op << " now " << now);
 
         if (op <= 1 || m.sessions.empty()) { // issue
             const auto& name = names[rng() % names.size()];
-            if (!auth::user_exists(w, m.users[name])) { m.users[name] = auth::find_or_create_user(w, "model", name); }
+            if (!auth::user_exists(w, m.users[name])) {
+                m.users[name] = auth::find_or_create_user(w, "model", name);
+            }
             const auto pair = tok::issue(w, m.users[name], "dev", now);
             ModelSession s;
             s.user = m.users[name];
@@ -86,7 +97,9 @@ void run_model(unsigned seed, int steps) {
             }
         } else if (op == 5) { // replay an old refresh token
             auto* s = pick_session();
-            if (s->old_refresh.empty()) continue;
+            if (s->old_refresh.empty()) {
+                continue;
+            }
             const auto& old = s->old_refresh[rng() % s->old_refresh.size()];
             const auto r = tok::refresh(w, old, now);
             REQUIRE_FALSE(r.has_value());
@@ -115,7 +128,12 @@ void run_model(unsigned seed, int steps) {
         } else if (op == 8) { // sign out everywhere
             const auto& name = names[rng() % names.size()];
             std::size_t expected = 0;
-            for (auto& [id, s] : m.sessions) if (s.user == m.users[name] && !s.revoked) { ++expected; s.revoked = true; }
+            for (auto& [id, s] : m.sessions) {
+                if (s.user == m.users[name] && !s.revoked) {
+                    ++expected;
+                    s.revoked = true;
+                }
+            }
             REQUIRE(tok::revoke_all(w, m.users[name], now) == expected);
         } else if (op == 9) { // access tokens
             auto* s = pick_session();
@@ -130,8 +148,11 @@ void run_model(unsigned seed, int steps) {
             const auto& name = names[rng() % names.size()];
             REQUIRE(auth::delete_user(w, m.users[name]));
             for (auto it = m.sessions.begin(); it != m.sessions.end();) {
-                if (it->second.user == m.users[name]) it = m.sessions.erase(it);
-                else ++it;
+                if (it->second.user == m.users[name]) {
+                    it = m.sessions.erase(it);
+                } else {
+                    ++it;
+                }
             }
             m.users[name] = auth::find_or_create_user(w, "model", name);
         } else { // purge
@@ -140,9 +161,13 @@ void run_model(unsigned seed, int steps) {
             // Purged sessions are gone from the database; anything the model still tracks as ended
             // simply answers "invalid" instead of "revoked"/"expired" from here on, so forget them.
             for (auto it = m.sessions.begin(); it != m.sessions.end();) {
-                const auto row = w.scalar<long long>("SELECT COUNT(*) FROM auth_sessions WHERE id = ?", it->first).value_or(0);
-                if (row == 0) it = m.sessions.erase(it);
-                else ++it;
+                const auto row =
+                    w.scalar<long long>("SELECT COUNT(*) FROM auth_sessions WHERE id = ?", it->first).value_or(0);
+                if (row == 0) {
+                    it = m.sessions.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
 
@@ -150,10 +175,16 @@ void run_model(unsigned seed, int steps) {
         if (step % 7 == 0) {
             for (const auto& name : names) {
                 std::size_t expected = 0;
-                for (const auto& [id, s] : m.sessions) if (s.user == m.users[name] && active(s)) ++expected;
+                for (const auto& [id, s] : m.sessions) {
+                    if (s.user == m.users[name] && active(s)) {
+                        ++expected;
+                    }
+                }
                 REQUIRE(tok::list_devices(w, m.users[name], now).size() == expected);
             }
-            for (const auto& [id, s] : m.sessions) REQUIRE(tok::session_active(w, id, now) == active(s));
+            for (const auto& [id, s] : m.sessions) {
+                REQUIRE(tok::session_active(w, id, now) == active(s));
+            }
         }
     }
 }
@@ -162,5 +193,7 @@ void run_model(unsigned seed, int steps) {
 
 TEST_CASE("model: random token operations match a simple model", "[auth][db][model]") {
     AUTH_REQUIRE_DB();
-    for (unsigned seed : {1u, 2u, 3u, 4u, 5u}) run_model(seed, 1500);
+    for (unsigned seed : {1u, 2u, 3u, 4u, 5u}) {
+        run_model(seed, 1500);
+    }
 }

@@ -23,11 +23,10 @@
 #include <cstdlib>
 #include <expected>
 #include <optional>
+#include <sodium.h>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <sodium.h>
 
 #include "../crypto.hpp"
 #include "../json_write.hpp"
@@ -47,7 +46,8 @@ struct Config {
     std::chrono::seconds challenge_ttl{5 * 60}; // how long a started ceremony stays open
     std::vector<std::string> apple_app_ids;     // "TEAMID.com.example.app": served in apple-app-site-association
     std::vector<AndroidApp> android_apps;       // served in assetlinks.json
-    std::vector<std::string> app_link_paths{"/auth/magic"}; // paths the native apps open themselves (universal / app links), for magic links
+    std::vector<std::string> app_link_paths{
+        "/auth/magic"}; // paths the native apps open themselves (universal / app links), for magic links
 };
 
 // Defaults, overridden by the environment on first use: REVET_RP_ID, REVET_RP_NAME,
@@ -55,17 +55,29 @@ struct Config {
 inline auto config() -> Config& {
     static Config cfg = [] {
         Config c;
-        if (const char* v = std::getenv("REVET_RP_ID")) c.rp.rp_id = v;
-        if (const char* v = std::getenv("REVET_RP_NAME")) c.rp_name = v;
+        if (const char* v = std::getenv("REVET_RP_ID")) {
+            c.rp.rp_id = v;
+        }
+        if (const char* v = std::getenv("REVET_RP_NAME")) {
+            c.rp_name = v;
+        }
         if (const char* v = std::getenv("REVET_WEBAUTHN_ORIGINS")) {
             std::string_view rest = v;
             while (!rest.empty()) {
                 const auto comma = rest.find(',');
                 auto item = rest.substr(0, comma);
-                while (!item.empty() && item.front() == ' ') item.remove_prefix(1);
-                while (!item.empty() && item.back() == ' ') item.remove_suffix(1);
-                if (!item.empty()) c.rp.origins.emplace_back(item);
-                if (comma == std::string_view::npos) break;
+                while (!item.empty() && item.front() == ' ') {
+                    item.remove_prefix(1);
+                }
+                while (!item.empty() && item.back() == ' ') {
+                    item.remove_suffix(1);
+                }
+                if (!item.empty()) {
+                    c.rp.origins.emplace_back(item);
+                }
+                if (comma == std::string_view::npos) {
+                    break;
+                }
                 rest.remove_prefix(comma + 1);
             }
         }
@@ -76,13 +88,13 @@ inline auto config() -> Config& {
 
 struct Failure {
     enum class Kind {
-        bad_request,          // a field is missing or not base64url
-        challenge_invalid,    // unknown, expired, already used, or for another ceremony
-        verification_failed,  // the authenticator's answer did not check out; see `detail`
-        unknown_credential,   // no passkey with that id
-        credential_taken,     // registering a passkey that already exists
-        user_mismatch,        // the user handle does not match the passkey's owner
-        no_such_user,         // adding a passkey to a user that does not exist
+        bad_request,         // a field is missing or not base64url
+        challenge_invalid,   // unknown, expired, already used, or for another ceremony
+        verification_failed, // the authenticator's answer did not check out; see `detail`
+        unknown_credential,  // no passkey with that id
+        credential_taken,    // registering a passkey that already exists
+        user_mismatch,       // the user handle does not match the passkey's owner
+        no_such_user,        // adding a passkey to a user that does not exist
     };
     Kind kind;
     std::optional<webauthn::Error> detail; // set for verification_failed
@@ -159,7 +171,8 @@ auto issue_challenge(H& h, std::string_view purpose, std::string_view user_id, l
     hex.pop_back();
     const auto challenge = random_bytes(32);
     h.exec("INSERT INTO auth_challenges (id, purpose, challenge, user_id, expires_at) VALUES (?, ?, ?, ?, ?)", hex,
-           std::string(purpose), webauthn::base64url_encode(challenge), std::string(user_id), now + config().challenge_ttl.count());
+           std::string(purpose), webauthn::base64url_encode(challenge), std::string(user_id),
+           now + config().challenge_ttl.count());
     return {hex, webauthn::base64url_encode(challenge)};
 }
 
@@ -167,11 +180,16 @@ auto issue_challenge(H& h, std::string_view purpose, std::string_view user_id, l
 template<typename H>
 auto consume_challenge(H& h, std::string_view id, long long now) -> std::optional<Consumed> {
     const auto rows = h.template query_as<std::string, std::string, std::string>(
-        "DELETE FROM auth_challenges WHERE id = ? AND expires_at > ? RETURNING purpose, challenge, user_id", std::string(id), now);
-    if (rows.empty()) return std::nullopt;
+        "DELETE FROM auth_challenges WHERE id = ? AND expires_at > ? RETURNING purpose, challenge, user_id",
+        std::string(id), now);
+    if (rows.empty()) {
+        return std::nullopt;
+    }
     const auto& [purpose, challenge, user_id] = rows.front();
     auto raw = webauthn::base64url_decode(challenge);
-    if (!raw) return std::nullopt;
+    if (!raw) {
+        return std::nullopt;
+    }
     return Consumed{purpose, std::move(*raw), user_id};
 }
 
@@ -226,16 +244,32 @@ auto begin_registration(H& h, const std::optional<std::string>& user_id, std::st
     revet::json::Writer w;
     w.object();
     w.key("rp").object().key("id").value(cfg.rp.rp_id).key("name").value(cfg.rp_name).end();
-    w.key("user").object().key("id").value(webauthn::base64url_encode(handle_id)).key("name").value(user_name).key("displayName").value(user_name).end();
+    w.key("user")
+        .object()
+        .key("id")
+        .value(webauthn::base64url_encode(handle_id))
+        .key("name")
+        .value(user_name)
+        .key("displayName")
+        .value(user_name)
+        .end();
     w.key("challenge").value(issued.challenge);
     w.key("pubKeyCredParams").array().object().key("type").value("public-key").key("alg").value(-7).end().end();
     w.key("timeout").value(static_cast<long long>(cfg.challenge_ttl.count()) * 1000);
     w.key("attestation").value("none");
-    w.key("authenticatorSelection").object().key("residentKey").value("required").key("requireResidentKey").value(true)
-        .key("userVerification").value(cfg.rp.require_user_verification ? "required" : "preferred").end();
+    w.key("authenticatorSelection")
+        .object()
+        .key("residentKey")
+        .value("required")
+        .key("requireResidentKey")
+        .value(true)
+        .key("userVerification")
+        .value(cfg.rp.require_user_verification ? "required" : "preferred")
+        .end();
     w.key("excludeCredentials").array();
     if (user_id) {
-        for (const auto& p : h.template query_as<std::string>("SELECT credential_id FROM auth_passkeys WHERE user_id = ?", *user_id)) {
+        for (const auto& p :
+             h.template query_as<std::string>("SELECT credential_id FROM auth_passkeys WHERE user_id = ?", *user_id)) {
             w.object().key("type").value("public-key").key("id").value(std::get<0>(p)).end();
         }
     }
@@ -251,7 +285,9 @@ auto finish_registration(H& h, std::string_view challenge_id, std::string_view c
                          long long now = detail::unix_now()) -> std::expected<Registered, Failure> {
     const auto cdj = webauthn::base64url_decode(client_data_json_b64);
     const auto att = webauthn::base64url_decode(attestation_object_b64);
-    if (!cdj || !att || cdj->empty() || att->empty()) return detail::fail(Failure::Kind::bad_request);
+    if (!cdj || !att || cdj->empty() || att->empty()) {
+        return detail::fail(Failure::Kind::bad_request);
+    }
 
     detail::Tx<H> tx(h);
     const auto ch = detail::consume_challenge(h, challenge_id, now);
@@ -274,17 +310,24 @@ auto finish_registration(H& h, std::string_view challenge_id, std::string_view c
     }
     if (is_new) {
         if (!web::auth::create_user_within(h, ch->user_id, "passkey", credential_id)) {
-            return detail::fail(Failure::Kind::credential_taken); // rolls back, challenge included: retry with a new one
+            return detail::fail(
+                Failure::Kind::credential_taken); // rolls back, challenge included: retry with a new one
         }
     } else {
         const auto linked = web::auth::link_identity_within(h, ch->user_id, "passkey", credential_id);
-        if (linked == web::auth::LinkResult::no_such_user) return detail::fail(Failure::Kind::no_such_user);
-        if (linked != web::auth::LinkResult::linked) return detail::fail(Failure::Kind::credential_taken);
+        if (linked == web::auth::LinkResult::no_such_user) {
+            return detail::fail(Failure::Kind::no_such_user);
+        }
+        if (linked != web::auth::LinkResult::linked) {
+            return detail::fail(Failure::Kind::credential_taken);
+        }
     }
-    h.exec("INSERT INTO auth_passkeys (credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, label,"
+    h.exec("INSERT INTO auth_passkeys (credential_id, user_id, public_key, sign_count, backup_eligible, backup_state, "
+           "label,"
            " created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-           credential_id, ch->user_id, webauthn::base64url_encode(verified->public_key), static_cast<long long>(verified->sign_count),
-           verified->backup_eligible ? 1 : 0, verified->backup_state ? 1 : 0, std::string(label), now, 0LL);
+           credential_id, ch->user_id, webauthn::base64url_encode(verified->public_key),
+           static_cast<long long>(verified->sign_count), verified->backup_eligible ? 1 : 0,
+           verified->backup_state ? 1 : 0, std::string(label), now, 0LL);
     tx.commit();
     return Registered{ch->user_id, credential_id, is_new};
 }
@@ -308,9 +351,10 @@ auto begin_login(H& h, long long now = detail::unix_now()) -> Options {
 
 // `user_handle_b64` is optional; when the OS supplies it, it must match the passkey's owner.
 template<typename H>
-auto finish_login(H& h, std::string_view challenge_id, std::string_view credential_id_b64, std::string_view client_data_json_b64,
-                  std::string_view authenticator_data_b64, std::string_view signature_b64,
-                  std::string_view user_handle_b64 = {}, long long now = detail::unix_now()) -> std::expected<LoggedIn, Failure> {
+auto finish_login(H& h, std::string_view challenge_id, std::string_view credential_id_b64,
+                  std::string_view client_data_json_b64, std::string_view authenticator_data_b64,
+                  std::string_view signature_b64, std::string_view user_handle_b64 = {},
+                  long long now = detail::unix_now()) -> std::expected<LoggedIn, Failure> {
     const auto cdj = webauthn::base64url_decode(client_data_json_b64);
     const auto ad = webauthn::base64url_decode(authenticator_data_b64);
     const auto sig = webauthn::base64url_decode(signature_b64);
@@ -321,7 +365,9 @@ auto finish_login(H& h, std::string_view challenge_id, std::string_view credenti
     std::optional<std::string> handle;
     if (!user_handle_b64.empty()) {
         handle = webauthn::base64url_decode(user_handle_b64);
-        if (!handle) return detail::fail(Failure::Kind::bad_request);
+        if (!handle) {
+            return detail::fail(Failure::Kind::bad_request);
+        }
     }
 
     detail::Tx<H> tx(h);
@@ -332,7 +378,8 @@ auto finish_login(H& h, std::string_view challenge_id, std::string_view credenti
     }
 
     const auto rows = h.template query_as<std::string, std::string, long long>(
-        "SELECT user_id, public_key, sign_count FROM auth_passkeys WHERE credential_id = ?", std::string(credential_id_b64));
+        "SELECT user_id, public_key, sign_count FROM auth_passkeys WHERE credential_id = ?",
+        std::string(credential_id_b64));
     if (rows.empty()) {
         tx.commit();
         return detail::fail(Failure::Kind::unknown_credential);
@@ -343,20 +390,23 @@ auto finish_login(H& h, std::string_view challenge_id, std::string_view credenti
         return detail::fail(Failure::Kind::user_mismatch);
     }
     const auto public_key = webauthn::base64url_decode(public_key_b64);
-    if (!public_key) throw std::runtime_error("auth: stored passkey public key is corrupt");
+    if (!public_key) {
+        throw std::runtime_error("auth: stored passkey public key is corrupt");
+    }
 
-    const auto verified = webauthn::verify_assertion(config().rp, ch->challenge, *public_key, static_cast<std::uint32_t>(stored_count),
-                                                     *cdj, *ad, *sig);
+    const auto verified = webauthn::verify_assertion(config().rp, ch->challenge, *public_key,
+                                                     static_cast<std::uint32_t>(stored_count), *cdj, *ad, *sig);
     if (!verified) {
         tx.commit();
         return detail::fail(Failure::Kind::verification_failed, verified.error());
     }
 
     // Compare-and-swap on the counter so two logins racing on one credential cannot both succeed.
-    const auto won = h.template scalar<std::string>(
-        "UPDATE auth_passkeys SET sign_count = ?, backup_state = ?, last_used_at = ?"
-        " WHERE credential_id = ? AND sign_count = ? RETURNING credential_id",
-        static_cast<long long>(verified->sign_count), verified->backup_state ? 1 : 0, now, std::string(credential_id_b64), stored_count);
+    const auto won =
+        h.template scalar<std::string>("UPDATE auth_passkeys SET sign_count = ?, backup_state = ?, last_used_at = ?"
+                                       " WHERE credential_id = ? AND sign_count = ? RETURNING credential_id",
+                                       static_cast<long long>(verified->sign_count), verified->backup_state ? 1 : 0,
+                                       now, std::string(credential_id_b64), stored_count);
     if (!won) {
         tx.commit();
         return detail::fail(Failure::Kind::verification_failed, webauthn::Error::sign_count_regressed);
@@ -370,7 +420,8 @@ auto finish_login(H& h, std::string_view challenge_id, std::string_view credenti
 template<typename H>
 [[nodiscard]] auto list_passkeys(H& h, std::string_view user_id) -> std::vector<PasskeyInfo> {
     std::vector<PasskeyInfo> out;
-    for (auto& [id, label, created, used, be, bs] : h.template query_as<std::string, std::string, long long, long long, int, int>(
+    for (auto& [id, label, created, used, be, bs] :
+         h.template query_as<std::string, std::string, long long, long long, int, int>(
              "SELECT credential_id, label, created_at, last_used_at, backup_eligible, backup_state FROM auth_passkeys"
              " WHERE user_id = ? ORDER BY created_at, credential_id",
              std::string(user_id))) {
@@ -383,10 +434,14 @@ template<typename H>
 template<typename H>
 auto remove_passkey(H& h, std::string_view user_id, std::string_view credential_id) -> RemoveResult {
     detail::Tx<H> tx(h);
-    const auto owner = h.template scalar<std::string>("SELECT user_id FROM auth_passkeys WHERE credential_id = ?", std::string(credential_id));
-    if (!owner || *owner != user_id) return RemoveResult::not_found;
+    const auto owner = h.template scalar<std::string>("SELECT user_id FROM auth_passkeys WHERE credential_id = ?",
+                                                      std::string(credential_id));
+    if (!owner || *owner != user_id) {
+        return RemoveResult::not_found;
+    }
     // not_found here would mean the identity row is missing; the passkey row is removed regardless.
-    if (web::auth::unlink_identity_within(h, user_id, "passkey", credential_id) == web::auth::UnlinkResult::last_identity) {
+    if (web::auth::unlink_identity_within(h, user_id, "passkey", credential_id) ==
+        web::auth::UnlinkResult::last_identity) {
         return RemoveResult::last_login_method;
     }
     h.exec("DELETE FROM auth_passkeys WHERE credential_id = ?", std::string(credential_id));

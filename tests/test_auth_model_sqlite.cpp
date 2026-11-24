@@ -1,7 +1,6 @@
 // Randomised model check of login tokens on SQLite, through the same Pool/Handle API apps use.
 #include <atomic>
 #include <cstdio>
-
 #include <revet/auth/tokens.hpp>
 #include <revet/auth/users.hpp>
 #include <revet/db/sqlite.hpp>
@@ -17,7 +16,9 @@ struct AuthDb {
     static auto unique_path() -> std::string {
         static std::atomic<int> seq{0};
         const auto p = "/tmp/revet_auth_model_" + std::to_string(seq++) + ".db";
-        for (const char* suffix : {"", "-wal", "-shm"}) std::remove((p + suffix).c_str()); // left by a crashed run
+        for (const char* suffix : {"", "-wal", "-shm"}) {
+            std::remove((p + suffix).c_str()); // left by a crashed run
+        }
         return p;
     }
     AuthDb() : path(unique_path()), pool(path, 4) {

@@ -31,25 +31,25 @@ void check_variant(bool expect_synced, std::string_view expect_fmt) {
     REQUIRE(*att->find("fmt")->as_text() == expect_fmt);
 
     // Two logins in a row, each counter higher than the last.
-    const auto a1 = wa::verify_assertion(cfg, V::get1_challenge, reg->public_key, reg->sign_count, V::get1_client_data_json,
-                                         V::get1_authenticator_data, V::get1_signature);
+    const auto a1 = wa::verify_assertion(cfg, V::get1_challenge, reg->public_key, reg->sign_count,
+                                         V::get1_client_data_json, V::get1_authenticator_data, V::get1_signature);
     REQUIRE(a1.has_value());
     REQUIRE(a1->sign_count > reg->sign_count);
     REQUIRE(a1->backup_eligible == expect_synced);
-    const auto a2 = wa::verify_assertion(cfg, V::get2_challenge, reg->public_key, a1->sign_count, V::get2_client_data_json,
-                                         V::get2_authenticator_data, V::get2_signature);
+    const auto a2 = wa::verify_assertion(cfg, V::get2_challenge, reg->public_key, a1->sign_count,
+                                         V::get2_client_data_json, V::get2_authenticator_data, V::get2_signature);
     REQUIRE(a2.has_value());
     REQUIRE(a2->sign_count > a1->sign_count);
 
     // Replaying the first login after the second is a counter that went backwards.
-    const auto replay = wa::verify_assertion(cfg, V::get1_challenge, reg->public_key, a2->sign_count, V::get1_client_data_json,
-                                             V::get1_authenticator_data, V::get1_signature);
+    const auto replay = wa::verify_assertion(cfg, V::get1_challenge, reg->public_key, a2->sign_count,
+                                             V::get1_client_data_json, V::get1_authenticator_data, V::get1_signature);
     REQUIRE_FALSE(replay.has_value());
     REQUIRE(replay.error() == wa::Error::sign_count_regressed);
 
     // One login's answer does not satisfy another login's challenge.
-    const auto crossed = wa::verify_assertion(cfg, V::get2_challenge, reg->public_key, reg->sign_count, V::get1_client_data_json,
-                                              V::get1_authenticator_data, V::get1_signature);
+    const auto crossed = wa::verify_assertion(cfg, V::get2_challenge, reg->public_key, reg->sign_count,
+                                              V::get1_client_data_json, V::get1_authenticator_data, V::get1_signature);
     REQUIRE_FALSE(crossed.has_value());
     REQUIRE(crossed.error() == wa::Error::wrong_challenge);
 
@@ -72,12 +72,12 @@ void check_variant(bool expect_synced, std::string_view expect_fmt) {
     // Wrong site: the same bytes under another RP ID or origin are refused.
     auto other_site = cfg;
     other_site.rp_id = "example.com";
-    REQUIRE(wa::verify_registration(other_site, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object).error() ==
-            wa::Error::wrong_rp_id);
+    REQUIRE(wa::verify_registration(other_site, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object)
+                .error() == wa::Error::wrong_rp_id);
     auto other_origin = cfg;
     other_origin.origins = {"https://localhost"};
-    REQUIRE(wa::verify_registration(other_origin, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object).error() ==
-            wa::Error::wrong_origin);
+    REQUIRE(wa::verify_registration(other_origin, V::reg_challenge, V::reg_client_data_json, V::reg_attestation_object)
+                .error() == wa::Error::wrong_origin);
 
     // A key from a different credential does not verify this one's signature.
     const auto other = wa::verify_registration(cfg, bv::plain::reg_challenge, bv::plain::reg_client_data_json,

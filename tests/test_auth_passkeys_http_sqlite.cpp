@@ -1,9 +1,8 @@
 // The passkey JSON endpoints, end to end on SQLite: a software authenticator on one side, the
 // handlers on the other, bytes over JSON in between.
 #include <atomic>
-#include <cstdio>
-
 #include <catch2/catch_test_macros.hpp>
+#include <cstdio>
 #include <revet/auth/passkeys.hpp>
 #include <revet/auth/passkeys_http.hpp>
 #include <revet/auth/tokens.hpp>
@@ -25,7 +24,9 @@ struct Fixture {
     static auto unique_path() -> std::string {
         static std::atomic<int> seq{0};
         const auto p = "/tmp/revet_auth_http_" + std::to_string(seq++) + ".db";
-        for (const char* suffix : {"", "-wal", "-shm"}) std::remove((p + suffix).c_str()); // left by a crashed run
+        for (const char* suffix : {"", "-wal", "-shm"}) {
+            std::remove((p + suffix).c_str()); // left by a crashed run
+        }
         return p;
     }
     Fixture() : path(unique_path()), pool(path, 4) {
@@ -46,7 +47,9 @@ struct Fixture {
     }
     Fixture(const Fixture&) = delete;
     Fixture& operator=(const Fixture&) = delete;
-    auto open() { return [this] { return W(pool); }; }
+    auto open() {
+        return [this] { return W(pool); };
+    }
 };
 
 auto post(const std::string& json, const std::string& bearer = "") -> web::Request {
@@ -54,7 +57,9 @@ auto post(const std::string& json, const std::string& bearer = "") -> web::Reque
     req.method = web::Method::POST;
     req.raw_body = json;
     req.headers.data["content-type"] = "application/json";
-    if (!bearer.empty()) req.headers.data["authorization"] = "Bearer " + bearer;
+    if (!bearer.empty()) {
+        req.headers.data["authorization"] = "Bearer " + bearer;
+    }
     return req;
 }
 
@@ -65,7 +70,9 @@ auto b64(const std::string& s) -> std::string {
 struct Parsed {
     revet::json::Document doc;
     explicit Parsed(const std::string& s) : doc(s) {}
-    auto str(std::string_view k) -> std::string { return doc.root().get(k, ""); }
+    auto str(std::string_view k) -> std::string {
+        return doc.root().get(k, "");
+    }
 };
 
 auto error_of(const web::Response& r) -> std::string {
@@ -78,15 +85,17 @@ struct Registered {
     web::Response finish;
     std::string body;
 };
-auto register_via_http(Fixture& fx, soft::Authenticator& a, const std::string& bearer = "", const std::string& origin = "") -> web::Response {
+auto register_via_http(Fixture& fx, soft::Authenticator& a, const std::string& bearer = "",
+                       const std::string& origin = "") -> web::Response {
     const auto opts = http::register_options(post(R"({"display_name":"Alex"})", bearer), fx.open());
     REQUIRE(opts.status.code == 200);
     Parsed o(opts.body);
     revet::json::Document doc(opts.body);
     const auto raw = *wa::base64url_decode(static_cast<std::string>(doc.at("options").at("challenge")));
     const auto r = a.registration(raw, {.origin = origin});
-    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" + b64(r.client_data_json) +
-                      R"(","attestation_object":")" + b64(r.attestation_object) + R"(","label":"iPhone","device":"Alex's iPhone"})";
+    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" +
+                      b64(r.client_data_json) + R"(","attestation_object":")" + b64(r.attestation_object) +
+                      R"(","label":"iPhone","device":"Alex's iPhone"})";
     return http::register_finish(post(body, ""), fx.open());
 }
 
@@ -98,8 +107,9 @@ auto login_via_http(Fixture& fx, soft::Authenticator& a, const soft::Tweaks& t =
     const auto raw = *wa::base64url_decode(static_cast<std::string>(doc.at("options").at("challenge")));
     const auto r = a.assertion(raw, t);
     const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","credential_id":")" + b64(a.credential_id) +
-                      R"(","client_data_json":")" + b64(r.client_data_json) + R"(","authenticator_data":")" + b64(r.authenticator_data) +
-                      R"(","signature":")" + b64(r.signature) + R"(","device":"Alex's iPhone"})";
+                      R"(","client_data_json":")" + b64(r.client_data_json) + R"(","authenticator_data":")" +
+                      b64(r.authenticator_data) + R"(","signature":")" + b64(r.signature) +
+                      R"(","device":"Alex's iPhone"})";
     return http::login_finish(post(body), fx.open());
 }
 
@@ -108,7 +118,8 @@ auto access_token(const web::Response& r) -> std::string {
     return static_cast<std::string>(doc.at("tokens").at("access_token"));
 }
 
-auto guarded(const web::Middleware& guard, const web::Request& req, const std::function<web::Response(const web::Request&)>& h) -> web::Response {
+auto guarded(const web::Middleware& guard, const web::Request& req,
+             const std::function<web::Response(const web::Request&)>& h) -> web::Response {
     return web::dispatch(req, h, {guard});
 }
 
@@ -212,8 +223,9 @@ TEST_CASE("passkey http: an oversized device name is cut to 128 bytes", "[auth][
     revet::json::Document doc(opts.body);
     const auto raw = *wa::base64url_decode(static_cast<std::string>(doc.at("options").at("challenge")));
     const auto r = a.registration(raw, {});
-    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" + b64(r.client_data_json) +
-                      R"(","attestation_object":")" + b64(r.attestation_object) + R"(","device":")" + std::string(5000, 'd') + R"("})";
+    const auto body = R"({"challenge_id":")" + o.str("challenge_id") + R"(","client_data_json":")" +
+                      b64(r.client_data_json) + R"(","attestation_object":")" + b64(r.attestation_object) +
+                      R"(","device":")" + std::string(5000, 'd') + R"("})";
     REQUIRE(http::register_finish(post(body), fx.open()).status.code == 200);
     W w(fx.pool);
     REQUIRE(w.scalar<long long>("SELECT MAX(LENGTH(label)) FROM auth_sessions").value_or(-1) == 128);
@@ -267,8 +279,11 @@ TEST_CASE("passkey http: malformed requests are 400s", "[auth][http]") {
     REQUIRE(error_of(http::register_finish(post("not json"), fx.open())) == "bad_json");
     REQUIRE(error_of(http::register_finish(post("{}"), fx.open())) == "bad_request");
     REQUIRE(error_of(http::login_finish(post(R"({"challenge_id":"x"})"), fx.open())) == "bad_request");
-    REQUIRE(error_of(http::login_finish(post(R"({"challenge_id":"nope","credential_id":"c","client_data_json":"AAAA","authenticator_data":"AAAA","signature":"AAAA"})"),
-                                        fx.open())) == "challenge_invalid");
+    REQUIRE(
+        error_of(http::login_finish(
+            post(
+                R"({"challenge_id":"nope","credential_id":"c","client_data_json":"AAAA","authenticator_data":"AAAA","signature":"AAAA"})"),
+            fx.open())) == "challenge_invalid");
 }
 
 TEST_CASE("passkey http: list and remove sit behind the token guard", "[auth][http]") {
@@ -287,7 +302,9 @@ TEST_CASE("passkey http: list and remove sit behind the token guard", "[auth][ht
     REQUIRE(static_cast<std::string>(ld.at("passkeys").at(0).at("credential_id")) == b64(phone.credential_id));
     REQUIRE(static_cast<std::string>(ld.at("passkeys").at(0).at("label")) == "iPhone");
 
-    REQUIRE(guarded(guard, web::Request{}, [&](const web::Request& r) { return http::list(r, fx.open()); }).status.code == 401);
+    REQUIRE(guarded(guard, web::Request{}, [&](const web::Request& r) {
+                return http::list(r, fx.open());
+            }).status.code == 401);
 
     // The only login method cannot be removed.
     auto rm = post(R"({"credential_id":")" + b64(phone.credential_id) + R"("})", token);
@@ -296,7 +313,8 @@ TEST_CASE("passkey http: list and remove sit behind the token guard", "[auth][ht
     REQUIRE(error_of(refused) == "last_login_method");
 
     auto missing = post(R"({"credential_id":"nope"})", token);
-    REQUIRE(guarded(guard, missing, [&](const web::Request& r) { return http::remove(r, fx.open()); }).status.code == 404);
+    REQUIRE(guarded(guard, missing, [&](const web::Request& r) { return http::remove(r, fx.open()); }).status.code ==
+            404);
 
     // With a second passkey the first can go.
     soft::Authenticator laptop;
@@ -320,22 +338,28 @@ TEST_CASE("passkey http: app association files", "[auth][http]") {
     const auto apple = http::apple_app_site_association(req);
     REQUIRE(apple.status.code == 200);
     REQUIRE(apple.content_type == "application/json");
-    REQUIRE(apple.body == R"({"webcredentials":{"apps":["ABCDE12345.com.example.app"]},"applinks":{"details":[{"appIDs":["ABCDE12345.com.example.app"],"components":[{"/":"/auth/magic"}]}]}})");
+    REQUIRE(
+        apple.body ==
+        R"({"webcredentials":{"apps":["ABCDE12345.com.example.app"]},"applinks":{"details":[{"appIDs":["ABCDE12345.com.example.app"],"components":[{"/":"/auth/magic"}]}]}})");
     revet::json::Document apple_doc(apple.body);
-    REQUIRE(static_cast<std::string>(apple_doc.root().at("applinks").at("details").at(0).at("components").at(0).at("/")) == "/auth/magic");
+    REQUIRE(static_cast<std::string>(
+                apple_doc.root().at("applinks").at("details").at(0).at("components").at(0).at("/")) == "/auth/magic");
 
     const auto android = http::asset_links(req);
     REQUIRE(android.status.code == 200);
     revet::json::Document doc(android.body);
-    REQUIRE(static_cast<std::string>(doc.root().at(0).at("relation").at(0)) == "delegate_permission/common.get_login_creds");
-    REQUIRE(static_cast<std::string>(doc.root().at(0).at("relation").at(1)) == "delegate_permission/common.handle_all_urls");
+    REQUIRE(static_cast<std::string>(doc.root().at(0).at("relation").at(0)) ==
+            "delegate_permission/common.get_login_creds");
+    REQUIRE(static_cast<std::string>(doc.root().at(0).at("relation").at(1)) ==
+            "delegate_permission/common.handle_all_urls");
     REQUIRE(static_cast<std::string>(doc.root().at(0).at("target").at("package_name")) == "com.example.app");
     REQUIRE(static_cast<std::string>(doc.root().at(0).at("target").at("sha256_cert_fingerprints").at(1)) == "DD:EE:FF");
     REQUIRE(static_cast<std::string>(doc.root().at(0).at("target").at("namespace")) == "android_app");
 
     // Without link paths only the passkey relations are published.
     c.app_link_paths = {};
-    REQUIRE(http::apple_app_site_association(req).body == R"({"webcredentials":{"apps":["ABCDE12345.com.example.app"]}})");
+    REQUIRE(http::apple_app_site_association(req).body ==
+            R"({"webcredentials":{"apps":["ABCDE12345.com.example.app"]}})");
     REQUIRE(http::asset_links(req).body.find("handle_all_urls") == std::string::npos);
 
     c.app_link_paths = {"/auth/magic"};

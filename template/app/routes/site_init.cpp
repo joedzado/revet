@@ -54,7 +54,9 @@ void site_init() {
     }
     if (web::mail::config().smtp_url.empty()) {
         if (magic.base_url.starts_with("http://localhost")) {
-            magic.send = [](web::mail::Message m) { log::info("[development] mail to {}: {}\n{}", m.to, m.subject, m.text); };
+            magic.send = [](web::mail::Message m) {
+                log::info("[development] mail to {}: {}\n{}", m.to, m.subject, m.text);
+            };
         } else {
             log::error("REVET_SMTP_URL is not set: magic-link mail cannot be sent");
         }

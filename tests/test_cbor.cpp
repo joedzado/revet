@@ -1,7 +1,6 @@
 // Tests for web::cbor — the strict decoder behind WebAuthn parsing.
 #include <catch2/catch_test_macros.hpp>
 #include <revet/cbor.hpp>
-
 #include <string>
 
 using namespace std::string_literals;
@@ -10,7 +9,9 @@ namespace cbor = web::cbor;
 namespace {
 auto hex(std::string_view h) -> std::string {
     std::string out;
-    for (std::size_t i = 0; i + 1 < h.size(); i += 2) out += static_cast<char>(std::stoi(std::string(h.substr(i, 2)), nullptr, 16));
+    for (std::size_t i = 0; i + 1 < h.size(); i += 2) {
+        out += static_cast<char>(std::stoi(std::string(h.substr(i, 2)), nullptr, 16));
+    }
     return out;
 }
 auto int_of(const std::string& bytes) -> std::int64_t {
@@ -69,13 +70,13 @@ TEST_CASE("cbor: strings", "[cbor]") {
 }
 
 TEST_CASE("cbor: text must be valid UTF-8", "[cbor]") {
-    REQUIRE(cbor::decode(hex("62c3a9")).has_value()); // é
-    REQUIRE(err_of(hex("62c328")) == cbor::Error::bad_text);       // bad continuation
-    REQUIRE(err_of(hex("61ff")) == cbor::Error::bad_text);         // never valid
-    REQUIRE(err_of(hex("62c080")) == cbor::Error::bad_text);       // overlong
-    REQUIRE(err_of(hex("63eda080")) == cbor::Error::bad_text);     // surrogate
-    REQUIRE(err_of(hex("64f4908080")) == cbor::Error::bad_text);   // above U+10FFFF
-    REQUIRE(err_of(hex("62c3")) == cbor::Error::truncated);        // cut short
+    REQUIRE(cbor::decode(hex("62c3a9")).has_value());            // é
+    REQUIRE(err_of(hex("62c328")) == cbor::Error::bad_text);     // bad continuation
+    REQUIRE(err_of(hex("61ff")) == cbor::Error::bad_text);       // never valid
+    REQUIRE(err_of(hex("62c080")) == cbor::Error::bad_text);     // overlong
+    REQUIRE(err_of(hex("63eda080")) == cbor::Error::bad_text);   // surrogate
+    REQUIRE(err_of(hex("64f4908080")) == cbor::Error::bad_text); // above U+10FFFF
+    REQUIRE(err_of(hex("62c3")) == cbor::Error::truncated);      // cut short
 }
 
 TEST_CASE("cbor: arrays, maps, booleans and null", "[cbor]") {
@@ -120,20 +121,23 @@ TEST_CASE("cbor: truncated input at every length is an error, not a crash", "[cb
     const auto full = hex("a3616101626262436161617465787474657374a2616101616202");
     for (std::size_t n = 0; n < full.size(); ++n) {
         const auto r = cbor::decode_prefix(std::string_view(full).substr(0, n));
-        if (r.has_value()) continue; // a shorter prefix can be a complete item
-        REQUIRE((r.error() == cbor::Error::truncated || r.error() == cbor::Error::too_large || r.error() == cbor::Error::bad_text));
+        if (r.has_value()) {
+            continue; // a shorter prefix can be a complete item
+        }
+        REQUIRE((r.error() == cbor::Error::truncated || r.error() == cbor::Error::too_large ||
+                 r.error() == cbor::Error::bad_text));
     }
     REQUIRE(err_of("") == cbor::Error::truncated);
 }
 
 TEST_CASE("cbor: unsupported constructs are refused", "[cbor]") {
-    REQUIRE(err_of(hex("5f4101ff")) == cbor::Error::unsupported); // indefinite byte string
-    REQUIRE(err_of(hex("9f01ff")) == cbor::Error::unsupported);   // indefinite array
-    REQUIRE(err_of(hex("c001")) == cbor::Error::unsupported);     // tag
-    REQUIRE(err_of(hex("f93c00")) == cbor::Error::unsupported);   // half float
+    REQUIRE(err_of(hex("5f4101ff")) == cbor::Error::unsupported);           // indefinite byte string
+    REQUIRE(err_of(hex("9f01ff")) == cbor::Error::unsupported);             // indefinite array
+    REQUIRE(err_of(hex("c001")) == cbor::Error::unsupported);               // tag
+    REQUIRE(err_of(hex("f93c00")) == cbor::Error::unsupported);             // half float
     REQUIRE(err_of(hex("fb3ff0000000000000")) == cbor::Error::unsupported); // double
-    REQUIRE(err_of(hex("f7")) == cbor::Error::unsupported);       // undefined
-    REQUIRE(err_of(hex("1c")) == cbor::Error::unsupported);       // reserved additional info
+    REQUIRE(err_of(hex("f7")) == cbor::Error::unsupported);                 // undefined
+    REQUIRE(err_of(hex("1c")) == cbor::Error::unsupported);                 // reserved additional info
 }
 
 TEST_CASE("cbor: duplicate map keys are refused", "[cbor]") {
@@ -144,12 +148,16 @@ TEST_CASE("cbor: duplicate map keys are refused", "[cbor]") {
 
 TEST_CASE("cbor: nesting is bounded", "[cbor]") {
     std::string ok;
-    for (int i = 0; i < cbor::max_depth; ++i) ok += hex("81");
+    for (int i = 0; i < cbor::max_depth; ++i) {
+        ok += hex("81");
+    }
     ok += hex("00");
     REQUIRE(cbor::decode(ok).has_value());
 
     std::string deep;
-    for (int i = 0; i < cbor::max_depth + 5; ++i) deep += hex("81");
+    for (int i = 0; i < cbor::max_depth + 5; ++i) {
+        deep += hex("81");
+    }
     deep += hex("00");
     REQUIRE(err_of(deep) == cbor::Error::too_deep);
 

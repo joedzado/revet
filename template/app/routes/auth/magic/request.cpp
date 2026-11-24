@@ -1,5 +1,6 @@
 #include <revet/auth/limits.hpp>
 #include <revet/auth/magic.hpp>
+
 #include "json_models.hpp"
 
 // POST /auth/magic/request: "email me a link". Answers the same for every valid address, so it does not

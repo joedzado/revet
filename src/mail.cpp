@@ -1,36 +1,34 @@
 // SMTP delivery through libcurl. The curl headers stay in this file.
-#include <revet/mail.hpp>
-
 #include <algorithm>
 #include <cstring>
-
 #include <curl/curl.h>
+#include <revet/mail.hpp>
 
 namespace web::mail {
 namespace {
 
 struct Upload {
-    const std::string* data;
+    const std::string* data{};
     std::size_t sent = 0;
 };
 
-std::size_t read_callback(char* buffer, std::size_t size, std::size_t nitems, void* userp) {
+auto read_callback(char* buffer, std::size_t size, std::size_t nitems, void* userp) -> std::size_t {
     auto* up = static_cast<Upload*>(userp);
     const auto room = size * nitems;
     const auto n = std::min(room, up->data->size() - up->sent);
-    std::memcpy(buffer, up->data->data() + up->sent, n);
+    strcpy(buffer, up->data->data() + up->sent);
     up->sent += n;
     return n;
 }
 
 } // namespace
 
-std::string tls_backend() {
+auto tls_backend() -> std::string {
     const auto* info = curl_version_info(CURLVERSION_NOW);
     return info != nullptr && info->ssl_version != nullptr ? info->ssl_version : "";
 }
 
-bool send_smtp(const Config& cfg, const Message& m, std::string& error) {
+auto send_smtp(const Config& cfg, const Message& m, std::string& error) -> bool {
     if (cfg.smtp_url.empty()) {
         error = "REVET_SMTP_URL is not set";
         return false;
@@ -49,7 +47,7 @@ bool send_smtp(const Config& cfg, const Message& m, std::string& error) {
     }
     const auto sender = envelope_address(cfg.from);
 
-    static const bool curl_ready = [] { return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK; }();
+    static const bool curl_ready = [] -> bool { return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK; }();
     if (!curl_ready) {
         error = "curl failed to initialise";
         return false;
@@ -62,7 +60,7 @@ bool send_smtp(const Config& cfg, const Message& m, std::string& error) {
     }
     curl_slist* recipients = curl_slist_append(nullptr, ("<" + m.to + ">").c_str());
     char errbuf[CURL_ERROR_SIZE] = {};
-    Upload upload{&*mime};
+    Upload upload{.data = &*mime};
     const std::string from = "<" + *sender + ">";
 
     curl_easy_setopt(curl, CURLOPT_URL, cfg.smtp_url.c_str());
@@ -74,8 +72,12 @@ bool send_smtp(const Config& cfg, const Message& m, std::string& error) {
     }
     // smtp:// upgrades with STARTTLS and fails if the server will not; smtps:// is TLS from the first byte.
     // Certificates and host names are verified (curl's default). Plain text only for a local server, or by choice.
-    curl_easy_setopt(curl, CURLOPT_USE_SSL, may_skip_tls && !implicit_tls ? static_cast<long>(CURLUSESSL_TRY) : static_cast<long>(CURLUSESSL_ALL));
-    if (!cfg.ca_file.empty()) curl_easy_setopt(curl, CURLOPT_CAINFO, cfg.ca_file.c_str());
+    curl_easy_setopt(curl, CURLOPT_USE_SSL,
+                     may_skip_tls && !implicit_tls ? static_cast<long>(CURLUSESSL_TRY)
+                                                   : static_cast<long>(CURLUSESSL_ALL));
+    if (!cfg.ca_file.empty()) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, cfg.ca_file.c_str());
+    }
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
     curl_easy_setopt(curl, CURLOPT_READDATA, &upload);
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);

@@ -2,7 +2,6 @@
 //   REVET_TEST_PG_URL=postgres://postgres:pw@127.0.0.1:55432/revet_test
 // Creates and drops the auth_* tables, so use a throwaway database.
 #include <cstdlib>
-
 #include <revet/auth/passkeys.hpp>
 #include <revet/auth/tokens.hpp>
 #include <revet/auth/users.hpp>
@@ -47,11 +46,11 @@ auto count(W& h, const char* table) -> long long {
 
 } // namespace
 
-#define AUTH_REQUIRE_DB()                                  \
-    do {                                                   \
-        if (std::getenv("REVET_TEST_PG_URL") == nullptr) { \
-            SKIP("REVET_TEST_PG_URL not set");             \
-        }                                                  \
+#define AUTH_REQUIRE_DB()                                                                                              \
+    do {                                                                                                               \
+        if (std::getenv("REVET_TEST_PG_URL") == nullptr) {                                                             \
+            SKIP("REVET_TEST_PG_URL not set");                                                                         \
+        }                                                                                                              \
     } while (false)
 
 #include "auth_passkeys_cases.hpp"

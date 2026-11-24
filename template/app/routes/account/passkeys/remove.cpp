@@ -1,16 +1,16 @@
 #include <revet/auth/passkeys.hpp>
+
 #include "json_models.hpp"
 
 // POST /account/passkeys/remove: remove one passkey and return the refreshed list.
 // The last way to sign in is kept.
 static auto route_guards() -> std::vector<web::Middleware> {
-    return {
-        [](const web::Request& req, web::Next next) -> web::Response {
-            if (!web::states::has<Session>(req.cookies))
-                return web::api::error(web::status::unauthorized, "unauthorized");
-            return next();
+    return {[](const web::Request& req, web::Next next) -> web::Response {
+        if (!web::states::has<Session>(req.cookies)) {
+            return web::api::error(web::status::unauthorized, "unauthorized");
         }
-    };
+        return next();
+    }};
 }
 
 static auto render_post(const web::Request& req, web::State<Session> session) -> web::Response {

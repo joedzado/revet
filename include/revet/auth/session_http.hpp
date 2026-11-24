@@ -38,7 +38,9 @@ inline auto json_ok(std::string body) -> web::Response {
 // with a code the app can act on: sign in again.
 template<typename Open>
 auto refresh(const web::Request& req, Open open) -> web::Response {
-    if (req.raw_body.empty()) return web::api::error(web::status::bad_request, "json_body_required");
+    if (req.raw_body.empty()) {
+        return web::api::error(web::status::bad_request, "json_body_required");
+    }
     std::string token;
     try {
         revet::json::Document doc(req.raw_body);
@@ -46,7 +48,9 @@ auto refresh(const web::Request& req, Open open) -> web::Response {
     } catch (const std::exception&) {
         return web::api::error(web::status::bad_request, "bad_json");
     }
-    if (token.empty()) return web::api::error(web::status::bad_request, "bad_request");
+    if (token.empty()) {
+        return web::api::error(web::status::bad_request, "bad_request");
+    }
 
     auto h = open();
     const auto next = tokens::refresh(h, token);
@@ -55,18 +59,27 @@ auto refresh(const web::Request& req, Open open) -> web::Response {
         // means someone else may have held a copy of the old token.
         using E = tokens::RefreshError;
         const char* code = next.error() == E::expired ? "session_expired"
-                           : (next.error() == E::revoked || next.error() == E::reuse_detected) ? "session_revoked"
-                                                                                                : "invalid_refresh_token";
+                           : (next.error() == E::revoked || next.error() == E::reuse_detected)
+                               ? "session_revoked"
+                               : "invalid_refresh_token";
         return web::api::error(web::status::unauthorized, code);
     }
     revet::json::Writer w;
-    w.object().key("tokens").object()
-        .key("access_token").value(next->access_token)
-        .key("refresh_token").value(next->refresh_token)
-        .key("access_expires_at").value(next->access_expires_at)
-        .key("refresh_expires_at").value(next->refresh_expires_at)
-        .key("session_id").value(next->session_id)
-        .end().end();
+    w.object()
+        .key("tokens")
+        .object()
+        .key("access_token")
+        .value(next->access_token)
+        .key("refresh_token")
+        .value(next->refresh_token)
+        .key("access_expires_at")
+        .value(next->access_expires_at)
+        .key("refresh_expires_at")
+        .value(next->refresh_expires_at)
+        .key("session_id")
+        .value(next->session_id)
+        .end()
+        .end();
     return detail::json_ok(std::move(w).str());
 }
 
@@ -96,11 +109,16 @@ auto devices(const web::Request& /*req*/, Open open) -> web::Response {
     w.object().key("devices").array();
     for (const auto& d : tokens::list_devices(h, who.user_id)) {
         w.object()
-            .key("session_id").value(d.session_id)
-            .key("label").value(d.label)
-            .key("created_at").value(d.created_at)
-            .key("last_used_at").value(d.last_used_at)
-            .key("current").value(d.session_id == who.session_id)
+            .key("session_id")
+            .value(d.session_id)
+            .key("label")
+            .value(d.label)
+            .key("created_at")
+            .value(d.created_at)
+            .key("last_used_at")
+            .value(d.last_used_at)
+            .key("current")
+            .value(d.session_id == who.session_id)
             .end();
     }
     w.end().end();
@@ -112,7 +130,9 @@ template<typename Open>
 auto delete_account(const web::Request& /*req*/, Open open) -> web::Response {
     const auto& who = web::api::principal<tokens::Principal>();
     auto h = open();
-    if (!delete_user(h, who.user_id)) return web::api::error(web::status::not_found, "not_found");
+    if (!delete_user(h, who.user_id)) {
+        return web::api::error(web::status::not_found, "not_found");
+    }
     return detail::json_ok(R"({"ok":true})");
 }
 

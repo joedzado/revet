@@ -1,11 +1,10 @@
 // Mail: address rules, message building, delivery through libcurl to a local SMTP sink, and the
 // retrying outbox.
-#include <catch2/catch_test_macros.hpp>
-#include <revet/mail.hpp>
-
 #include <atomic>
+#include <catch2/catch_test_macros.hpp>
 #include <csignal>
 #include <random>
+#include <revet/mail.hpp>
 
 #include "smtp_sink.hpp"
 
@@ -31,8 +30,8 @@ auto decode_b64(std::string text) -> std::string {
     text.erase(std::remove(text.begin(), text.end(), '\n'), text.end());
     std::string out(text.size(), '\0');
     std::size_t len = 0;
-    REQUIRE(sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), text.data(), text.size(), nullptr, &len, nullptr,
-                              sodium_base64_VARIANT_ORIGINAL) == 0);
+    REQUIRE(sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), text.data(), text.size(),
+                              nullptr, &len, nullptr, sodium_base64_VARIANT_ORIGINAL) == 0);
     out.resize(len);
     return out;
 }
@@ -40,22 +39,51 @@ auto decode_b64(std::string text) -> std::string {
 } // namespace
 
 TEST_CASE("mail: ordinary addresses are valid", "[mail]") {
-    for (const char* a : {"ann@example.com", "a.b+tag@sub.example.co.uk", "x_y-z@ex-ample.org", "o'brien@example.ie", "1234@example.net",
-                          "a@b.cd", "UPPER@Example.COM", "user.name@example-domain.com"}) {
+    for (const char* a : {"ann@example.com", "a.b+tag@sub.example.co.uk", "x_y-z@ex-ample.org", "o'brien@example.ie",
+                          "1234@example.net", "a@b.cd", "UPPER@Example.COM", "user.name@example-domain.com"}) {
         INFO(a);
         REQUIRE(mail::valid_address(a));
     }
 }
 
 TEST_CASE("mail: anything that could break a header or an SMTP command is invalid", "[mail]") {
-    for (const std::string a : {""s, "ann"s, "@example.com"s, "ann@"s, "ann@example"s, "ann@@example.com"s, "a@b@example.com"s,
-                                "ann@example.com\r\nBcc: evil@example.com"s, "ann@example.com\nX: y"s, "ann@exam ple.com"s,
-                                " ann@example.com"s, "ann@example.com "s, "\"ann\"@example.com"s, "<ann@example.com>"s,
-                                "ann,bob@example.com"s, "ann;bob@example.com"s, "ann@example.com,bob@example.com"s, ".ann@example.com"s,
-                                "ann.@example.com"s, "a..b@example.com"s, "ann@-example.com"s, "ann@example-.com"s, "ann@example..com"s,
-                                "ann@.example.com"s, "ann@example.com."s, "ann@exa_mple.com"s, "ann@[127.0.0.1]"s, "ann@127.0.0.1"s,
-                                "ann@example.1"s, "ann@example.12"s, "ünï@example.com"s, "ann@exämple.com"s, "ann@example.com\0"s,
-                                "ann\t@example.com"s, "ann@example.c"s, std::string(65, 'a') + "@example.com", "ann@" + std::string(64, 'a') + ".com",
+    for (const std::string a : {""s,
+                                "ann"s,
+                                "@example.com"s,
+                                "ann@"s,
+                                "ann@example"s,
+                                "ann@@example.com"s,
+                                "a@b@example.com"s,
+                                "ann@example.com\r\nBcc: evil@example.com"s,
+                                "ann@example.com\nX: y"s,
+                                "ann@exam ple.com"s,
+                                " ann@example.com"s,
+                                "ann@example.com "s,
+                                "\"ann\"@example.com"s,
+                                "<ann@example.com>"s,
+                                "ann,bob@example.com"s,
+                                "ann;bob@example.com"s,
+                                "ann@example.com,bob@example.com"s,
+                                ".ann@example.com"s,
+                                "ann.@example.com"s,
+                                "a..b@example.com"s,
+                                "ann@-example.com"s,
+                                "ann@example-.com"s,
+                                "ann@example..com"s,
+                                "ann@.example.com"s,
+                                "ann@example.com."s,
+                                "ann@exa_mple.com"s,
+                                "ann@[127.0.0.1]"s,
+                                "ann@127.0.0.1"s,
+                                "ann@example.1"s,
+                                "ann@example.12"s,
+                                "ünï@example.com"s,
+                                "ann@exämple.com"s,
+                                "ann@example.com\0"s,
+                                "ann\t@example.com"s,
+                                "ann@example.c"s,
+                                std::string(65, 'a') + "@example.com",
+                                "ann@" + std::string(64, 'a') + ".com",
                                 "a@" + std::string(250, 'b') + ".com"}) {
         INFO(a);
         REQUIRE_FALSE(mail::valid_address(a));
@@ -80,13 +108,17 @@ TEST_CASE("mail: the envelope sender is the address inside the angle brackets", 
 
 TEST_CASE("mail: building a message", "[mail]") {
     const auto cfg = cfg_for("smtp://127.0.0.1:1");
-    const mail::Message m{.to = "ann@example.com", .subject = "Your sign-in link", .text = "Line one\n.\nhttps://x.example/auth?t=abc", .html = "<p>Hi \xc3\xa9</p>"};
+    const mail::Message m{.to = "ann@example.com",
+                          .subject = "Your sign-in link",
+                          .text = "Line one\n.\nhttps://x.example/auth?t=abc",
+                          .html = "<p>Hi \xc3\xa9</p>"};
     const auto when = std::chrono::system_clock::time_point{std::chrono::seconds(1'800'000'000)};
     const auto raw = mail::build_mime(cfg, m, when);
     REQUIRE(raw.has_value());
     const auto& s = *raw;
 
-    REQUIRE(s.starts_with("From: My App <login@app.example.com>\r\nTo: ann@example.com\r\nSubject: Your sign-in link\r\n"));
+    REQUIRE(
+        s.starts_with("From: My App <login@app.example.com>\r\nTo: ann@example.com\r\nSubject: Your sign-in link\r\n"));
     REQUIRE(s.find("Date: Fri, 15 Jan 2027 08:00:00 +0000\r\n") != std::string::npos);
     REQUIRE(s.find("Message-ID: <") != std::string::npos);
     REQUIRE(s.find("@app.example.com>\r\n") != std::string::npos);
@@ -95,7 +127,9 @@ TEST_CASE("mail: building a message", "[mail]") {
 
     // No bare line feeds anywhere, and no line longer than the SMTP limit.
     for (std::size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\n') REQUIRE((i > 0 && s[i - 1] == '\r'));
+        if (s[i] == '\n') {
+            REQUIRE((i > 0 && s[i - 1] == '\r'));
+        }
     }
     std::size_t start = 0;
     while (start < s.size()) {
@@ -104,7 +138,8 @@ TEST_CASE("mail: building a message", "[mail]") {
         start = end + 2;
     }
     // The bodies come back out of base64 unchanged, including the lone dot and the UTF-8.
-    const auto text_at = s.find("charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n") + std::string("charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n").size();
+    const auto text_at = s.find("charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n") +
+                         std::string("charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n").size();
     REQUIRE(decode_b64(s.substr(text_at, s.find("--revet-", text_at) - text_at)) == m.text);
     const auto html_marker = std::string("text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n");
     const auto html_at = s.find(html_marker) + html_marker.size();
@@ -112,32 +147,39 @@ TEST_CASE("mail: building a message", "[mail]") {
 }
 
 TEST_CASE("mail: text only messages are single part", "[mail]") {
-    const auto raw = mail::build_mime(cfg_for("smtp://127.0.0.1:1"), {.to = "ann@example.com", .subject = "Hi", .text = "plain"});
+    const auto raw =
+        mail::build_mime(cfg_for("smtp://127.0.0.1:1"), {.to = "ann@example.com", .subject = "Hi", .text = "plain"});
     REQUIRE(raw.has_value());
     REQUIRE(raw->find("multipart") == std::string::npos);
     REQUIRE(raw->find("Content-Type: text/plain; charset=UTF-8") != std::string::npos);
 }
 
 TEST_CASE("mail: non-ASCII subjects are encoded", "[mail]") {
-    const auto raw = mail::build_mime(cfg_for("smtp://127.0.0.1:1"), {.to = "ann@example.com", .subject = "Caf\xc3\xa9", .text = "x"});
+    const auto raw = mail::build_mime(cfg_for("smtp://127.0.0.1:1"),
+                                      {.to = "ann@example.com", .subject = "Caf\xc3\xa9", .text = "x"});
     REQUIRE(raw.has_value());
     REQUIRE(raw->find("Subject: =?UTF-8?B?Q2Fmw6k=?=\r\n") != std::string::npos);
 }
 
 TEST_CASE("mail: nothing that could inject a header is built", "[mail]") {
     const auto cfg = cfg_for("smtp://127.0.0.1:1");
-    REQUIRE_FALSE(mail::build_mime(cfg, {.to = "ann@example.com\r\nBcc: x@y.com", .subject = "s", .text = "t"}).has_value());
-    REQUIRE_FALSE(mail::build_mime(cfg, {.to = "ann@example.com", .subject = "s\r\nBcc: x@y.com", .text = "t"}).has_value());
-    REQUIRE_FALSE(mail::build_mime(cfg, {.to = "ann@example.com", .subject = "s\nBcc: x@y.com", .text = "t"}).has_value());
+    REQUIRE_FALSE(
+        mail::build_mime(cfg, {.to = "ann@example.com\r\nBcc: x@y.com", .subject = "s", .text = "t"}).has_value());
+    REQUIRE_FALSE(
+        mail::build_mime(cfg, {.to = "ann@example.com", .subject = "s\r\nBcc: x@y.com", .text = "t"}).has_value());
+    REQUIRE_FALSE(
+        mail::build_mime(cfg, {.to = "ann@example.com", .subject = "s\nBcc: x@y.com", .text = "t"}).has_value());
     REQUIRE_FALSE(mail::build_mime(cfg, {.to = "ann@example.com", .subject = "", .text = "t"}).has_value());
-    REQUIRE_FALSE(mail::build_mime(cfg, {.to = "ann@example.com", .subject = std::string(300, 'x'), .text = "t"}).has_value());
+    REQUIRE_FALSE(
+        mail::build_mime(cfg, {.to = "ann@example.com", .subject = std::string(300, 'x'), .text = "t"}).has_value());
     auto bad_from = cfg;
     bad_from.from = "App <a@b.com>\r\nBcc: x@y.com";
     REQUIRE_FALSE(mail::build_mime(bad_from, {.to = "ann@example.com", .subject = "s", .text = "t"}).has_value());
     bad_from.from = "";
     REQUIRE_FALSE(mail::build_mime(bad_from, {.to = "ann@example.com", .subject = "s", .text = "t"}).has_value());
     // Whatever is in the body, it stays in the body.
-    const auto raw = mail::build_mime(cfg, {.to = "ann@example.com", .subject = "s", .text = "x\r\nBcc: x@y.com\r\n\r\n.\r\nQUIT\r\n"});
+    const auto raw = mail::build_mime(
+        cfg, {.to = "ann@example.com", .subject = "s", .text = "x\r\nBcc: x@y.com\r\n\r\n.\r\nQUIT\r\n"});
     REQUIRE(raw.has_value());
     REQUIRE(raw->find("Bcc:") == std::string::npos);
     REQUIRE(raw->find("QUIT") == std::string::npos);
@@ -146,7 +188,9 @@ TEST_CASE("mail: nothing that could inject a header is built", "[mail]") {
 TEST_CASE("mail: delivery through libcurl to an SMTP server", "[mail]") {
     smtp_sink::Server sink;
     std::string error;
-    REQUIRE(mail::send_smtp(cfg_for(sink.url()), {.to = "ann@example.com", .subject = "Your link", .text = "Go: https://x.example/a?t=1\n.\nend"}, error));
+    REQUIRE(mail::send_smtp(
+        cfg_for(sink.url()),
+        {.to = "ann@example.com", .subject = "Your link", .text = "Go: https://x.example/a?t=1\n.\nend"}, error));
     REQUIRE(error.empty());
     const auto got = sink.messages();
     REQUIRE(got.size() == 1);
@@ -160,7 +204,8 @@ TEST_CASE("mail: delivery through libcurl to an SMTP server", "[mail]") {
 
 TEST_CASE("mail: delivery failures are reported, not thrown", "[mail]") {
     std::string error;
-    REQUIRE_FALSE(mail::send_smtp(cfg_for("smtp://127.0.0.1:1"), {.to = "ann@example.com", .subject = "s", .text = "t"}, error)); // nothing listens
+    REQUIRE_FALSE(mail::send_smtp(cfg_for("smtp://127.0.0.1:1"), {.to = "ann@example.com", .subject = "s", .text = "t"},
+                                  error)); // nothing listens
     REQUIRE_FALSE(error.empty());
 
     mail::Config none;
@@ -183,16 +228,32 @@ TEST_CASE("mail: delivery failures are reported, not thrown", "[mail]") {
 TEST_CASE("mail: the outbox delivers in order and drain waits for it", "[mail]") {
     std::vector<std::string> sent;
     std::mutex mu;
-    mail::Outbox box([&](const mail::Message& m, std::string&) { const std::scoped_lock l(mu); sent.push_back(m.subject); return true; });
-    for (int i = 0; i < 20; ++i) box.enqueue({.to = "ann@example.com", .subject = "m" + std::to_string(i), .text = "t"});
+    mail::Outbox box([&](const mail::Message& m, std::string&) {
+        const std::scoped_lock l(mu);
+        sent.push_back(m.subject);
+        return true;
+    });
+    for (int i = 0; i < 20; ++i) {
+        box.enqueue({.to = "ann@example.com", .subject = "m" + std::to_string(i), .text = "t"});
+    }
     box.drain();
     REQUIRE(sent.size() == 20);
-    for (int i = 0; i < 20; ++i) REQUIRE(sent[static_cast<std::size_t>(i)] == "m" + std::to_string(i));
+    for (int i = 0; i < 20; ++i) {
+        REQUIRE(sent[static_cast<std::size_t>(i)] == "m" + std::to_string(i));
+    }
 }
 
 TEST_CASE("mail: a failing send is retried and then succeeds", "[mail]") {
     std::atomic<int> calls{0};
-    mail::Outbox box([&](const mail::Message&, std::string& e) { if (++calls < 3) { e = "boom"; return false; } return true; }, 4, 1ms);
+    mail::Outbox box(
+        [&](const mail::Message&, std::string& e) {
+            if (++calls < 3) {
+                e = "boom";
+                return false;
+            }
+            return true;
+        },
+        4, 1ms);
     box.enqueue({.to = "ann@example.com", .subject = "s", .text = "t"});
     box.drain();
     REQUIRE(calls == 3);
@@ -200,7 +261,13 @@ TEST_CASE("mail: a failing send is retried and then succeeds", "[mail]") {
 
 TEST_CASE("mail: a message that never sends is given up on", "[mail]") {
     std::atomic<int> calls{0};
-    mail::Outbox box([&](const mail::Message&, std::string& e) { ++calls; e = "down"; return false; }, 3, 1ms);
+    mail::Outbox box(
+        [&](const mail::Message&, std::string& e) {
+            ++calls;
+            e = "down";
+            return false;
+        },
+        3, 1ms);
     box.enqueue({.to = "ann@example.com", .subject = "s", .text = "t"});
     box.enqueue({.to = "bob@example.com", .subject = "s", .text = "t"});
     box.drain();
@@ -209,7 +276,14 @@ TEST_CASE("mail: a message that never sends is given up on", "[mail]") {
 
 TEST_CASE("mail: a transport that throws does not kill the worker", "[mail]") {
     std::atomic<int> calls{0};
-    mail::Outbox box([&](const mail::Message&, std::string&) -> bool { if (++calls == 1) throw std::runtime_error("oops"); return true; }, 3, 1ms);
+    mail::Outbox box(
+        [&](const mail::Message&, std::string&) -> bool {
+            if (++calls == 1) {
+                throw std::runtime_error("oops");
+            }
+            return true;
+        },
+        3, 1ms);
     box.enqueue({.to = "ann@example.com", .subject = "s", .text = "t"});
     box.drain();
     REQUIRE(calls == 2);
@@ -228,7 +302,12 @@ TEST_CASE("mail: the outbox retries through a real server that refuses at first"
 
 TEST_CASE("mail: destroying an outbox with work pending does not hang", "[mail]") {
     {
-        mail::Outbox box([](const mail::Message&, std::string& e) { e = "down"; return false; }, 10, 10s);
+        mail::Outbox box(
+            [](const mail::Message&, std::string& e) {
+                e = "down";
+                return false;
+            },
+            10, 10s);
         box.enqueue({.to = "ann@example.com", .subject = "s", .text = "t"});
         std::this_thread::sleep_for(50ms);
     }
@@ -243,7 +322,8 @@ TEST_CASE("mail: plain SMTP is allowed only to this machine or by choice", "[mai
     REQUIRE(mail::plaintext_allowed(c));
     c.smtp_url = "smtp://[::1]:25";
     REQUIRE(mail::plaintext_allowed(c));
-    for (const char* url : {"smtp://mail.example.com:587", "smtp://localhost.evil.example.com:25", "smtp://127.0.0.1.evil.com:25", "smtp://10.0.0.5:25"}) {
+    for (const char* url : {"smtp://mail.example.com:587", "smtp://localhost.evil.example.com:25",
+                            "smtp://127.0.0.1.evil.com:25", "smtp://10.0.0.5:25"}) {
         c.smtp_url = url;
         INFO(url);
         c.allow_plaintext = false;
@@ -260,7 +340,8 @@ TEST_CASE("mail: a server certificate that is not trusted is refused", "[mail][t
         smtp_sink::Server sink(mode);
         std::string error;
         auto c = cfg_for(sink.url());
-        REQUIRE_FALSE(mail::send_smtp(c, {.to = "ann@example.com", .subject = "secret link", .text = "https://x.example/a?t=SECRET"}, error));
+        REQUIRE_FALSE(mail::send_smtp(
+            c, {.to = "ann@example.com", .subject = "secret link", .text = "https://x.example/a?t=SECRET"}, error));
         REQUIRE_FALSE(error.empty());
         REQUIRE(sink.messages().empty());
     }
@@ -300,7 +381,8 @@ TEST_CASE("mail: the login reaches the server", "[mail]") {
 
     // Without the login the server refuses the mail, and nothing is recorded.
     smtp_sink::Server strict(smtp_sink::Tls::none, true);
-    REQUIRE_FALSE(mail::send_smtp(cfg_for(strict.url()), {.to = "ann@example.com", .subject = "Hi", .text = "x"}, error));
+    REQUIRE_FALSE(
+        mail::send_smtp(cfg_for(strict.url()), {.to = "ann@example.com", .subject = "Hi", .text = "x"}, error));
     REQUIRE(strict.messages().empty());
 }
 
@@ -311,7 +393,9 @@ TEST_CASE("mail: random text never yields an address that could break a header",
     for (int i = 0; i < 200000; ++i) {
         std::string s;
         const auto n = 1 + rng() % 40;
-        for (std::size_t k = 0; k < n; ++k) s.push_back(alphabet[rng() % alphabet.size()]);
+        for (std::size_t k = 0; k < n; ++k) {
+            s.push_back(alphabet[rng() % alphabet.size()]);
+        }
         if (const auto a = mail::normalize_address(s)) {
             ++accepted;
             REQUIRE(mail::valid_address(*a));

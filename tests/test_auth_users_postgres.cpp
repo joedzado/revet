@@ -1,9 +1,8 @@
 // Users and identities on Postgres. Skipped unless REVET_TEST_PG_URL is set, for example:
 //   REVET_TEST_PG_URL=postgres://postgres:pw@127.0.0.1:55432/revet_test
 // Creates and drops the auth_* tables and a table named child, so use a throwaway database.
-#include <cstdlib>
-
 #include <catch2/catch_test_macros.hpp>
+#include <cstdlib>
 #include <revet/auth/users.hpp>
 #include <revet/db/postgres.hpp>
 
@@ -41,11 +40,11 @@ auto count(W& h, const char* table) -> long long {
 
 } // namespace
 
-#define AUTH_REQUIRE_DB()                              \
-    do {                                               \
-        if (std::getenv("REVET_TEST_PG_URL") == nullptr) { \
-            SKIP("REVET_TEST_PG_URL not set");         \
-        }                                              \
+#define AUTH_REQUIRE_DB()                                                                                              \
+    do {                                                                                                               \
+        if (std::getenv("REVET_TEST_PG_URL") == nullptr) {                                                             \
+            SKIP("REVET_TEST_PG_URL not set");                                                                         \
+        }                                                                                                              \
     } while (false)
 
 #include "auth_users_cases.hpp"
