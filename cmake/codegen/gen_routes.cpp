@@ -54,11 +54,10 @@ auto route_and_ns(const fs::path& rel) -> std::pair<std::string, std::string> {
                               }
                               // Dots and other non-ident chars show up in real paths
                               // (/.well-known/assetlinks.json); C++ namespaces cannot hold them.
-                              std::string ns;
-                              ns.reserve(part.size());
-                              for (char c : part) {
-                                  ns.push_back(std::isalnum(static_cast<unsigned char>(c)) || c == '_' ? c : '_');
-                              }
+                              std::string ns = part;
+                              std::ranges::transform(ns, ns.begin(), [](char c) -> char {
+                                  return (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_') ? c : '_';
+                              });
                               return ns;
                           }) |
                           std::ranges::to<Lines>();
