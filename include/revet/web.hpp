@@ -589,9 +589,17 @@ inline auto mime_for(std::string_view path) -> std::string_view {
     return "application/octet-stream";
 }
 
+// The file a request path names, inside the public root. Empty (so a 404) for anything that could leave
+// it: an absolute path (`root / "/etc/passwd"` is `/etc/passwd`), a `..` component, or a NUL. Route params
+// are percent-decoded, so `serve_file(req.params.get("file"))` receives all of these straight from a client.
 inline auto resolve_path(std::string_view path) -> std::filesystem::path {
+    const std::filesystem::path rel{std::string(path)};
+    if (path.empty() || path.find('\0') != std::string_view::npos || rel.has_root_path() ||
+        std::ranges::any_of(rel, [](const std::filesystem::path& part) -> bool { return part == ".."; })) {
+        return {};
+    }
     const auto& root = public_root();
-    return root.empty() ? std::filesystem::path(path) : root / path;
+    return root.empty() ? rel : root / rel;
 }
 
 inline auto read_file(const std::filesystem::path& full_path, std::string_view content_type) -> Response {
