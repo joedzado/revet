@@ -144,6 +144,8 @@ if(Catch2_FOUND)
         if(${test_name} STREQUAL "test_postgres_e2e" OR ${test_name} MATCHES "_postgres$")
             # Catch2 exits 4 when every case skips (no REVET_TEST_PG_URL); CTest should report that as skipped.
             set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 4)
+            # They all drop and recreate the same tables in one database, so `ctest -j` must not overlap them.
+            set_tests_properties(${test_name} PROPERTIES RESOURCE_LOCK revet_test_postgres)
         endif()
     endforeach()
 endif()
